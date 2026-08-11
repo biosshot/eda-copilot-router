@@ -1,0 +1,7611 @@
+{
+  "boardOutline": {
+    "bbox": [
+      -50,
+      50,
+      -22.5,
+      22.5
+    ],
+    "path": [
+      [
+        -49.897999999999996,
+        20.275999999999996
+      ],
+      [
+        -49.598,
+        21
+      ],
+      [
+        -49.120999999999995,
+        21.620999999999995
+      ],
+      [
+        -48.5,
+        22.098
+      ],
+      [
+        -47.775999999999996,
+        22.397999999999996
+      ],
+      [
+        -47,
+        22.5
+      ],
+      [
+        47,
+        22.5
+      ],
+      [
+        47.77600000000001,
+        22.397999999999996
+      ],
+      [
+        48.5,
+        22.098
+      ],
+      [
+        49.12100000000001,
+        21.620999999999995
+      ],
+      [
+        49.59800000000001,
+        21
+      ],
+      [
+        49.897999999999996,
+        20.275999999999996
+      ],
+      [
+        50,
+        19.5
+      ],
+      [
+        50,
+        -19.5
+      ],
+      [
+        49.897999999999996,
+        -20.275999999999996
+      ],
+      [
+        49.59800000000001,
+        -21
+      ],
+      [
+        49.12100000000001,
+        -21.620999999999995
+      ],
+      [
+        48.5,
+        -22.098
+      ],
+      [
+        47.77600000000001,
+        -22.397999999999996
+      ],
+      [
+        47,
+        -22.5
+      ],
+      [
+        -47,
+        -22.5
+      ],
+      [
+        -47.775999999999996,
+        -22.397999999999996
+      ],
+      [
+        -48.5,
+        -22.098
+      ],
+      [
+        -49.120999999999995,
+        -21.620999999999995
+      ],
+      [
+        -49.598,
+        -21
+      ],
+      [
+        -49.897999999999996,
+        -20.275999999999996
+      ],
+      [
+        -50,
+        -19.5
+      ],
+      [
+        -50,
+        19.5
+      ],
+      [
+        -49.897999999999996,
+        20.275999999999996
+      ]
+    ]
+  },
+  "layers": {
+    "route": [
+      1,
+      2
+    ],
+    "notRoute": []
+  },
+  "routingCorner": "45",
+  "rules": {
+    "safeClearances": {
+      "kicad_class_0": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackToTrack": 0.225,
+          "trackToVia": 0.225,
+          "trackToPad": 0.225,
+          "trackToFillRegion": 0.225,
+          "trackToProhibitedRegion": 0.225,
+          "trackToBoardOutline": 0.525,
+          "viaToVia": 0.225,
+          "viaToPad": 0.225,
+          "viaToFillRegion": 0.225,
+          "viaToProhibitedRegion": 0.225,
+          "viaToBoardOutline": 0.525
+        }
+      ],
+      "kicad_class_1": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackToTrack": 0.225,
+          "trackToVia": 0.225,
+          "trackToPad": 0.225,
+          "trackToFillRegion": 0.225,
+          "trackToProhibitedRegion": 0.225,
+          "trackToBoardOutline": 0.525,
+          "viaToVia": 0.225,
+          "viaToPad": 0.225,
+          "viaToFillRegion": 0.225,
+          "viaToProhibitedRegion": 0.225,
+          "viaToBoardOutline": 0.525
+        }
+      ],
+      "kicad_class_2": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackToTrack": 0.225,
+          "trackToVia": 0.225,
+          "trackToPad": 0.225,
+          "trackToFillRegion": 0.225,
+          "trackToProhibitedRegion": 0.225,
+          "trackToBoardOutline": 0.525,
+          "viaToVia": 0.225,
+          "viaToPad": 0.225,
+          "viaToFillRegion": 0.225,
+          "viaToProhibitedRegion": 0.225,
+          "viaToBoardOutline": 0.525
+        }
+      ]
+    },
+    "trackWidths": {
+      "kicad_class_0": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackWidth": [
+            0.25,
+            0.25,
+            0.25
+          ]
+        }
+      ],
+      "kicad_class_1": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackWidth": [
+            0.3,
+            0.3,
+            0.3
+          ]
+        }
+      ],
+      "kicad_class_2": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "trackWidth": [
+            0.2,
+            0.2,
+            0.2
+          ]
+        }
+      ]
+    },
+    "viaSizes": {
+      "via_kicad_class_0": [
+        0.6,
+        0.3
+      ],
+      "via_kicad_class_1": [
+        0.8,
+        0.4
+      ],
+      "via_kicad_class_2": [
+        0.6,
+        0.3
+      ]
+    },
+    "differentialPairs": {
+      "diff_kicad_class_0": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "lengthTolerance": 0.254,
+          "width": [
+            0.25,
+            0.25,
+            0.25
+          ],
+          "clearance": [
+            0.2,
+            0.2
+          ]
+        }
+      ],
+      "diff_kicad_class_1": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "lengthTolerance": 0.254,
+          "width": [
+            0.3,
+            0.3,
+            0.3
+          ],
+          "clearance": [
+            0.2,
+            0.2
+          ]
+        }
+      ],
+      "diff_kicad_class_2": [
+        {
+          "layers": [
+            1,
+            2
+          ],
+          "lengthTolerance": 0.254,
+          "width": [
+            0.2,
+            0.2,
+            0.2
+          ],
+          "clearance": [
+            0.2,
+            0.2
+          ]
+        }
+      ]
+    },
+    "trackLengths": {
+      "netLength": [
+        0,
+        0
+      ]
+    }
+  },
+  "classes": {
+    "netClasses": {
+      "kicad_class_0": [
+        "VBUS_GATE",
+        "USB_CC1",
+        "USB_CC2",
+        "VBUS_GATE_IC"
+      ],
+      "kicad_class_1": [
+        "USB_VBUS"
+      ],
+      "kicad_class_2": [
+        "USB_DP",
+        "USB_DM"
+      ]
+    },
+    "differentialPairClasses": {},
+    "netClearancesClasses": {
+      "kicad_class_0": [
+        "VBUS_GATE",
+        "USB_CC1",
+        "USB_CC2",
+        "VBUS_GATE_IC"
+      ],
+      "kicad_class_1": [
+        "USB_VBUS"
+      ],
+      "kicad_class_2": [
+        "USB_DP",
+        "USB_DM"
+      ]
+    }
+  },
+  "nets": [
+    {
+      "net": "VBUS_GATE",
+      "routing": true,
+      "safeClearance": "kicad_class_0",
+      "trackWidth": "kicad_class_0",
+      "viaSize": "via_kicad_class_0",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "USB_VBUS",
+      "routing": true,
+      "safeClearance": "kicad_class_1",
+      "trackWidth": "kicad_class_1",
+      "viaSize": "via_kicad_class_1",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "USB_CC1",
+      "routing": true,
+      "safeClearance": "kicad_class_0",
+      "trackWidth": "kicad_class_0",
+      "viaSize": "via_kicad_class_0",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "USB_DP",
+      "routing": true,
+      "safeClearance": "kicad_class_2",
+      "trackWidth": "kicad_class_2",
+      "viaSize": "via_kicad_class_2",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "USB_DM",
+      "routing": true,
+      "safeClearance": "kicad_class_2",
+      "trackWidth": "kicad_class_2",
+      "viaSize": "via_kicad_class_2",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "USB_CC2",
+      "routing": true,
+      "safeClearance": "kicad_class_0",
+      "trackWidth": "kicad_class_0",
+      "viaSize": "via_kicad_class_0",
+      "trackLength": "netLength"
+    },
+    {
+      "net": "VBUS_GATE_IC",
+      "routing": true,
+      "safeClearance": "kicad_class_0",
+      "trackWidth": "kicad_class_0",
+      "viaSize": "via_kicad_class_0",
+      "trackLength": "netLength"
+    }
+  ],
+  "components": {
+    "C2": {
+      "name": "C2",
+      "footprint": "kicad_footprint_0",
+      "layer": 1,
+      "location": [
+        10.709000000000003,
+        7.805000000000007
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "Net-(U1-BST)",
+        "p1": "Net-(C2-Pad2)"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C2"
+      }
+    },
+    "R5": {
+      "name": "R5",
+      "footprint": "kicad_footprint_1",
+      "layer": 1,
+      "location": [
+        17.51599999999999,
+        -0.3229999999999933
+      ],
+      "rotation": 90,
+      "nets": {
+        "p0": "VREG_3V1",
+        "p1": "BAT_NTC"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R5"
+      }
+    },
+    "C1": {
+      "name": "C1",
+      "footprint": "kicad_footprint_2",
+      "layer": 1,
+      "location": [
+        17.51599999999999,
+        2.147999999999996
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "VREG_3V1",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C1"
+      }
+    },
+    "C6": {
+      "name": "C6",
+      "footprint": "kicad_footprint_3",
+      "layer": 1,
+      "location": [
+        36.383999999999986,
+        0.9699999999999989
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C6"
+      }
+    },
+    "R6": {
+      "name": "R6",
+      "footprint": "kicad_footprint_4",
+      "layer": 1,
+      "location": [
+        14.066000000000003,
+        1.9950000000000045
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "KEY_IC",
+        "p1": "Net-(SW1-A)"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R6"
+      }
+    },
+    "R4": {
+      "name": "R4",
+      "footprint": "kicad_footprint_5",
+      "layer": 1,
+      "location": [
+        10.894000000000005,
+        3.7169999999999987
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "Net-(U1-RSET)",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R4"
+      }
+    },
+    "#HOLE_1": {
+      "name": "#HOLE_1",
+      "footprint": "kicad_footprint_6",
+      "layer": 1,
+      "location": [
+        -46,
+        18.5
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": ""
+      },
+      "pinName": {
+        "p0": "1"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "#HOLE_1"
+      }
+    },
+    "C8": {
+      "name": "C8",
+      "footprint": "kicad_footprint_7",
+      "layer": 1,
+      "location": [
+        28.320999999999998,
+        -3.465999999999994
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C8"
+      }
+    },
+    "C4": {
+      "name": "C4",
+      "footprint": "kicad_footprint_8",
+      "layer": 1,
+      "location": [
+        19.247000000000014,
+        4.314999999999998
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "VSYS_PORT",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C4"
+      }
+    },
+    "Q3": {
+      "name": "Q3",
+      "footprint": "kicad_footprint_9",
+      "layer": 1,
+      "location": [
+        30.82499999999999,
+        -15.159999999999997
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_PORT",
+        "p1": "VSYS_PORT",
+        "p2": "VSYS_PORT",
+        "p3": "VOUT2_GATE",
+        "p4": "USB_A2_VBUS",
+        "p5": "USB_A2_VBUS",
+        "p6": "USB_A2_VBUS",
+        "p7": "USB_A2_VBUS",
+        "p8": "USB_A2_VBUS"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "5",
+        "p5": "6",
+        "p6": "7",
+        "p7": "8",
+        "p8": "8"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "Q3"
+      }
+    },
+    "J3": {
+      "name": "J3",
+      "footprint": "kicad_footprint_10",
+      "layer": 1,
+      "location": [
+        39.275000000000006,
+        13.5
+      ],
+      "rotation": 270,
+      "nets": {
+        "p0": "USB_A1_VBUS",
+        "p1": "USB_A1_DM",
+        "p2": "USB_A1_DP",
+        "p3": "GND",
+        "p4": "GND",
+        "p5": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "5",
+        "p5": "6"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "J3"
+      }
+    },
+    "L1": {
+      "name": "L1",
+      "footprint": "kicad_footprint_11",
+      "layer": 1,
+      "location": [
+        1.865000000000009,
+        7.805000000000007
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "Net-(C2-Pad2)",
+        "p1": "BAT_POS"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "L1"
+      }
+    },
+    "C9": {
+      "name": "C9",
+      "footprint": "kicad_footprint_12",
+      "layer": 1,
+      "location": [
+        22.566000000000003,
+        6.616
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "BAT_POS",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C9"
+      }
+    },
+    "R1": {
+      "name": "R1",
+      "footprint": "kicad_footprint_13",
+      "layer": 1,
+      "location": [
+        15.169999999999987,
+        4.314999999999998
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "VSYS_PORT"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R1"
+      }
+    },
+    "Q1": {
+      "name": "Q1",
+      "footprint": "kicad_footprint_14",
+      "layer": 1,
+      "location": [
+        30.659999999999997,
+        11
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_PORT",
+        "p1": "VSYS_PORT",
+        "p2": "VSYS_PORT",
+        "p3": "VBUS_GATE",
+        "p4": "USB_VBUS",
+        "p5": "USB_VBUS",
+        "p6": "USB_VBUS",
+        "p7": "USB_VBUS",
+        "p8": "USB_VBUS"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "5",
+        "p5": "6",
+        "p6": "7",
+        "p7": "8",
+        "p8": "8"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "Q1"
+      }
+    },
+    "R8": {
+      "name": "R8",
+      "footprint": "kicad_footprint_15",
+      "layer": 1,
+      "location": [
+        31,
+        -8.647999999999996
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VOUT2_GATE_IC",
+        "p1": "VOUT2_GATE"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R8"
+      }
+    },
+    "R3": {
+      "name": "R3",
+      "footprint": "kicad_footprint_16",
+      "layer": 1,
+      "location": [
+        22.50200000000001,
+        0.5300000000000011
+      ],
+      "rotation": 270,
+      "nets": {
+        "p0": "VSYS_PORT",
+        "p1": "VBUS_GATE"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R3"
+      }
+    },
+    "C12": {
+      "name": "C12",
+      "footprint": "kicad_footprint_17",
+      "layer": 1,
+      "location": [
+        29.22399999999999,
+        18.400999999999996
+      ],
+      "rotation": 90,
+      "nets": {
+        "p0": "USB_A1_VBUS",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C12"
+      }
+    },
+    "R9": {
+      "name": "R9",
+      "footprint": "kicad_footprint_18",
+      "layer": 1,
+      "location": [
+        31,
+        -10.370000000000005
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_PORT",
+        "p1": "VOUT2_GATE"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R9"
+      }
+    },
+    "C7": {
+      "name": "C7",
+      "footprint": "kicad_footprint_19",
+      "layer": 1,
+      "location": [
+        28.320999999999998,
+        -6.052000000000007
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C7"
+      }
+    },
+    "SW1": {
+      "name": "SW1",
+      "footprint": "kicad_footprint_20",
+      "layer": 1,
+      "location": [
+        24,
+        18.950000000000003
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "Net-(SW1-A)",
+        "p1": "Net-(SW1-A)",
+        "p2": "GND",
+        "p3": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "SW1"
+      }
+    },
+    "R7": {
+      "name": "R7",
+      "footprint": "kicad_footprint_21",
+      "layer": 1,
+      "location": [
+        32.293000000000006,
+        20.813999999999993
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VOUT1_GATE_IC",
+        "p1": "VOUT1_GATE"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R7"
+      }
+    },
+    "J1": {
+      "name": "J1",
+      "footprint": "kicad_footprint_22",
+      "layer": 1,
+      "location": [
+        45.891999999999996,
+        0
+      ],
+      "rotation": 270,
+      "nets": {
+        "p0": "",
+        "p1": "",
+        "p2": "GND",
+        "p3": "GND",
+        "p4": "GND",
+        "p5": "GND",
+        "p6": "GND",
+        "p7": "USB_VBUS",
+        "p8": "USB_CC1",
+        "p9": "USB_DP",
+        "p10": "USB_DM",
+        "p11": "",
+        "p12": "GND",
+        "p13": "USB_VBUS",
+        "p14": "USB_CC2",
+        "p15": "USB_DP",
+        "p16": "USB_DM",
+        "p17": ""
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "1",
+        "p3": "2",
+        "p4": "3",
+        "p5": "4",
+        "p6": "A1B12",
+        "p7": "A4B9",
+        "p8": "A5",
+        "p9": "A6",
+        "p10": "A7",
+        "p11": "A8",
+        "p12": "B1A12",
+        "p13": "B4A9",
+        "p14": "B5",
+        "p15": "B6",
+        "p16": "B7",
+        "p17": "B8"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "J1"
+      }
+    },
+    "Q2": {
+      "name": "Q2",
+      "footprint": "kicad_footprint_23",
+      "layer": 1,
+      "location": [
+        32.293000000000006,
+        17.355000000000004
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "USB_A1_VBUS",
+        "p1": "USB_A1_VBUS",
+        "p2": "USB_A1_VBUS",
+        "p3": "VOUT1_GATE",
+        "p4": "VSYS_PORT",
+        "p5": "VSYS_PORT",
+        "p6": "VSYS_PORT",
+        "p7": "VSYS_PORT",
+        "p8": "VSYS_PORT"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "5",
+        "p5": "6",
+        "p6": "7",
+        "p7": "8",
+        "p8": "9"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "Q2"
+      }
+    },
+    "C13": {
+      "name": "C13",
+      "footprint": "kicad_footprint_24",
+      "layer": 1,
+      "location": [
+        31,
+        -20.382000000000005
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "USB_A2_VBUS",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C13"
+      }
+    },
+    "U1": {
+      "name": "U1",
+      "footprint": "kicad_footprint_25",
+      "layer": 1,
+      "location": [
+        15.943000000000012,
+        9.555999999999997
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "",
+        "p1": "",
+        "p2": "",
+        "p3": "",
+        "p4": "USB_A2_DP",
+        "p5": "USB_CC1",
+        "p6": "USB_CC2",
+        "p7": "USB_DM",
+        "p8": "USB_DP",
+        "p9": "",
+        "p10": "",
+        "p11": "VSYS_CONV",
+        "p12": "VSYS_CONV",
+        "p13": "BAT_NTC",
+        "p14": "",
+        "p15": "",
+        "p16": "",
+        "p17": "Net-(C2-Pad2)",
+        "p18": "Net-(C2-Pad2)",
+        "p19": "Net-(C2-Pad2)",
+        "p20": "Net-(C2-Pad2)",
+        "p21": "Net-(C2-Pad2)",
+        "p22": "Net-(U1-BST)",
+        "p23": "",
+        "p24": "Net-(U1-RSET)",
+        "p25": "VSYS_CONV",
+        "p26": "VSYS_CONV",
+        "p27": "VSYS_CONV",
+        "p28": "VSYS_PORT",
+        "p29": "KEY_IC",
+        "p30": "VREG_3V1",
+        "p31": "BAT_POS",
+        "p32": "GND",
+        "p33": "",
+        "p34": "",
+        "p35": "USB_VBUS",
+        "p36": "VBUS_GATE_IC",
+        "p37": "USB_A2_VBUS",
+        "p38": "VOUT2_GATE_IC",
+        "p39": "VOUT1_GATE_IC",
+        "p40": "USB_A1_VBUS",
+        "p41": "USB_A1_DM",
+        "p42": "USB_A1_DP",
+        "p43": "USB_A2_DM",
+        "p44": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "1",
+        "p5": "2",
+        "p6": "3",
+        "p7": "4",
+        "p8": "5",
+        "p9": "6",
+        "p10": "7",
+        "p11": "8",
+        "p12": "9",
+        "p13": "10",
+        "p14": "11",
+        "p15": "12",
+        "p16": "13",
+        "p17": "14",
+        "p18": "15",
+        "p19": "16",
+        "p20": "17",
+        "p21": "18",
+        "p22": "19",
+        "p23": "20",
+        "p24": "21",
+        "p25": "22",
+        "p26": "23",
+        "p27": "24",
+        "p28": "25",
+        "p29": "26",
+        "p30": "27",
+        "p31": "28",
+        "p32": "29",
+        "p33": "30",
+        "p34": "31",
+        "p35": "32",
+        "p36": "33",
+        "p37": "34",
+        "p38": "35",
+        "p39": "36",
+        "p40": "37",
+        "p41": "38",
+        "p42": "39",
+        "p43": "40",
+        "p44": "41"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "U1"
+      }
+    },
+    "C11": {
+      "name": "C11",
+      "footprint": "kicad_footprint_26",
+      "layer": 1,
+      "location": [
+        28.320999999999998,
+        1.3780000000000001
+      ],
+      "rotation": 180,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C11"
+      }
+    },
+    "#HOLE_2": {
+      "name": "#HOLE_2",
+      "footprint": "kicad_footprint_27",
+      "layer": 1,
+      "location": [
+        -46,
+        -18.5
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": ""
+      },
+      "pinName": {
+        "p0": "1"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "#HOLE_2"
+      }
+    },
+    "J4": {
+      "name": "J4",
+      "footprint": "kicad_footprint_28",
+      "layer": 1,
+      "location": [
+        39.275000000000006,
+        -13.5
+      ],
+      "rotation": 270,
+      "nets": {
+        "p0": "USB_A2_VBUS",
+        "p1": "USB_A2_DM",
+        "p2": "USB_A2_DP",
+        "p3": "GND",
+        "p4": "GND",
+        "p5": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3",
+        "p3": "4",
+        "p4": "5",
+        "p5": "6"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "J4"
+      }
+    },
+    "C5": {
+      "name": "C5",
+      "footprint": "kicad_footprint_29",
+      "layer": 1,
+      "location": [
+        36.383999999999986,
+        -1.6159999999999997
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C5"
+      }
+    },
+    "C10": {
+      "name": "C10",
+      "footprint": "kicad_footprint_30",
+      "layer": 1,
+      "location": [
+        26.556999999999988,
+        11
+      ],
+      "rotation": 270,
+      "nets": {
+        "p0": "USB_VBUS",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C10"
+      }
+    },
+    "C3": {
+      "name": "C3",
+      "footprint": "kicad_footprint_31",
+      "layer": 1,
+      "location": [
+        36.383999999999986,
+        -3.793999999999997
+      ],
+      "rotation": 0,
+      "nets": {
+        "p0": "VSYS_CONV",
+        "p1": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "C3"
+      }
+    },
+    "R2": {
+      "name": "R2",
+      "footprint": "kicad_footprint_32",
+      "layer": 1,
+      "location": [
+        22.50200000000001,
+        3.701999999999998
+      ],
+      "rotation": 90,
+      "nets": {
+        "p0": "VBUS_GATE_IC",
+        "p1": "VBUS_GATE"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "R2"
+      }
+    },
+    "J2": {
+      "name": "J2",
+      "footprint": "kicad_footprint_33",
+      "layer": 2,
+      "location": [
+        -44.849999999999994,
+        0.20000000000000284
+      ],
+      "rotation": 90,
+      "nets": {
+        "p0": "BAT_POS",
+        "p1": "BAT_NTC",
+        "p2": "GND"
+      },
+      "pinName": {
+        "p0": "1",
+        "p1": "2",
+        "p2": "3"
+      },
+      "reuseModules": {
+        "moduleName": "",
+        "groupID": "",
+        "channelID": "J2"
+      }
+    }
+  },
+  "footprints": {
+    "kicad_footprint_0": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.7,
+            0
+          ],
+          "path": [
+            [
+              1.1,
+              -0.44999999999999996
+            ],
+            [
+              0.3,
+              -0.45000000000000007
+            ],
+            [
+              0.2999999999999999,
+              0.44999999999999996
+            ],
+            [
+              1.0999999999999999,
+              0.45000000000000007
+            ],
+            [
+              1.1,
+              -0.44999999999999996
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.7,
+            0
+          ],
+          "path": [
+            [
+              -0.2999999999999999,
+              -0.44999999999999996
+            ],
+            [
+              -1.0999999999999999,
+              -0.45000000000000007
+            ],
+            [
+              -1.1,
+              0.44999999999999996
+            ],
+            [
+              -0.3,
+              0.45000000000000007
+            ],
+            [
+              -0.2999999999999999,
+              -0.44999999999999996
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.1,
+        1.1,
+        -0.45000000000000007,
+        0.45000000000000007
+      ]
+    },
+    "kicad_footprint_1": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              0.31800000000000006,
+              -0.4030000000000001
+            ],
+            [
+              0.31799999999999995,
+              0.40299999999999997
+            ],
+            [
+              1.182,
+              0.4030000000000001
+            ],
+            [
+              1.182,
+              -0.40299999999999997
+            ],
+            [
+              0.31800000000000006,
+              -0.4030000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -1.182,
+              -0.4030000000000001
+            ],
+            [
+              -1.182,
+              0.40299999999999997
+            ],
+            [
+              -0.31800000000000006,
+              0.4030000000000001
+            ],
+            [
+              -0.31799999999999995,
+              -0.40299999999999997
+            ],
+            [
+              -1.182,
+              -0.4030000000000001
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.182,
+        1.182,
+        -0.4030000000000001,
+        0.4030000000000001
+      ]
+    },
+    "kicad_footprint_2": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.7,
+            0
+          ],
+          "path": [
+            [
+              0.29999999999999993,
+              0.45
+            ],
+            [
+              1.1,
+              0.45
+            ],
+            [
+              1.1,
+              -0.45
+            ],
+            [
+              0.29999999999999993,
+              -0.45
+            ],
+            [
+              0.29999999999999993,
+              0.45
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.7,
+            0
+          ],
+          "path": [
+            [
+              -1.1,
+              0.45
+            ],
+            [
+              -0.29999999999999993,
+              0.45
+            ],
+            [
+              -0.29999999999999993,
+              -0.45
+            ],
+            [
+              -1.1,
+              -0.45
+            ],
+            [
+              -1.1,
+              0.45
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.1,
+        1.1,
+        -0.45,
+        0.45
+      ]
+    },
+    "kicad_footprint_3": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              2.3325000000000005,
+              -0.8639999999999999
+            ],
+            [
+              0.8475000000000001,
+              -0.8640000000000001
+            ],
+            [
+              0.8474999999999999,
+              0.8639999999999999
+            ],
+            [
+              2.3325,
+              0.8640000000000001
+            ],
+            [
+              2.3325000000000005,
+              -0.8639999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -0.8474999999999999,
+              -0.8639999999999999
+            ],
+            [
+              -2.3325,
+              -0.8640000000000001
+            ],
+            [
+              -2.3325000000000005,
+              0.8639999999999999
+            ],
+            [
+              -0.8475000000000001,
+              0.8640000000000001
+            ],
+            [
+              -0.8474999999999999,
+              -0.8639999999999999
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325000000000005,
+        2.3325000000000005,
+        -0.8640000000000001,
+        0.8640000000000001
+      ]
+    },
+    "kicad_footprint_4": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.153,
+              -0.43199999999999994
+            ],
+            [
+              0.34700000000000003,
+              -0.43200000000000005
+            ],
+            [
+              0.3469999999999999,
+              0.43199999999999994
+            ],
+            [
+              1.153,
+              0.43200000000000005
+            ],
+            [
+              1.153,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ],
+            [
+              -1.153,
+              -0.43200000000000005
+            ],
+            [
+              -1.153,
+              0.43199999999999994
+            ],
+            [
+              -0.34700000000000003,
+              0.43200000000000005
+            ],
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.153,
+        1.153,
+        -0.43200000000000005,
+        0.43200000000000005
+      ]
+    },
+    "kicad_footprint_5": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.153,
+              -0.43199999999999994
+            ],
+            [
+              0.34700000000000003,
+              -0.43200000000000005
+            ],
+            [
+              0.3469999999999999,
+              0.43199999999999994
+            ],
+            [
+              1.153,
+              0.43200000000000005
+            ],
+            [
+              1.153,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ],
+            [
+              -1.153,
+              -0.43200000000000005
+            ],
+            [
+              -1.153,
+              0.43199999999999994
+            ],
+            [
+              -0.34700000000000003,
+              0.43200000000000005
+            ],
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.153,
+        1.153,
+        -0.43200000000000005,
+        0.43200000000000005
+      ]
+    },
+    "kicad_footprint_6": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            0,
+            0
+          ],
+          "path": [
+            [
+              -1.25,
+              1.25
+            ],
+            [
+              1.25,
+              1.25
+            ],
+            [
+              1.25,
+              -1.25
+            ],
+            [
+              -1.25,
+              -1.25
+            ],
+            [
+              -1.25,
+              1.25
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.25,
+        1.25,
+        -1.25,
+        1.25
+      ]
+    },
+    "kicad_footprint_7": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              0.8475,
+              0.864
+            ],
+            [
+              2.3325,
+              0.864
+            ],
+            [
+              2.3325,
+              -0.864
+            ],
+            [
+              0.8475,
+              -0.864
+            ],
+            [
+              0.8475,
+              0.864
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -2.3325,
+              0.864
+            ],
+            [
+              -0.8475,
+              0.864
+            ],
+            [
+              -0.8475,
+              -0.864
+            ],
+            [
+              -2.3325,
+              -0.864
+            ],
+            [
+              -2.3325,
+              0.864
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325,
+        2.3325,
+        -0.864,
+        0.864
+      ]
+    },
+    "kicad_footprint_8": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.7,
+            0
+          ],
+          "path": [
+            [
+              0.29999999999999993,
+              0.45
+            ],
+            [
+              1.1,
+              0.45
+            ],
+            [
+              1.1,
+              -0.45
+            ],
+            [
+              0.29999999999999993,
+              -0.45
+            ],
+            [
+              0.29999999999999993,
+              0.45
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.7,
+            0
+          ],
+          "path": [
+            [
+              -1.1,
+              0.45
+            ],
+            [
+              -0.29999999999999993,
+              0.45
+            ],
+            [
+              -0.29999999999999993,
+              -0.45
+            ],
+            [
+              -1.1,
+              -0.45
+            ],
+            [
+              -1.1,
+              0.45
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.1,
+        1.1,
+        -0.45,
+        0.45
+      ]
+    },
+    "kicad_footprint_9": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.9,
+            2.9
+          ],
+          "path": [
+            [
+              2.275,
+              2.3
+            ],
+            [
+              1.525,
+              2.3
+            ],
+            [
+              1.525,
+              3.5
+            ],
+            [
+              2.275,
+              3.5
+            ],
+            [
+              2.275,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.63,
+            2.9
+          ],
+          "path": [
+            [
+              1.0050000000000001,
+              2.3
+            ],
+            [
+              0.25500000000000006,
+              2.3
+            ],
+            [
+              0.25499999999999995,
+              3.5
+            ],
+            [
+              1.005,
+              3.5
+            ],
+            [
+              1.0050000000000001,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.63,
+            2.9
+          ],
+          "path": [
+            [
+              -0.25499999999999995,
+              2.3
+            ],
+            [
+              -1.005,
+              2.3
+            ],
+            [
+              -1.0050000000000001,
+              3.5
+            ],
+            [
+              -0.25500000000000006,
+              3.5
+            ],
+            [
+              -0.25499999999999995,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.9,
+            2.9
+          ],
+          "path": [
+            [
+              -1.525,
+              2.3
+            ],
+            [
+              -2.275,
+              2.3
+            ],
+            [
+              -2.275,
+              3.5
+            ],
+            [
+              -1.525,
+              3.5
+            ],
+            [
+              -1.525,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "5",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.9,
+            -2.9
+          ],
+          "path": [
+            [
+              -1.525,
+              -3.5
+            ],
+            [
+              -2.275,
+              -3.5
+            ],
+            [
+              -2.275,
+              -2.3
+            ],
+            [
+              -1.525,
+              -2.3
+            ],
+            [
+              -1.525,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "6",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.63,
+            -2.9
+          ],
+          "path": [
+            [
+              -0.25499999999999995,
+              -3.5
+            ],
+            [
+              -1.005,
+              -3.5
+            ],
+            [
+              -1.0050000000000001,
+              -2.3
+            ],
+            [
+              -0.25500000000000006,
+              -2.3
+            ],
+            [
+              -0.25499999999999995,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p6": {
+          "number": "7",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.63,
+            -2.9
+          ],
+          "path": [
+            [
+              1.0050000000000001,
+              -3.5
+            ],
+            [
+              0.25500000000000006,
+              -3.5
+            ],
+            [
+              0.25499999999999995,
+              -2.3
+            ],
+            [
+              1.005,
+              -2.3
+            ],
+            [
+              1.0050000000000001,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p7": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            0,
+            -0.61
+          ],
+          "path": [
+            [
+              2.2500000000000004,
+              -2.6599999999999993
+            ],
+            [
+              -2.2499999999999996,
+              -2.66
+            ],
+            [
+              -2.2500000000000004,
+              1.4399999999999995
+            ],
+            [
+              2.2499999999999996,
+              1.4400000000000004
+            ],
+            [
+              2.2500000000000004,
+              -2.6599999999999993
+            ]
+          ],
+          "diameter": null
+        },
+        "p8": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.9,
+            -2.9
+          ],
+          "path": [
+            [
+              2.275,
+              -3.5
+            ],
+            [
+              1.525,
+              -3.5
+            ],
+            [
+              1.525,
+              -2.3
+            ],
+            [
+              2.275,
+              -2.3
+            ],
+            [
+              2.275,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.275,
+        2.275,
+        -3.5,
+        3.5
+      ]
+    },
+    "kicad_footprint_10": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            3.5,
+            -1.35
+          ],
+          "path": [
+            [
+              4.25,
+              -0.6000000000000001
+            ],
+            [
+              4.25,
+              -2.1
+            ],
+            [
+              2.75,
+              -2.1
+            ],
+            [
+              2.75,
+              -0.6000000000000001
+            ],
+            [
+              4.25,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            1,
+            -1.35
+          ],
+          "path": [
+            [
+              1.75,
+              -0.6000000000000001
+            ],
+            [
+              1.75,
+              -2.1
+            ],
+            [
+              0.25,
+              -2.1
+            ],
+            [
+              0.25,
+              -0.6000000000000001
+            ],
+            [
+              1.75,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -1,
+            -1.35
+          ],
+          "path": [
+            [
+              -0.25,
+              -0.6000000000000001
+            ],
+            [
+              -0.25,
+              -2.1
+            ],
+            [
+              -1.75,
+              -2.1
+            ],
+            [
+              -1.75,
+              -0.6000000000000001
+            ],
+            [
+              -0.25,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -3.5,
+            -1.35
+          ],
+          "path": [
+            [
+              -2.75,
+              -0.6000000000000001
+            ],
+            [
+              -2.75,
+              -2.1
+            ],
+            [
+              -4.25,
+              -2.1
+            ],
+            [
+              -4.25,
+              -0.6000000000000001
+            ],
+            [
+              -2.75,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "5",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            6.57,
+            1.35
+          ],
+          "path": [
+            [
+              8.07,
+              2.0500000000000003
+            ],
+            [
+              8.07,
+              0.6500000000000002
+            ],
+            [
+              5.07,
+              0.65
+            ],
+            [
+              5.07,
+              2.05
+            ],
+            [
+              8.07,
+              2.0500000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "6",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -6.57,
+            1.35
+          ],
+          "path": [
+            [
+              -5.07,
+              2.0500000000000003
+            ],
+            [
+              -5.07,
+              0.6500000000000002
+            ],
+            [
+              -8.07,
+              0.65
+            ],
+            [
+              -8.07,
+              2.05
+            ],
+            [
+              -5.07,
+              2.0500000000000003
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -8.07,
+        8.07,
+        -2.1,
+        2.0500000000000003
+      ]
+    },
+    "kicad_footprint_11": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            4.95,
+            0
+          ],
+          "path": [
+            [
+              6.8500000000000005,
+              -2.3999999999999995
+            ],
+            [
+              3.0500000000000007,
+              -2.4000000000000004
+            ],
+            [
+              3.05,
+              2.3999999999999995
+            ],
+            [
+              6.85,
+              2.4000000000000004
+            ],
+            [
+              6.8500000000000005,
+              -2.3999999999999995
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -4.95,
+            0
+          ],
+          "path": [
+            [
+              -3.05,
+              -2.3999999999999995
+            ],
+            [
+              -6.85,
+              -2.4000000000000004
+            ],
+            [
+              -6.8500000000000005,
+              2.3999999999999995
+            ],
+            [
+              -3.0500000000000007,
+              2.4000000000000004
+            ],
+            [
+              -3.05,
+              -2.3999999999999995
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -6.8500000000000005,
+        6.8500000000000005,
+        -2.4000000000000004,
+        2.4000000000000004
+      ]
+    },
+    "kicad_footprint_12": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              0.8475,
+              0.864
+            ],
+            [
+              2.3325,
+              0.864
+            ],
+            [
+              2.3325,
+              -0.864
+            ],
+            [
+              0.8475,
+              -0.864
+            ],
+            [
+              0.8475,
+              0.864
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -2.3325,
+              0.864
+            ],
+            [
+              -0.8475,
+              0.864
+            ],
+            [
+              -0.8475,
+              -0.864
+            ],
+            [
+              -2.3325,
+              -0.864
+            ],
+            [
+              -2.3325,
+              0.864
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325,
+        2.3325,
+        -0.864,
+        0.864
+      ]
+    },
+    "kicad_footprint_13": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.48,
+            0
+          ],
+          "path": [
+            [
+              2.084,
+              -0.8504999999999999
+            ],
+            [
+              0.8760000000000001,
+              -0.8505000000000001
+            ],
+            [
+              0.8759999999999999,
+              0.8504999999999999
+            ],
+            [
+              2.0839999999999996,
+              0.8505000000000001
+            ],
+            [
+              2.084,
+              -0.8504999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.48,
+            0
+          ],
+          "path": [
+            [
+              -0.8759999999999999,
+              -0.8504999999999999
+            ],
+            [
+              -2.0839999999999996,
+              -0.8505000000000001
+            ],
+            [
+              -2.084,
+              0.8504999999999999
+            ],
+            [
+              -0.8760000000000001,
+              0.8505000000000001
+            ],
+            [
+              -0.8759999999999999,
+              -0.8504999999999999
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.084,
+        2.084,
+        -0.8505000000000001,
+        0.8505000000000001
+      ]
+    },
+    "kicad_footprint_14": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.9,
+            2.9
+          ],
+          "path": [
+            [
+              2.275,
+              2.3
+            ],
+            [
+              1.525,
+              2.3
+            ],
+            [
+              1.525,
+              3.5
+            ],
+            [
+              2.275,
+              3.5
+            ],
+            [
+              2.275,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.63,
+            2.9
+          ],
+          "path": [
+            [
+              1.0050000000000001,
+              2.3
+            ],
+            [
+              0.25500000000000006,
+              2.3
+            ],
+            [
+              0.25499999999999995,
+              3.5
+            ],
+            [
+              1.005,
+              3.5
+            ],
+            [
+              1.0050000000000001,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.63,
+            2.9
+          ],
+          "path": [
+            [
+              -0.25499999999999995,
+              2.3
+            ],
+            [
+              -1.005,
+              2.3
+            ],
+            [
+              -1.0050000000000001,
+              3.5
+            ],
+            [
+              -0.25500000000000006,
+              3.5
+            ],
+            [
+              -0.25499999999999995,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.9,
+            2.9
+          ],
+          "path": [
+            [
+              -1.525,
+              2.3
+            ],
+            [
+              -2.275,
+              2.3
+            ],
+            [
+              -2.275,
+              3.5
+            ],
+            [
+              -1.525,
+              3.5
+            ],
+            [
+              -1.525,
+              2.3
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "5",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.9,
+            -2.9
+          ],
+          "path": [
+            [
+              -1.525,
+              -3.5
+            ],
+            [
+              -2.275,
+              -3.5
+            ],
+            [
+              -2.275,
+              -2.3
+            ],
+            [
+              -1.525,
+              -2.3
+            ],
+            [
+              -1.525,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "6",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.63,
+            -2.9
+          ],
+          "path": [
+            [
+              -0.25499999999999995,
+              -3.5
+            ],
+            [
+              -1.005,
+              -3.5
+            ],
+            [
+              -1.0050000000000001,
+              -2.3
+            ],
+            [
+              -0.25500000000000006,
+              -2.3
+            ],
+            [
+              -0.25499999999999995,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p6": {
+          "number": "7",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.63,
+            -2.9
+          ],
+          "path": [
+            [
+              1.0050000000000001,
+              -3.5
+            ],
+            [
+              0.25500000000000006,
+              -3.5
+            ],
+            [
+              0.25499999999999995,
+              -2.3
+            ],
+            [
+              1.005,
+              -2.3
+            ],
+            [
+              1.0050000000000001,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        },
+        "p7": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            0,
+            -0.61
+          ],
+          "path": [
+            [
+              2.2500000000000004,
+              -2.6599999999999993
+            ],
+            [
+              -2.2499999999999996,
+              -2.66
+            ],
+            [
+              -2.2500000000000004,
+              1.4399999999999995
+            ],
+            [
+              2.2499999999999996,
+              1.4400000000000004
+            ],
+            [
+              2.2500000000000004,
+              -2.6599999999999993
+            ]
+          ],
+          "diameter": null
+        },
+        "p8": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.9,
+            -2.9
+          ],
+          "path": [
+            [
+              2.275,
+              -3.5
+            ],
+            [
+              1.525,
+              -3.5
+            ],
+            [
+              1.525,
+              -2.3
+            ],
+            [
+              2.275,
+              -2.3
+            ],
+            [
+              2.275,
+              -3.5
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.275,
+        2.275,
+        -3.5,
+        3.5
+      ]
+    },
+    "kicad_footprint_15": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.153,
+              -0.43199999999999994
+            ],
+            [
+              0.34700000000000003,
+              -0.43200000000000005
+            ],
+            [
+              0.3469999999999999,
+              0.43199999999999994
+            ],
+            [
+              1.153,
+              0.43200000000000005
+            ],
+            [
+              1.153,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ],
+            [
+              -1.153,
+              -0.43200000000000005
+            ],
+            [
+              -1.153,
+              0.43199999999999994
+            ],
+            [
+              -0.34700000000000003,
+              0.43200000000000005
+            ],
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.153,
+        1.153,
+        -0.43200000000000005,
+        0.43200000000000005
+      ]
+    },
+    "kicad_footprint_16": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.182,
+              0.403
+            ],
+            [
+              1.182,
+              -0.403
+            ],
+            [
+              0.318,
+              -0.403
+            ],
+            [
+              0.318,
+              0.403
+            ],
+            [
+              1.182,
+              0.403
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.318,
+              0.403
+            ],
+            [
+              -0.318,
+              -0.403
+            ],
+            [
+              -1.182,
+              -0.403
+            ],
+            [
+              -1.182,
+              0.403
+            ],
+            [
+              -0.318,
+              0.403
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.182,
+        1.182,
+        -0.403,
+        0.403
+      ]
+    },
+    "kicad_footprint_17": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              0.7260000000000002,
+              -0.7425000000000002
+            ],
+            [
+              0.726,
+              0.7424999999999999
+            ],
+            [
+              2.4539999999999997,
+              0.7425000000000002
+            ],
+            [
+              2.454,
+              -0.7424999999999999
+            ],
+            [
+              0.7260000000000002,
+              -0.7425000000000002
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -2.4539999999999997,
+              -0.7425000000000002
+            ],
+            [
+              -2.454,
+              0.7424999999999999
+            ],
+            [
+              -0.7260000000000002,
+              0.7425000000000002
+            ],
+            [
+              -0.726,
+              -0.7424999999999999
+            ],
+            [
+              -2.4539999999999997,
+              -0.7425000000000002
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.454,
+        2.454,
+        -0.7425000000000002,
+        0.7425000000000002
+      ]
+    },
+    "kicad_footprint_18": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.153,
+              -0.43199999999999994
+            ],
+            [
+              0.34700000000000003,
+              -0.43200000000000005
+            ],
+            [
+              0.3469999999999999,
+              0.43199999999999994
+            ],
+            [
+              1.153,
+              0.43200000000000005
+            ],
+            [
+              1.153,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ],
+            [
+              -1.153,
+              -0.43200000000000005
+            ],
+            [
+              -1.153,
+              0.43199999999999994
+            ],
+            [
+              -0.34700000000000003,
+              0.43200000000000005
+            ],
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.153,
+        1.153,
+        -0.43200000000000005,
+        0.43200000000000005
+      ]
+    },
+    "kicad_footprint_19": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              0.8475,
+              0.864
+            ],
+            [
+              2.3325,
+              0.864
+            ],
+            [
+              2.3325,
+              -0.864
+            ],
+            [
+              0.8475,
+              -0.864
+            ],
+            [
+              0.8475,
+              0.864
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -2.3325,
+              0.864
+            ],
+            [
+              -0.8475,
+              0.864
+            ],
+            [
+              -0.8475,
+              -0.864
+            ],
+            [
+              -2.3325,
+              -0.864
+            ],
+            [
+              -2.3325,
+              0.864
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325,
+        2.3325,
+        -0.864,
+        0.864
+      ]
+    },
+    "kicad_footprint_20": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            3,
+            -1.85
+          ],
+          "path": [
+            [
+              3.5,
+              -2.225
+            ],
+            [
+              2.5,
+              -2.225
+            ],
+            [
+              2.5,
+              -1.475
+            ],
+            [
+              3.5,
+              -1.475
+            ],
+            [
+              3.5,
+              -2.225
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -3,
+            -1.85
+          ],
+          "path": [
+            [
+              -2.5,
+              -2.225
+            ],
+            [
+              -3.5,
+              -2.225
+            ],
+            [
+              -3.5,
+              -1.475
+            ],
+            [
+              -2.5,
+              -1.475
+            ],
+            [
+              -2.5,
+              -2.225
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1
+          ],
+          "location": [
+            3,
+            1.85
+          ],
+          "path": [
+            [
+              3.5,
+              1.475
+            ],
+            [
+              2.5,
+              1.475
+            ],
+            [
+              2.5,
+              2.225
+            ],
+            [
+              3.5,
+              2.225
+            ],
+            [
+              3.5,
+              1.475
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1
+          ],
+          "location": [
+            -3,
+            1.85
+          ],
+          "path": [
+            [
+              -2.5,
+              1.475
+            ],
+            [
+              -3.5,
+              1.475
+            ],
+            [
+              -3.5,
+              2.225
+            ],
+            [
+              -2.5,
+              2.225
+            ],
+            [
+              -2.5,
+              1.475
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -3.5,
+        3.5,
+        -2.225,
+        2.225
+      ]
+    },
+    "kicad_footprint_21": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              1.153,
+              -0.43199999999999994
+            ],
+            [
+              0.34700000000000003,
+              -0.43200000000000005
+            ],
+            [
+              0.3469999999999999,
+              0.43199999999999994
+            ],
+            [
+              1.153,
+              0.43200000000000005
+            ],
+            [
+              1.153,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ],
+            [
+              -1.153,
+              -0.43200000000000005
+            ],
+            [
+              -1.153,
+              0.43199999999999994
+            ],
+            [
+              -0.34700000000000003,
+              0.43200000000000005
+            ],
+            [
+              -0.3469999999999999,
+              -0.43199999999999994
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.153,
+        1.153,
+        -0.43200000000000005,
+        0.43200000000000005
+      ]
+    },
+    "kicad_footprint_22": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -2.9,
+            -1.21
+          ],
+          "path": [
+            [
+              -2.6,
+              -0.9099999999999999
+            ],
+            [
+              -2.6,
+              -1.51
+            ],
+            [
+              -3.1999999999999997,
+              -1.51
+            ],
+            [
+              -3.1999999999999997,
+              -0.9099999999999999
+            ],
+            [
+              -2.6,
+              -0.9099999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            2.9,
+            -1.21
+          ],
+          "path": [
+            [
+              3.1999999999999997,
+              -0.9099999999999999
+            ],
+            [
+              3.1999999999999997,
+              -1.51
+            ],
+            [
+              2.6,
+              -1.51
+            ],
+            [
+              2.6,
+              -0.9099999999999999
+            ],
+            [
+              3.1999999999999997,
+              -0.9099999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -4.33,
+            -1.71
+          ],
+          "path": [
+            [
+              -3.33,
+              -1.1099999999999999
+            ],
+            [
+              -3.33,
+              -2.3099999999999996
+            ],
+            [
+              -5.33,
+              -2.31
+            ],
+            [
+              -5.33,
+              -1.11
+            ],
+            [
+              -3.33,
+              -1.1099999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -4.33,
+            2.47
+          ],
+          "path": [
+            [
+              -3.43,
+              3.0700000000000003
+            ],
+            [
+              -3.43,
+              1.87
+            ],
+            [
+              -5.23,
+              1.87
+            ],
+            [
+              -5.23,
+              3.0700000000000003
+            ],
+            [
+              -3.43,
+              3.0700000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "3",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            4.33,
+            2.47
+          ],
+          "path": [
+            [
+              5.23,
+              3.0700000000000003
+            ],
+            [
+              5.23,
+              1.87
+            ],
+            [
+              3.43,
+              1.87
+            ],
+            [
+              3.43,
+              3.0700000000000003
+            ],
+            [
+              5.23,
+              3.0700000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "4",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            4.33,
+            -1.71
+          ],
+          "path": [
+            [
+              5.33,
+              -1.1099999999999999
+            ],
+            [
+              5.33,
+              -2.3099999999999996
+            ],
+            [
+              3.33,
+              -2.31
+            ],
+            [
+              3.33,
+              -1.11
+            ],
+            [
+              5.33,
+              -1.1099999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p6": {
+          "number": "A1B12",
+          "layers": [
+            1
+          ],
+          "location": [
+            3.2,
+            -2.47
+          ],
+          "path": [
+            [
+              3.85,
+              -2.17
+            ],
+            [
+              3.85,
+              -2.77
+            ],
+            [
+              2.5500000000000003,
+              -2.7700000000000005
+            ],
+            [
+              2.5500000000000003,
+              -2.1700000000000004
+            ],
+            [
+              3.85,
+              -2.17
+            ]
+          ],
+          "diameter": null
+        },
+        "p7": {
+          "number": "A4B9",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.4,
+            -2.47
+          ],
+          "path": [
+            [
+              3.05,
+              -2.17
+            ],
+            [
+              3.05,
+              -2.77
+            ],
+            [
+              1.75,
+              -2.7700000000000005
+            ],
+            [
+              1.75,
+              -2.1700000000000004
+            ],
+            [
+              3.05,
+              -2.17
+            ]
+          ],
+          "diameter": null
+        },
+        "p8": {
+          "number": "A5",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.25,
+            -2.47
+          ],
+          "path": [
+            [
+              1.9,
+              -2.3200000000000003
+            ],
+            [
+              1.9,
+              -2.62
+            ],
+            [
+              0.6,
+              -2.62
+            ],
+            [
+              0.6,
+              -2.3200000000000003
+            ],
+            [
+              1.9,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p9": {
+          "number": "A6",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.25,
+            -2.47
+          ],
+          "path": [
+            [
+              0.9,
+              -2.3200000000000003
+            ],
+            [
+              0.9,
+              -2.62
+            ],
+            [
+              -0.4,
+              -2.62
+            ],
+            [
+              -0.4,
+              -2.3200000000000003
+            ],
+            [
+              0.9,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p10": {
+          "number": "A7",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.25,
+            -2.47
+          ],
+          "path": [
+            [
+              0.4,
+              -2.3200000000000003
+            ],
+            [
+              0.4,
+              -2.62
+            ],
+            [
+              -0.9,
+              -2.62
+            ],
+            [
+              -0.9,
+              -2.3200000000000003
+            ],
+            [
+              0.4,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p11": {
+          "number": "A8",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.25,
+            -2.47
+          ],
+          "path": [
+            [
+              -0.6,
+              -2.3200000000000003
+            ],
+            [
+              -0.6,
+              -2.62
+            ],
+            [
+              -1.9,
+              -2.62
+            ],
+            [
+              -1.9,
+              -2.3200000000000003
+            ],
+            [
+              -0.6,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p12": {
+          "number": "B1A12",
+          "layers": [
+            1
+          ],
+          "location": [
+            -3.2,
+            -2.47
+          ],
+          "path": [
+            [
+              -2.5500000000000003,
+              -2.17
+            ],
+            [
+              -2.5500000000000003,
+              -2.77
+            ],
+            [
+              -3.85,
+              -2.7700000000000005
+            ],
+            [
+              -3.85,
+              -2.1700000000000004
+            ],
+            [
+              -2.5500000000000003,
+              -2.17
+            ]
+          ],
+          "diameter": null
+        },
+        "p13": {
+          "number": "B4A9",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.4,
+            -2.47
+          ],
+          "path": [
+            [
+              -1.75,
+              -2.17
+            ],
+            [
+              -1.75,
+              -2.77
+            ],
+            [
+              -3.05,
+              -2.7700000000000005
+            ],
+            [
+              -3.05,
+              -2.1700000000000004
+            ],
+            [
+              -1.75,
+              -2.17
+            ]
+          ],
+          "diameter": null
+        },
+        "p14": {
+          "number": "B5",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.75,
+            -2.47
+          ],
+          "path": [
+            [
+              -1.1,
+              -2.3200000000000003
+            ],
+            [
+              -1.1,
+              -2.62
+            ],
+            [
+              -2.4,
+              -2.62
+            ],
+            [
+              -2.4,
+              -2.3200000000000003
+            ],
+            [
+              -1.1,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p15": {
+          "number": "B6",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            -2.47
+          ],
+          "path": [
+            [
+              -0.09999999999999998,
+              -2.3200000000000003
+            ],
+            [
+              -0.09999999999999998,
+              -2.62
+            ],
+            [
+              -1.4,
+              -2.62
+            ],
+            [
+              -1.4,
+              -2.3200000000000003
+            ],
+            [
+              -0.09999999999999998,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p16": {
+          "number": "B7",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            -2.47
+          ],
+          "path": [
+            [
+              1.4,
+              -2.3200000000000003
+            ],
+            [
+              1.4,
+              -2.62
+            ],
+            [
+              0.09999999999999998,
+              -2.62
+            ],
+            [
+              0.09999999999999998,
+              -2.3200000000000003
+            ],
+            [
+              1.4,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p17": {
+          "number": "B8",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.75,
+            -2.47
+          ],
+          "path": [
+            [
+              2.4,
+              -2.3200000000000003
+            ],
+            [
+              2.4,
+              -2.62
+            ],
+            [
+              1.1,
+              -2.62
+            ],
+            [
+              1.1,
+              -2.3200000000000003
+            ],
+            [
+              2.4,
+              -2.3200000000000003
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -5.33,
+        5.33,
+        -2.7700000000000005,
+        3.0700000000000003
+      ]
+    },
+    "kicad_footprint_23": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.99,
+            1.5
+          ],
+          "path": [
+            [
+              0.8400000000000001,
+              1.16
+            ],
+            [
+              0.84,
+              1.84
+            ],
+            [
+              1.14,
+              1.84
+            ],
+            [
+              1.1400000000000001,
+              1.16
+            ],
+            [
+              0.8400000000000001,
+              1.16
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.34,
+            1.5
+          ],
+          "path": [
+            [
+              0.19000000000000009,
+              1.16
+            ],
+            [
+              0.18999999999999997,
+              1.84
+            ],
+            [
+              0.49,
+              1.84
+            ],
+            [
+              0.4900000000000001,
+              1.16
+            ],
+            [
+              0.19000000000000009,
+              1.16
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.31,
+            1.5
+          ],
+          "path": [
+            [
+              -0.45999999999999996,
+              1.16
+            ],
+            [
+              -0.4600000000000001,
+              1.84
+            ],
+            [
+              -0.16000000000000006,
+              1.84
+            ],
+            [
+              -0.15999999999999995,
+              1.16
+            ],
+            [
+              -0.45999999999999996,
+              1.16
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.96,
+            1.5
+          ],
+          "path": [
+            [
+              -1.1099999999999999,
+              1.16
+            ],
+            [
+              -1.11,
+              1.84
+            ],
+            [
+              -0.81,
+              1.84
+            ],
+            [
+              -0.8099999999999999,
+              1.16
+            ],
+            [
+              -1.1099999999999999,
+              1.16
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "5",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.99,
+            -1.5
+          ],
+          "path": [
+            [
+              -1.14,
+              -1.8
+            ],
+            [
+              -1.1400000000000001,
+              -1.2
+            ],
+            [
+              -0.8400000000000001,
+              -1.2
+            ],
+            [
+              -0.84,
+              -1.8
+            ],
+            [
+              -1.14,
+              -1.8
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "6",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.34,
+            -1.5
+          ],
+          "path": [
+            [
+              -0.49,
+              -1.8
+            ],
+            [
+              -0.4900000000000001,
+              -1.2
+            ],
+            [
+              -0.19000000000000009,
+              -1.2
+            ],
+            [
+              -0.18999999999999997,
+              -1.8
+            ],
+            [
+              -0.49,
+              -1.8
+            ]
+          ],
+          "diameter": null
+        },
+        "p6": {
+          "number": "7",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.31,
+            -1.5
+          ],
+          "path": [
+            [
+              0.16000000000000006,
+              -1.8
+            ],
+            [
+              0.15999999999999995,
+              -1.2
+            ],
+            [
+              0.45999999999999996,
+              -1.2
+            ],
+            [
+              0.4600000000000001,
+              -1.8
+            ],
+            [
+              0.16000000000000006,
+              -1.8
+            ]
+          ],
+          "diameter": null
+        },
+        "p7": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.96,
+            -1.5
+          ],
+          "path": [
+            [
+              0.81,
+              -1.8
+            ],
+            [
+              0.8099999999999999,
+              -1.2
+            ],
+            [
+              1.1099999999999999,
+              -1.2
+            ],
+            [
+              1.11,
+              -1.8
+            ],
+            [
+              0.81,
+              -1.8
+            ]
+          ],
+          "diameter": null
+        },
+        "p8": {
+          "number": "9",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.01,
+            -0.41
+          ],
+          "path": [
+            [
+              1.3150000000000002,
+              -1.41
+            ],
+            [
+              -1.3349999999999997,
+              -1.4100000000000001
+            ],
+            [
+              -1.3350000000000002,
+              0.5899999999999999
+            ],
+            [
+              1.3149999999999997,
+              0.5900000000000003
+            ],
+            [
+              1.3150000000000002,
+              -1.41
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.3350000000000002,
+        1.3150000000000002,
+        -1.8,
+        1.84
+      ]
+    },
+    "kicad_footprint_24": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              0.8475,
+              0.864
+            ],
+            [
+              2.3325,
+              0.864
+            ],
+            [
+              2.3325,
+              -0.864
+            ],
+            [
+              0.8475,
+              -0.864
+            ],
+            [
+              0.8475,
+              0.864
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -2.3325,
+              0.864
+            ],
+            [
+              -0.8475,
+              0.864
+            ],
+            [
+              -0.8475,
+              -0.864
+            ],
+            [
+              -2.3325,
+              -0.864
+            ],
+            [
+              -2.3325,
+              0.864
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325,
+        2.3325,
+        -0.864,
+        0.864
+      ]
+    },
+    "kicad_footprint_25": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -0.5,
+            0.5
+          ],
+          "path": [
+            [
+              -0.19499999999999995,
+              0.19500000000000006
+            ],
+            [
+              -0.8049999999999999,
+              0.19499999999999995
+            ],
+            [
+              -0.805,
+              0.8049999999999999
+            ],
+            [
+              -0.19500000000000006,
+              0.805
+            ],
+            [
+              -0.19499999999999995,
+              0.19500000000000006
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -0.5,
+            -0.5
+          ],
+          "path": [
+            [
+              -0.19499999999999995,
+              -0.8049999999999999
+            ],
+            [
+              -0.8049999999999999,
+              -0.805
+            ],
+            [
+              -0.805,
+              -0.19500000000000006
+            ],
+            [
+              -0.19500000000000006,
+              -0.19499999999999995
+            ],
+            [
+              -0.19499999999999995,
+              -0.8049999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            0.5,
+            0.5
+          ],
+          "path": [
+            [
+              0.805,
+              0.19500000000000006
+            ],
+            [
+              0.19500000000000006,
+              0.19499999999999995
+            ],
+            [
+              0.19499999999999995,
+              0.8049999999999999
+            ],
+            [
+              0.8049999999999999,
+              0.805
+            ],
+            [
+              0.805,
+              0.19500000000000006
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            0.5,
+            -0.5
+          ],
+          "path": [
+            [
+              0.805,
+              -0.8049999999999999
+            ],
+            [
+              0.19500000000000006,
+              -0.805
+            ],
+            [
+              0.19499999999999995,
+              -0.19500000000000006
+            ],
+            [
+              0.8049999999999999,
+              -0.19499999999999995
+            ],
+            [
+              0.805,
+              -0.8049999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.25,
+            2.91
+          ],
+          "path": [
+            [
+              2.39,
+              2.5775
+            ],
+            [
+              2.11,
+              2.5775
+            ],
+            [
+              2.11,
+              3.2425
+            ],
+            [
+              2.39,
+              3.2425
+            ],
+            [
+              2.39,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.75,
+            2.91
+          ],
+          "path": [
+            [
+              1.8900000000000001,
+              2.5775
+            ],
+            [
+              1.61,
+              2.5775
+            ],
+            [
+              1.6099999999999999,
+              3.2425
+            ],
+            [
+              1.89,
+              3.2425
+            ],
+            [
+              1.8900000000000001,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p6": {
+          "number": "3",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.25,
+            2.91
+          ],
+          "path": [
+            [
+              1.3900000000000001,
+              2.5775
+            ],
+            [
+              1.11,
+              2.5775
+            ],
+            [
+              1.1099999999999999,
+              3.2425
+            ],
+            [
+              1.39,
+              3.2425
+            ],
+            [
+              1.3900000000000001,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p7": {
+          "number": "4",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            2.91
+          ],
+          "path": [
+            [
+              0.89,
+              2.5775
+            ],
+            [
+              0.61,
+              2.5775
+            ],
+            [
+              0.61,
+              3.2425
+            ],
+            [
+              0.89,
+              3.2425
+            ],
+            [
+              0.89,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p8": {
+          "number": "5",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.25,
+            2.91
+          ],
+          "path": [
+            [
+              0.39,
+              2.5775
+            ],
+            [
+              0.11000000000000001,
+              2.5775
+            ],
+            [
+              0.10999999999999996,
+              3.2425
+            ],
+            [
+              0.39,
+              3.2425
+            ],
+            [
+              0.39,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p9": {
+          "number": "6",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.25,
+            2.91
+          ],
+          "path": [
+            [
+              -0.10999999999999996,
+              2.5775
+            ],
+            [
+              -0.39,
+              2.5775
+            ],
+            [
+              -0.39,
+              3.2425
+            ],
+            [
+              -0.11000000000000001,
+              3.2425
+            ],
+            [
+              -0.10999999999999996,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p10": {
+          "number": "7",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            2.91
+          ],
+          "path": [
+            [
+              -0.61,
+              2.5775
+            ],
+            [
+              -0.89,
+              2.5775
+            ],
+            [
+              -0.89,
+              3.2425
+            ],
+            [
+              -0.61,
+              3.2425
+            ],
+            [
+              -0.61,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p11": {
+          "number": "8",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.25,
+            2.91
+          ],
+          "path": [
+            [
+              -1.1099999999999999,
+              2.5775
+            ],
+            [
+              -1.39,
+              2.5775
+            ],
+            [
+              -1.3900000000000001,
+              3.2425
+            ],
+            [
+              -1.11,
+              3.2425
+            ],
+            [
+              -1.1099999999999999,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p12": {
+          "number": "9",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.75,
+            2.91
+          ],
+          "path": [
+            [
+              -1.6099999999999999,
+              2.5775
+            ],
+            [
+              -1.89,
+              2.5775
+            ],
+            [
+              -1.8900000000000001,
+              3.2425
+            ],
+            [
+              -1.61,
+              3.2425
+            ],
+            [
+              -1.6099999999999999,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p13": {
+          "number": "10",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.25,
+            2.91
+          ],
+          "path": [
+            [
+              -2.11,
+              2.5775
+            ],
+            [
+              -2.39,
+              2.5775
+            ],
+            [
+              -2.39,
+              3.2425
+            ],
+            [
+              -2.11,
+              3.2425
+            ],
+            [
+              -2.11,
+              2.5775
+            ]
+          ],
+          "diameter": null
+        },
+        "p14": {
+          "number": "11",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            2.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              2.11
+            ],
+            [
+              -3.2425,
+              2.11
+            ],
+            [
+              -3.2425,
+              2.39
+            ],
+            [
+              -2.5775,
+              2.39
+            ],
+            [
+              -2.5775,
+              2.11
+            ]
+          ],
+          "diameter": null
+        },
+        "p15": {
+          "number": "12",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            1.75
+          ],
+          "path": [
+            [
+              -2.5775,
+              1.61
+            ],
+            [
+              -3.2425,
+              1.6099999999999999
+            ],
+            [
+              -3.2425,
+              1.89
+            ],
+            [
+              -2.5775,
+              1.8900000000000001
+            ],
+            [
+              -2.5775,
+              1.61
+            ]
+          ],
+          "diameter": null
+        },
+        "p16": {
+          "number": "13",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            1.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              1.11
+            ],
+            [
+              -3.2425,
+              1.1099999999999999
+            ],
+            [
+              -3.2425,
+              1.39
+            ],
+            [
+              -2.5775,
+              1.3900000000000001
+            ],
+            [
+              -2.5775,
+              1.11
+            ]
+          ],
+          "diameter": null
+        },
+        "p17": {
+          "number": "14",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            0.75
+          ],
+          "path": [
+            [
+              -2.5775,
+              0.61
+            ],
+            [
+              -3.2425,
+              0.61
+            ],
+            [
+              -3.2425,
+              0.89
+            ],
+            [
+              -2.5775,
+              0.89
+            ],
+            [
+              -2.5775,
+              0.61
+            ]
+          ],
+          "diameter": null
+        },
+        "p18": {
+          "number": "15",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            0.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              0.11000000000000001
+            ],
+            [
+              -3.2425,
+              0.10999999999999996
+            ],
+            [
+              -3.2425,
+              0.39
+            ],
+            [
+              -2.5775,
+              0.39
+            ],
+            [
+              -2.5775,
+              0.11000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p19": {
+          "number": "16",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            -0.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              -0.39
+            ],
+            [
+              -3.2425,
+              -0.39
+            ],
+            [
+              -3.2425,
+              -0.11000000000000001
+            ],
+            [
+              -2.5775,
+              -0.10999999999999996
+            ],
+            [
+              -2.5775,
+              -0.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p20": {
+          "number": "17",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            -0.75
+          ],
+          "path": [
+            [
+              -2.5775,
+              -0.89
+            ],
+            [
+              -3.2425,
+              -0.89
+            ],
+            [
+              -3.2425,
+              -0.61
+            ],
+            [
+              -2.5775,
+              -0.61
+            ],
+            [
+              -2.5775,
+              -0.89
+            ]
+          ],
+          "diameter": null
+        },
+        "p21": {
+          "number": "18",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            -1.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              -1.39
+            ],
+            [
+              -3.2425,
+              -1.3900000000000001
+            ],
+            [
+              -3.2425,
+              -1.11
+            ],
+            [
+              -2.5775,
+              -1.1099999999999999
+            ],
+            [
+              -2.5775,
+              -1.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p22": {
+          "number": "19",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            -1.75
+          ],
+          "path": [
+            [
+              -2.5775,
+              -1.89
+            ],
+            [
+              -3.2425,
+              -1.8900000000000001
+            ],
+            [
+              -3.2425,
+              -1.61
+            ],
+            [
+              -2.5775,
+              -1.6099999999999999
+            ],
+            [
+              -2.5775,
+              -1.89
+            ]
+          ],
+          "diameter": null
+        },
+        "p23": {
+          "number": "20",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.91,
+            -2.25
+          ],
+          "path": [
+            [
+              -2.5775,
+              -2.39
+            ],
+            [
+              -3.2425,
+              -2.39
+            ],
+            [
+              -3.2425,
+              -2.11
+            ],
+            [
+              -2.5775,
+              -2.11
+            ],
+            [
+              -2.5775,
+              -2.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p24": {
+          "number": "21",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.25,
+            -2.91
+          ],
+          "path": [
+            [
+              -2.11,
+              -3.2425
+            ],
+            [
+              -2.39,
+              -3.2425
+            ],
+            [
+              -2.39,
+              -2.5775
+            ],
+            [
+              -2.11,
+              -2.5775
+            ],
+            [
+              -2.11,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p25": {
+          "number": "22",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.75,
+            -2.91
+          ],
+          "path": [
+            [
+              -1.6099999999999999,
+              -3.2425
+            ],
+            [
+              -1.89,
+              -3.2425
+            ],
+            [
+              -1.8900000000000001,
+              -2.5775
+            ],
+            [
+              -1.61,
+              -2.5775
+            ],
+            [
+              -1.6099999999999999,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p26": {
+          "number": "23",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.25,
+            -2.91
+          ],
+          "path": [
+            [
+              -1.1099999999999999,
+              -3.2425
+            ],
+            [
+              -1.39,
+              -3.2425
+            ],
+            [
+              -1.3900000000000001,
+              -2.5775
+            ],
+            [
+              -1.11,
+              -2.5775
+            ],
+            [
+              -1.1099999999999999,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p27": {
+          "number": "24",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            -2.91
+          ],
+          "path": [
+            [
+              -0.61,
+              -3.2425
+            ],
+            [
+              -0.89,
+              -3.2425
+            ],
+            [
+              -0.89,
+              -2.5775
+            ],
+            [
+              -0.61,
+              -2.5775
+            ],
+            [
+              -0.61,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p28": {
+          "number": "25",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.25,
+            -2.91
+          ],
+          "path": [
+            [
+              -0.10999999999999996,
+              -3.2425
+            ],
+            [
+              -0.39,
+              -3.2425
+            ],
+            [
+              -0.39,
+              -2.5775
+            ],
+            [
+              -0.11000000000000001,
+              -2.5775
+            ],
+            [
+              -0.10999999999999996,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p29": {
+          "number": "26",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.25,
+            -2.91
+          ],
+          "path": [
+            [
+              0.39,
+              -3.2425
+            ],
+            [
+              0.11000000000000001,
+              -3.2425
+            ],
+            [
+              0.10999999999999996,
+              -2.5775
+            ],
+            [
+              0.39,
+              -2.5775
+            ],
+            [
+              0.39,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p30": {
+          "number": "27",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            -2.91
+          ],
+          "path": [
+            [
+              0.89,
+              -3.2425
+            ],
+            [
+              0.61,
+              -3.2425
+            ],
+            [
+              0.61,
+              -2.5775
+            ],
+            [
+              0.89,
+              -2.5775
+            ],
+            [
+              0.89,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p31": {
+          "number": "28",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.25,
+            -2.91
+          ],
+          "path": [
+            [
+              1.3900000000000001,
+              -3.2425
+            ],
+            [
+              1.11,
+              -3.2425
+            ],
+            [
+              1.1099999999999999,
+              -2.5775
+            ],
+            [
+              1.39,
+              -2.5775
+            ],
+            [
+              1.3900000000000001,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p32": {
+          "number": "29",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.75,
+            -2.91
+          ],
+          "path": [
+            [
+              1.8900000000000001,
+              -3.2425
+            ],
+            [
+              1.61,
+              -3.2425
+            ],
+            [
+              1.6099999999999999,
+              -2.5775
+            ],
+            [
+              1.89,
+              -2.5775
+            ],
+            [
+              1.8900000000000001,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p33": {
+          "number": "30",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.25,
+            -2.91
+          ],
+          "path": [
+            [
+              2.39,
+              -3.2425
+            ],
+            [
+              2.11,
+              -3.2425
+            ],
+            [
+              2.11,
+              -2.5775
+            ],
+            [
+              2.39,
+              -2.5775
+            ],
+            [
+              2.39,
+              -3.2425
+            ]
+          ],
+          "diameter": null
+        },
+        "p34": {
+          "number": "31",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            -2.25
+          ],
+          "path": [
+            [
+              3.2425,
+              -2.39
+            ],
+            [
+              2.5775,
+              -2.39
+            ],
+            [
+              2.5775,
+              -2.11
+            ],
+            [
+              3.2425,
+              -2.11
+            ],
+            [
+              3.2425,
+              -2.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p35": {
+          "number": "32",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            -1.75
+          ],
+          "path": [
+            [
+              3.2425,
+              -1.89
+            ],
+            [
+              2.5775,
+              -1.8900000000000001
+            ],
+            [
+              2.5775,
+              -1.61
+            ],
+            [
+              3.2425,
+              -1.6099999999999999
+            ],
+            [
+              3.2425,
+              -1.89
+            ]
+          ],
+          "diameter": null
+        },
+        "p36": {
+          "number": "33",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            -1.25
+          ],
+          "path": [
+            [
+              3.2425,
+              -1.39
+            ],
+            [
+              2.5775,
+              -1.3900000000000001
+            ],
+            [
+              2.5775,
+              -1.11
+            ],
+            [
+              3.2425,
+              -1.1099999999999999
+            ],
+            [
+              3.2425,
+              -1.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p37": {
+          "number": "34",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            -0.75
+          ],
+          "path": [
+            [
+              3.2425,
+              -0.89
+            ],
+            [
+              2.5775,
+              -0.89
+            ],
+            [
+              2.5775,
+              -0.61
+            ],
+            [
+              3.2425,
+              -0.61
+            ],
+            [
+              3.2425,
+              -0.89
+            ]
+          ],
+          "diameter": null
+        },
+        "p38": {
+          "number": "35",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            -0.25
+          ],
+          "path": [
+            [
+              3.2425,
+              -0.39
+            ],
+            [
+              2.5775,
+              -0.39
+            ],
+            [
+              2.5775,
+              -0.11000000000000001
+            ],
+            [
+              3.2425,
+              -0.10999999999999996
+            ],
+            [
+              3.2425,
+              -0.39
+            ]
+          ],
+          "diameter": null
+        },
+        "p39": {
+          "number": "36",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            0.25
+          ],
+          "path": [
+            [
+              3.2425,
+              0.11000000000000001
+            ],
+            [
+              2.5775,
+              0.10999999999999996
+            ],
+            [
+              2.5775,
+              0.39
+            ],
+            [
+              3.2425,
+              0.39
+            ],
+            [
+              3.2425,
+              0.11000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p40": {
+          "number": "37",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            0.75
+          ],
+          "path": [
+            [
+              3.2425,
+              0.61
+            ],
+            [
+              2.5775,
+              0.61
+            ],
+            [
+              2.5775,
+              0.89
+            ],
+            [
+              3.2425,
+              0.89
+            ],
+            [
+              3.2425,
+              0.61
+            ]
+          ],
+          "diameter": null
+        },
+        "p41": {
+          "number": "38",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            1.25
+          ],
+          "path": [
+            [
+              3.2425,
+              1.11
+            ],
+            [
+              2.5775,
+              1.1099999999999999
+            ],
+            [
+              2.5775,
+              1.39
+            ],
+            [
+              3.2425,
+              1.3900000000000001
+            ],
+            [
+              3.2425,
+              1.11
+            ]
+          ],
+          "diameter": null
+        },
+        "p42": {
+          "number": "39",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            1.75
+          ],
+          "path": [
+            [
+              3.2425,
+              1.61
+            ],
+            [
+              2.5775,
+              1.6099999999999999
+            ],
+            [
+              2.5775,
+              1.89
+            ],
+            [
+              3.2425,
+              1.8900000000000001
+            ],
+            [
+              3.2425,
+              1.61
+            ]
+          ],
+          "diameter": null
+        },
+        "p43": {
+          "number": "40",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.91,
+            2.25
+          ],
+          "path": [
+            [
+              3.2425,
+              2.11
+            ],
+            [
+              2.5775,
+              2.11
+            ],
+            [
+              2.5775,
+              2.39
+            ],
+            [
+              3.2425,
+              2.39
+            ],
+            [
+              3.2425,
+              2.11
+            ]
+          ],
+          "diameter": null
+        },
+        "p44": {
+          "number": "41",
+          "layers": [
+            1
+          ],
+          "location": [
+            0,
+            0
+          ],
+          "path": [
+            [
+              2.2100000000000004,
+              -2.2099999999999995
+            ],
+            [
+              -2.2099999999999995,
+              -2.2100000000000004
+            ],
+            [
+              -2.2100000000000004,
+              2.2099999999999995
+            ],
+            [
+              2.2099999999999995,
+              2.2100000000000004
+            ],
+            [
+              2.2100000000000004,
+              -2.2099999999999995
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -3.2425,
+        3.2425,
+        -3.2425,
+        3.2425
+      ]
+    },
+    "kicad_footprint_26": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            2.67,
+            0
+          ],
+          "path": [
+            [
+              0.9199999999999999,
+              0.6
+            ],
+            [
+              4.42,
+              0.6
+            ],
+            [
+              4.42,
+              -0.6
+            ],
+            [
+              0.9199999999999999,
+              -0.6
+            ],
+            [
+              0.9199999999999999,
+              0.6
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -2.67,
+            0
+          ],
+          "path": [
+            [
+              -4.42,
+              0.6
+            ],
+            [
+              -0.9199999999999999,
+              0.6
+            ],
+            [
+              -0.9199999999999999,
+              -0.6
+            ],
+            [
+              -4.42,
+              -0.6
+            ],
+            [
+              -4.42,
+              0.6
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -4.42,
+        4.42,
+        -0.6,
+        0.6
+      ]
+    },
+    "kicad_footprint_27": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            0,
+            0
+          ],
+          "path": [
+            [
+              -1.25,
+              1.25
+            ],
+            [
+              1.25,
+              1.25
+            ],
+            [
+              1.25,
+              -1.25
+            ],
+            [
+              -1.25,
+              -1.25
+            ],
+            [
+              -1.25,
+              1.25
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.25,
+        1.25,
+        -1.25,
+        1.25
+      ]
+    },
+    "kicad_footprint_28": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            3.5,
+            -1.35
+          ],
+          "path": [
+            [
+              4.25,
+              -0.6000000000000001
+            ],
+            [
+              4.25,
+              -2.1
+            ],
+            [
+              2.75,
+              -2.1
+            ],
+            [
+              2.75,
+              -0.6000000000000001
+            ],
+            [
+              4.25,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            1,
+            -1.35
+          ],
+          "path": [
+            [
+              1.75,
+              -0.6000000000000001
+            ],
+            [
+              1.75,
+              -2.1
+            ],
+            [
+              0.25,
+              -2.1
+            ],
+            [
+              0.25,
+              -0.6000000000000001
+            ],
+            [
+              1.75,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -1,
+            -1.35
+          ],
+          "path": [
+            [
+              -0.25,
+              -0.6000000000000001
+            ],
+            [
+              -0.25,
+              -2.1
+            ],
+            [
+              -1.75,
+              -2.1
+            ],
+            [
+              -1.75,
+              -0.6000000000000001
+            ],
+            [
+              -0.25,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p3": {
+          "number": "4",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -3.5,
+            -1.35
+          ],
+          "path": [
+            [
+              -2.75,
+              -0.6000000000000001
+            ],
+            [
+              -2.75,
+              -2.1
+            ],
+            [
+              -4.25,
+              -2.1
+            ],
+            [
+              -4.25,
+              -0.6000000000000001
+            ],
+            [
+              -2.75,
+              -0.6000000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p4": {
+          "number": "5",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            6.57,
+            1.35
+          ],
+          "path": [
+            [
+              8.07,
+              2.0500000000000003
+            ],
+            [
+              8.07,
+              0.6500000000000002
+            ],
+            [
+              5.07,
+              0.65
+            ],
+            [
+              5.07,
+              2.05
+            ],
+            [
+              8.07,
+              2.0500000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p5": {
+          "number": "6",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -6.57,
+            1.35
+          ],
+          "path": [
+            [
+              -5.07,
+              2.0500000000000003
+            ],
+            [
+              -5.07,
+              0.6500000000000002
+            ],
+            [
+              -8.07,
+              0.65
+            ],
+            [
+              -8.07,
+              2.05
+            ],
+            [
+              -5.07,
+              2.0500000000000003
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -8.07,
+        8.07,
+        -2.1,
+        2.0500000000000003
+      ]
+    },
+    "kicad_footprint_29": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              2.3325000000000005,
+              -0.8639999999999999
+            ],
+            [
+              0.8475000000000001,
+              -0.8640000000000001
+            ],
+            [
+              0.8474999999999999,
+              0.8639999999999999
+            ],
+            [
+              2.3325,
+              0.8640000000000001
+            ],
+            [
+              2.3325000000000005,
+              -0.8639999999999999
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -0.8474999999999999,
+              -0.8639999999999999
+            ],
+            [
+              -2.3325,
+              -0.8640000000000001
+            ],
+            [
+              -2.3325000000000005,
+              0.8639999999999999
+            ],
+            [
+              -0.8475000000000001,
+              0.8640000000000001
+            ],
+            [
+              -0.8474999999999999,
+              -0.8639999999999999
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.3325000000000005,
+        2.3325000000000005,
+        -0.8640000000000001,
+        0.8640000000000001
+      ]
+    },
+    "kicad_footprint_30": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            1.59,
+            0
+          ],
+          "path": [
+            [
+              2.454,
+              0.7425
+            ],
+            [
+              2.454,
+              -0.7425
+            ],
+            [
+              0.7260000000000001,
+              -0.7425
+            ],
+            [
+              0.7260000000000001,
+              0.7425
+            ],
+            [
+              2.454,
+              0.7425
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -1.59,
+            0
+          ],
+          "path": [
+            [
+              -0.7260000000000001,
+              0.7425
+            ],
+            [
+              -0.7260000000000001,
+              -0.7425
+            ],
+            [
+              -2.454,
+              -0.7425
+            ],
+            [
+              -2.454,
+              0.7425
+            ],
+            [
+              -0.7260000000000001,
+              0.7425
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -2.454,
+        2.454,
+        -0.7425,
+        0.7425
+      ]
+    },
+    "kicad_footprint_31": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.7,
+            0
+          ],
+          "path": [
+            [
+              1.1,
+              -0.44999999999999996
+            ],
+            [
+              0.3,
+              -0.45000000000000007
+            ],
+            [
+              0.2999999999999999,
+              0.44999999999999996
+            ],
+            [
+              1.0999999999999999,
+              0.45000000000000007
+            ],
+            [
+              1.1,
+              -0.44999999999999996
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.7,
+            0
+          ],
+          "path": [
+            [
+              -0.2999999999999999,
+              -0.44999999999999996
+            ],
+            [
+              -1.0999999999999999,
+              -0.45000000000000007
+            ],
+            [
+              -1.1,
+              0.44999999999999996
+            ],
+            [
+              -0.3,
+              0.45000000000000007
+            ],
+            [
+              -0.2999999999999999,
+              -0.44999999999999996
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.1,
+        1.1,
+        -0.45000000000000007,
+        0.45000000000000007
+      ]
+    },
+    "kicad_footprint_32": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1
+          ],
+          "location": [
+            0.75,
+            0
+          ],
+          "path": [
+            [
+              0.31800000000000006,
+              -0.4030000000000001
+            ],
+            [
+              0.31799999999999995,
+              0.40299999999999997
+            ],
+            [
+              1.182,
+              0.4030000000000001
+            ],
+            [
+              1.182,
+              -0.40299999999999997
+            ],
+            [
+              0.31800000000000006,
+              -0.4030000000000001
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1
+          ],
+          "location": [
+            -0.75,
+            0
+          ],
+          "path": [
+            [
+              -1.182,
+              -0.4030000000000001
+            ],
+            [
+              -1.182,
+              0.40299999999999997
+            ],
+            [
+              -0.31800000000000006,
+              0.4030000000000001
+            ],
+            [
+              -0.31799999999999995,
+              -0.40299999999999997
+            ],
+            [
+              -1.182,
+              -0.4030000000000001
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -1.182,
+        1.182,
+        -0.4030000000000001,
+        0.4030000000000001
+      ]
+    },
+    "kicad_footprint_33": {
+      "pads": {
+        "p0": {
+          "number": "1",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            5,
+            0
+          ],
+          "path": [
+            [
+              3.9000000000000004,
+              -1.1000000000000003
+            ],
+            [
+              3.8999999999999995,
+              1.0999999999999999
+            ],
+            [
+              6.1,
+              1.1000000000000003
+            ],
+            [
+              6.1000000000000005,
+              -1.0999999999999999
+            ],
+            [
+              3.9000000000000004,
+              -1.1000000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p1": {
+          "number": "2",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            0,
+            0
+          ],
+          "path": [
+            [
+              -1.0999999999999999,
+              -1.1000000000000003
+            ],
+            [
+              -1.1000000000000003,
+              1.0999999999999999
+            ],
+            [
+              1.0999999999999999,
+              1.1000000000000003
+            ],
+            [
+              1.1000000000000003,
+              -1.0999999999999999
+            ],
+            [
+              -1.0999999999999999,
+              -1.1000000000000003
+            ]
+          ],
+          "diameter": null
+        },
+        "p2": {
+          "number": "3",
+          "layers": [
+            1,
+            2
+          ],
+          "location": [
+            -5,
+            0
+          ],
+          "path": [
+            [
+              -6.1,
+              -1.1000000000000003
+            ],
+            [
+              -6.1000000000000005,
+              1.0999999999999999
+            ],
+            [
+              -3.9000000000000004,
+              1.1000000000000003
+            ],
+            [
+              -3.8999999999999995,
+              -1.0999999999999999
+            ],
+            [
+              -6.1,
+              -1.1000000000000003
+            ]
+          ],
+          "diameter": null
+        }
+      },
+      "bbox": [
+        -6.1000000000000005,
+        6.1000000000000005,
+        -1.1000000000000003,
+        1.1000000000000003
+      ]
+    }
+  },
+  "constraintRegions": {},
+  "tracks": [
+    {
+      "id": "existing-0",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          13.033000000000015,
+          9.805999999999997
+        ],
+        [
+          13.033000000000015,
+          9.305999999999997
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-1",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          13.033000000000015,
+          9.305999999999997
+        ],
+        [
+          13.033000000000015,
+          8.805999999999997
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-2",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          13.033000000000015,
+          8.805999999999997
+        ],
+        [
+          12.5505,
+          8.805999999999997
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-3",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          12.5505,
+          8.805999999999997
+        ],
+        [
+          12.850500000000011,
+          8.506
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-4",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          12.850500000000011,
+          8.506
+        ],
+        [
+          13.033000000000015,
+          8.305999999999997
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-5",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          12.5505,
+          8.805999999999997
+        ],
+        [
+          11.009999999999991,
+          8.805999999999997
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-6",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          11.009999999999991,
+          8.805999999999997
+        ],
+        [
+          10.009000000000015,
+          7.805000000000007
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-7",
+      "layer": 1,
+      "net": "Net-(C2-Pad2)",
+      "path": [
+        [
+          10.009000000000015,
+          7.805000000000007
+        ],
+        [
+          6.814999999999998,
+          7.805000000000007
+        ]
+      ],
+      "width": 0.3
+    },
+    {
+      "id": "existing-8",
+      "layer": 1,
+      "net": "Net-(U1-BST)",
+      "path": [
+        [
+          13.033000000000015,
+          7.805999999999997
+        ],
+        [
+          11.408999999999992,
+          7.805000000000007
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-9",
+      "layer": 1,
+      "net": "Net-(U1-RSET)",
+      "path": [
+        [
+          13.693000000000012,
+          6.646000000000001
+        ],
+        [
+          11.644000000000005,
+          4.596999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-10",
+      "layer": 1,
+      "net": "Net-(U1-RSET)",
+      "path": [
+        [
+          11.644000000000005,
+          4.596999999999994
+        ],
+        [
+          11.644000000000005,
+          3.7169999999999987
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-11",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          16.693000000000012,
+          6.646000000000001
+        ],
+        [
+          16.693000000000012,
+          5.938500000000005
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-12",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          16.693000000000012,
+          5.938500000000005
+        ],
+        [
+          16.943000000000012,
+          5.688500000000005
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-13",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          16.943000000000012,
+          5.688500000000005
+        ],
+        [
+          17.443000000000012,
+          5.688500000000005
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-14",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          17.443000000000012,
+          5.688500000000005
+        ],
+        [
+          17.693000000000012,
+          5.438500000000005
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-15",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          17.693000000000012,
+          5.438500000000005
+        ],
+        [
+          17.693000000000012,
+          3.02500000000002
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-16",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          17.693000000000012,
+          3.02500000000002
+        ],
+        [
+          16.816000000000003,
+          2.147999999999996
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-17",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          16.816000000000003,
+          2.147999999999996
+        ],
+        [
+          16.816000000000003,
+          1.1270000000000095
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-18",
+      "layer": 1,
+      "net": "VREG_3V1",
+      "path": [
+        [
+          16.816000000000003,
+          1.1270000000000095
+        ],
+        [
+          17.51599999999999,
+          0.4270000000000067
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-19",
+      "layer": 1,
+      "net": "KEY_IC",
+      "path": [
+        [
+          16.193000000000012,
+          6.646000000000001
+        ],
+        [
+          16.193000000000012,
+          5.938500000000005
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-20",
+      "layer": 1,
+      "net": "KEY_IC",
+      "path": [
+        [
+          16.193000000000012,
+          5.938500000000005
+        ],
+        [
+          14.816000000000003,
+          4.561499999999995
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-21",
+      "layer": 1,
+      "net": "KEY_IC",
+      "path": [
+        [
+          14.816000000000003,
+          4.561499999999995
+        ],
+        [
+          14.816000000000003,
+          1.9950000000000045
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-22",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          13.316000000000003,
+          1.9950000000000045
+        ],
+        [
+          13.316000000000003,
+          1.7450000000000045
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-23",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          13.316000000000003,
+          1.7450000000000045
+        ],
+        [
+          17.066000000000003,
+          -2.0049999999999955
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-24",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          17.066000000000003,
+          -2.0049999999999955
+        ],
+        [
+          18.066000000000003,
+          -2.0049999999999955
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-25",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          18.066000000000003,
+          -2.0049999999999955
+        ],
+        [
+          21.5,
+          1.429000000000002
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-26",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          21.5,
+          1.429000000000002
+        ],
+        [
+          21.5,
+          4.929000000000002
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-27",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          21.5,
+          4.929000000000002
+        ],
+        [
+          22.25,
+          5.679000000000002
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-28",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          22.25,
+          5.679000000000002
+        ],
+        [
+          22.25,
+          15.849999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-29",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          22.25,
+          15.849999999999994
+        ],
+        [
+          21,
+          17.099999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-30",
+      "layer": 1,
+      "net": "Net-(SW1-A)",
+      "path": [
+        [
+          21,
+          17.099999999999994
+        ],
+        [
+          27,
+          17.099999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-31",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          13.693000000000012,
+          12.465999999999994
+        ],
+        [
+          13.693000000000012,
+          12.965999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-32",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          13.693000000000012,
+          12.965999999999994
+        ],
+        [
+          13.943000000000012,
+          13.215999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-33",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          13.943000000000012,
+          13.215999999999994
+        ],
+        [
+          18.443000000000012,
+          13.215999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-34",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          18.443000000000012,
+          13.215999999999994
+        ],
+        [
+          19.693000000000012,
+          11.965999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-35",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          19.693000000000012,
+          11.965999999999994
+        ],
+        [
+          19.693000000000012,
+          5.715999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-36",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          19.693000000000012,
+          5.715999999999994
+        ],
+        [
+          20.193000000000012,
+          5.215999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-37",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          20.193000000000012,
+          5.215999999999994
+        ],
+        [
+          20.443000000000012,
+          5.215999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-38",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          20.443000000000012,
+          5.215999999999994
+        ],
+        [
+          20.943000000000012,
+          4.715999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-39",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          20.943000000000012,
+          4.715999999999994
+        ],
+        [
+          20.943000000000012,
+          2.3540000000000276
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-40",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          20.943000000000012,
+          2.3540000000000276
+        ],
+        [
+          17.51599999999999,
+          -1.0729999999999933
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-41",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          13.693000000000012,
+          12.465999999999994
+        ],
+        [
+          -32.584,
+          12.465999999999994
+        ]
+      ],
+      "width": 0.25
+    },
+    {
+      "id": "existing-42",
+      "layer": 1,
+      "net": "BAT_NTC",
+      "path": [
+        [
+          -32.584,
+          12.465999999999994
+        ],
+        [
+          -44.849999999999994,
+          0.20000000000000284
+        ]
+      ],
+      "width": 0.25
+    }
+  ],
+  "vias": [],
+  "fillRegions": [],
+  "prohibitedRegions": []
+}

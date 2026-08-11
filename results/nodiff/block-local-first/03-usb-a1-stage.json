@@ -1,0 +1,18 @@
+{
+  "label": "03-usb-a1",
+  "targetNets": [
+    "USB_A1_DP",
+    "USB_A1_DM",
+    "USB_A1_VBUS",
+    "VOUT1_GATE_IC",
+    "VOUT1_GATE"
+  ],
+  "differentialPairs": [],
+  "progress": 1,
+  "routability": 0.5555555555555556,
+  "traces": 5,
+  "vias": 0,
+  "segments": 13,
+  "addedVias": 0,
+  "routingElapsedMs": 16517.2319
+}

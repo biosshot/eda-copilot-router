@@ -1,0 +1,20 @@
+{
+  "label": "02-usb-c",
+  "targetNets": [
+    "USB_DP",
+    "USB_DM",
+    "USB_CC1",
+    "USB_CC2",
+    "USB_VBUS",
+    "VBUS_GATE_IC",
+    "VBUS_GATE"
+  ],
+  "differentialPairs": [],
+  "progress": 1,
+  "routability": 0.4117647058823529,
+  "traces": 7,
+  "vias": 0,
+  "segments": 16,
+  "addedVias": 0,
+  "routingElapsedMs": 81105.2252
+}

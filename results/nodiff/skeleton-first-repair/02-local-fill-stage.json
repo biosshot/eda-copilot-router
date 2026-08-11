@@ -1,0 +1,26 @@
+{
+  "label": "02-local-fill",
+  "targetNets": [
+    "Net-(U1-BST)",
+    "Net-(C2-Pad2)",
+    "VREG_3V1",
+    "BAT_NTC",
+    "KEY_IC",
+    "Net-(SW1-A)",
+    "Net-(U1-RSET)",
+    "VOUT2_GATE",
+    "VBUS_GATE",
+    "VOUT2_GATE_IC",
+    "VOUT1_GATE_IC",
+    "VOUT1_GATE",
+    "VBUS_GATE_IC"
+  ],
+  "differentialPairs": [],
+  "progress": 1,
+  "routability": 0.6956521739130435,
+  "traces": 31,
+  "vias": 15,
+  "segments": 81,
+  "addedVias": 15,
+  "routingElapsedMs": 5426.279600000009
+}

@@ -1,0 +1,487 @@
+{
+  "version": 1,
+  "polygons": [
+    {
+      "kind": "polygon",
+      "net": "Net-(C2-Pad2)",
+      "targets": [
+        {
+          "kind": "net",
+          "net": "Net-(C2-Pad2)"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 30,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "BAT_POS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "28"
+        },
+        {
+          "kind": "pad",
+          "component": "C9",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 25,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_CONV",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "8"
+        },
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "9"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 20,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_CONV",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "22"
+        },
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "23"
+        },
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "24"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 20,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_CONV",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "U1",
+          "pad": "24"
+        },
+        {
+          "kind": "pad",
+          "component": "R1",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 20,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_CONV",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C11",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "C8",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "C7",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 20,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_CONV",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C6",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "C5",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "C3",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 20,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_PORT",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "2"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "3"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 18,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_PORT",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "7"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 18,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_PORT",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "5"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "6"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "7"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "8"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "9"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 18,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "VSYS_PORT",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "R9",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "2"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "3"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 18,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "5"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "6"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "7"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "8"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 16,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C10",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q1",
+          "pad": "5"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 16,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A1_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "2"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "3"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A1_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C12",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q2",
+          "pad": "3"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A1_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C12",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "J3",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A2_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "5"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "6"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "7"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "8"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A2_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "C13",
+          "pad": "1"
+        },
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "5"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    },
+    {
+      "kind": "polygon",
+      "net": "USB_A2_VBUS",
+      "targets": [
+        {
+          "kind": "pad",
+          "component": "Q3",
+          "pad": "8"
+        },
+        {
+          "kind": "pad",
+          "component": "J4",
+          "pad": "1"
+        }
+      ],
+      "layers": {
+        "kind": "top"
+      },
+      "mode": "compact",
+      "priority": 15,
+      "maxPadFreeGapWidths": 4.5
+    }
+  ]
+}

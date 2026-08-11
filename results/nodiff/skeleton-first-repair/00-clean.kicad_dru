@@ -1,0 +1,42 @@
+(version 1)
+
+(rule "Minimum routed copper clearance"
+  (constraint clearance (min 0.20mm)))
+
+(rule "USB controller pair clearance"
+  (condition "(A.NetName == 'USB_DP' && B.NetName == 'USB_DM') || (A.NetName == 'USB_DM' && B.NetName == 'USB_DP')")
+  (constraint clearance (min 0.15mm)))
+
+(rule "USB port A1 pair clearance"
+  (condition "(A.NetName == 'USB_A1_DP' && B.NetName == 'USB_A1_DM') || (A.NetName == 'USB_A1_DM' && B.NetName == 'USB_A1_DP')")
+  (constraint clearance (min 0.15mm)))
+
+(rule "USB port A2 pair clearance"
+  (condition "(A.NetName == 'USB_A2_DP' && B.NetName == 'USB_A2_DM') || (A.NetName == 'USB_A2_DM' && B.NetName == 'USB_A2_DP')")
+  (constraint clearance (min 0.15mm)))
+
+(rule "Default signal geometry"
+  (condition "!A.hasNetclass('Power') && !A.hasNetclass('USB_Data')")
+  (constraint track_width (min 0.25mm) (opt 0.25mm) (max 0.25mm))
+  (constraint via_diameter (min 0.60mm) (opt 0.60mm))
+  (constraint hole_size (min 0.30mm)))
+
+(rule "Power geometry - constant-width autorouter escape"
+  (condition "A.hasNetclass('Power')")
+  (constraint track_width (min 0.30mm) (opt 0.30mm) (max 0.30mm))
+  (constraint via_diameter (min 0.80mm) (opt 0.80mm))
+  (constraint hole_size (min 0.40mm)))
+
+(rule "USB data geometry"
+  (condition "A.hasNetclass('USB_Data')")
+  (constraint track_width (min 0.20mm) (opt 0.20mm) (max 0.20mm))
+  (constraint via_diameter (min 0.60mm) (opt 0.60mm))
+  (constraint hole_size (min 0.30mm)))
+
+(rule "USB port A1 pair skew"
+  (condition "A.NetName == 'USB_A1_DP' || A.NetName == 'USB_A1_DM'")
+  (constraint skew (max 0.254mm)))
+
+(rule "USB port A2 pair skew"
+  (condition "A.NetName == 'USB_A2_DP' || A.NetName == 'USB_A2_DM'")
+  (constraint skew (max 0.254mm)))

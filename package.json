@@ -1,0 +1,18 @@
+{
+  "name": "copilot-router-benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "test:baseline": "node dist/benchmark.js baseline",
+    "test:block": "node dist/benchmark.js block-local-first",
+    "test:hybrid": "node dist/benchmark.js skeleton-first-repair",
+    "test:poly": "node dist/poly-test.js",
+    "test:poly:fill": "node dist/poly-validate.js",
+    "test:poly:dsl": "node scripts/check-polygon-dsl.mjs",
+    "test": "node scripts/run-all.mjs"
+  },
+  "dependencies": {
+    "clipper-lib": "^6.4.2"
+  }
+}

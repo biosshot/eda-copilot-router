@@ -1,0 +1,12 @@
+﻿{
+    "clean":  {
+                  "exitCode":  null,
+                  "elapsedMs":  3122.63,
+                  "peakWorkingSetBytes":  1902923776
+              },
+    "generated":  {
+                      "exitCode":  null,
+                      "elapsedMs":  3562.12,
+                      "peakWorkingSetBytes":  1910366208
+                  }
+}
