@@ -1,5 +1,8 @@
 # Fixed-placement staged autorouter benchmark
 
+The backend-independent routing architecture and its fail-fast invariants are
+recorded in [`docs/architecture/router-backend-boundaries.md`](docs/architecture/router-backend-boundaries.md).
+
 This benchmark keeps every KiCad footprint at its existing position and compares three EasyEDA WASM routing strategies:
 
 1. `baseline`: all non-GND nets in one pass.
