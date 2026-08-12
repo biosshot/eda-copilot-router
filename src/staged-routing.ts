@@ -148,6 +148,7 @@ type WorkflowConfig = {
   krtMaxRipup: number
   krtHeuristicWeight: number
   krtOrdering: "inside_out" | "mps" | "original"
+  skipSpecial: boolean
 }
 
 const DEFAULT_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.kicad_pcb"
@@ -542,6 +543,7 @@ function configFromEnvironment(): WorkflowConfig {
     krtMaxRipup: Number(process.env.COPILOT_ROUTER_KRT_MAX_RIPUP ?? 5),
     krtHeuristicWeight: Number(process.env.COPILOT_ROUTER_KRT_HEURISTIC_WEIGHT ?? 1.2),
     krtOrdering: readKrtOrdering(process.env.COPILOT_ROUTER_KRT_ORDERING),
+    skipSpecial: process.env.COPILOT_ROUTER_SKIP_SPECIAL === "1",
   }
 }
 
@@ -789,7 +791,19 @@ async function main() {
       } catch {}
     }
 
-    if (latestBoard && specialIntent && routingRules) {
+    if (config.skipSpecial && latestBoard && specialIntent && routingRules) {
+      stages.push({
+        stage: "special",
+        status: "skipped",
+        inputBoard: latestBoard,
+        outputBoard: latestBoard,
+        diagnostics: [diagnostic(
+          "SPECIAL_DISABLED_FOR_EXPERIMENT",
+          "warning",
+          "Special routing was deliberately skipped; all non-GND nets are delegated to Remaining.",
+        )],
+      })
+    } else if (latestBoard && specialIntent && routingRules) {
       const specialInput = latestBoard
       const specialStarted = performance.now()
       try {
@@ -901,8 +915,8 @@ async function main() {
             meanderSpacing: specialIntent.meanderSpacingWidths,
           },
           ordinaryMatchedFabOverridesPath: ordinaryFabPath,
-          diffPairs: specialIntent.diffPairs,
-          matchedGroups: specialIntent.matchedGroups,
+          diffPairs: config.skipSpecial ? [] : specialIntent.diffPairs,
+          matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
           remainingNets: [],
           ordering: config.krtOrdering,
           maxIterations: 1_000_000,
@@ -1004,7 +1018,7 @@ async function main() {
       const remainingInput = latestBoard
       const remainingStarted = performance.now()
       try {
-      const specialNets = new Set([
+      const specialNets = new Set(config.skipSpecial ? [] : [
         ...specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]),
         ...specialIntent.matchedGroups.flat(),
       ])
@@ -1145,8 +1159,8 @@ async function main() {
             routingClearanceMargin: 1,
           },
           fabOverridesPath: fabPath,
-          diffPairs: specialIntent.diffPairs,
-          matchedGroups: specialIntent.matchedGroups,
+          diffPairs: config.skipSpecial ? [] : specialIntent.diffPairs,
+          matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
           remainingNets,
           powerNets,
           ordering: config.krtOrdering,
@@ -1314,6 +1328,7 @@ async function main() {
         heuristicWeight: config.krtHeuristicWeight,
         ordering: config.krtOrdering,
       },
+      skipSpecial: config.skipSpecial,
       sourceBoard: config.sourceBoard,
       rulesBoard: config.rulesBoard,
       polygonDsl: config.polygonDsl,
