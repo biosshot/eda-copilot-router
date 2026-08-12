@@ -114,3 +114,18 @@ polygon("USB_A2_VBUS")
   .on(topLayer())
   .compact()
   .priority(15)
+
+// Late plane intent: materialized only after special and remaining routing.
+plane({
+  net: "GND",
+  layers: outerLayers(),
+  region: board(),
+  priority: 1,
+  stitching: {
+    gridMm: 5,
+    maxPadViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+    maxVias: 500,
+  },
+})

@@ -169,6 +169,8 @@ assert.deepEqual(cleanSummary, {
   newErrorViolations: [],
   missingNonGroundNets: [],
   missingNonGroundItems: 0,
+  missingRequiredGroundNets: [],
+  missingRequiredGroundItems: 0,
   totalUnconnectedItems: 1,
 })
 
@@ -208,6 +210,34 @@ const warningOnly = {
 }
 assert.deepEqual(summarizeFinalDrc(baseline, warningOnly).newErrorViolations, [])
 assert.equal(deriveFinalValidation(baseline, warningOnly).valid, true)
+
+const requiredGroundValidation = deriveFinalValidation(
+  baseline,
+  sameBaselineAndGroundOnly,
+  undefined,
+  { requiredGroundNets: ["GND"] },
+)
+assert.equal(requiredGroundValidation.valid, false)
+assert.deepEqual(requiredGroundValidation.missingRequiredGroundNets, ["GND"])
+assert.equal(requiredGroundValidation.missingRequiredGroundItems, 1)
+
+const groundZoneSelfReference = {
+  violations: [],
+  unconnected_items: [{
+    items: [
+      { uuid: "zone-gnd", description: "Zone 'plane' [GND] on F.Cu and B.Cu" },
+      { uuid: "zone-gnd", description: "Zone 'plane' [GND] on F.Cu and B.Cu" },
+    ],
+  }],
+}
+const zoneOnlyValidation = deriveFinalValidation(
+  { violations: [], unconnected_items: [] },
+  groundZoneSelfReference,
+  undefined,
+  { requiredGroundNets: ["GND"] },
+)
+assert.equal(zoneOnlyValidation.valid, true)
+assert.equal(zoneOnlyValidation.missingRequiredGroundItems, 0)
 
 const removedBaselineError = {
   violations: [],

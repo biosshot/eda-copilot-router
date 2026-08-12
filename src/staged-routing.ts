@@ -48,7 +48,7 @@ import {
   type EasyEdaWasmStageSpec,
 } from "./backends/easyeda-wasm-adapter"
 import { isOctilinearBoundary } from "./polygon/boundary-optimizer"
-import { runPolygonDsl } from "./polygon/dsl"
+import { runPolygonDsl, type PlaneIntent } from "./polygon/dsl"
 import {
   planPolygons,
   validateFilledPolygonPlans,
@@ -66,6 +66,10 @@ import {
   removeFilledCopperProxy,
 } from "./filled-copper-proxy"
 import { scheduleNets, type NetSchedule } from "./net-scheduler"
+import {
+  applyPlaneStitching,
+  removeInvalidPlaneVias,
+} from "./ground-plane"
 import {
   compilePowerIntent,
   parsePowerIntent,
@@ -87,7 +91,7 @@ export type WorkflowDiagnostic = {
 }
 
 export type WorkflowStage = {
-  stage: "preflight" | "polygons" | "special" | "remaining" | "final"
+  stage: "preflight" | "polygons" | "special" | "remaining" | "ground" | "final"
   status: "ok" | "partial" | "error" | "skipped" | "skipped_due_to_dependency"
   inputBoard?: string
   outputBoard?: string
@@ -111,6 +115,8 @@ export type FinalDrcSummary = {
   newErrorViolations: Array<{ key: string; type: string }>
   missingNonGroundNets: string[]
   missingNonGroundItems: number
+  missingRequiredGroundNets: string[]
+  missingRequiredGroundItems: number
   totalUnconnectedItems: number
 }
 
@@ -255,7 +261,11 @@ function errorViolationIdentity(report: unknown) {
   })
 }
 
-export function summarizeFinalDrc(baseline: unknown, final: unknown): FinalDrcSummary {
+export function summarizeFinalDrc(
+  baseline: unknown,
+  final: unknown,
+  options: { requiredGroundNets?: readonly string[] } = {},
+): FinalDrcSummary {
   const baselineKeys = new Set(errorViolationIdentity(baseline).map((item) => item.key))
   const newErrorViolations = errorViolationIdentity(final)
     .filter((item) => !baselineKeys.has(item.key))
@@ -263,22 +273,44 @@ export function summarizeFinalDrc(baseline: unknown, final: unknown): FinalDrcSu
   const root = final && typeof final === "object" ? final as JsonRecord : {}
   const unconnectedItems = Array.isArray(root.unconnected_items) ? root.unconnected_items : []
   const missingNets = new Set<string>()
+  const missingGroundNets = new Set<string>()
+  const requiredGroundNets = new Map((options.requiredGroundNets ?? [])
+    .map((net) => [String(net).toUpperCase(), String(net)] as const))
   let missingNonGroundItems = 0
+  let missingRequiredGroundItems = 0
   for (const entry of unconnectedItems) {
     if (!entry || typeof entry !== "object") continue
     const items = Array.isArray((entry as JsonRecord).items) ? (entry as JsonRecord).items : []
     const nets = new Set(items.map((item) => (
       item && typeof item === "object" ? extractNet((item as JsonRecord).description) : ""
     )).filter(Boolean))
-    nets.delete("GND")
-    if (!nets.size) continue
-    missingNonGroundItems += 1
-    for (const net of nets) missingNets.add(net)
+    const ground = [...nets].filter((net) => requiredGroundNets.has(net.toUpperCase()))
+    const nonGround = [...nets].filter((net) => !requiredGroundNets.has(net.toUpperCase()))
+    const zoneOnlySelfReference = ground.length > 0
+      && items.length > 0
+      && items.every((item) => item && typeof item === "object"
+        && String((item as JsonRecord).description ?? "").startsWith("Zone "))
+      && new Set(items.map((item) => (
+        item && typeof item === "object" ? String((item as JsonRecord).uuid ?? "") : ""
+      )).filter(Boolean)).size <= 1
+    if (ground.length && !zoneOnlySelfReference) {
+      missingRequiredGroundItems += 1
+      for (const net of ground) missingGroundNets.add(requiredGroundNets.get(net.toUpperCase()) ?? net)
+    }
+    if (nonGround.length) {
+      // GND remains advisory unless the current DSL explicitly requested it.
+      const ordinary = nonGround.filter((net) => net.toUpperCase() !== "GND")
+      if (!ordinary.length) continue
+      missingNonGroundItems += 1
+      for (const net of ordinary) missingNets.add(net)
+    }
   }
   return {
     newErrorViolations,
     missingNonGroundNets: [...missingNets].sort(),
     missingNonGroundItems,
+    missingRequiredGroundNets: [...missingGroundNets].sort(),
+    missingRequiredGroundItems,
     totalUnconnectedItems: unconnectedItems.length,
   }
 }
@@ -287,12 +319,14 @@ export function deriveFinalValidation(
   baseline: unknown,
   final: unknown,
   powerValidation?: PowerRoutingValidation,
+  options: { requiredGroundNets?: readonly string[] } = {},
 ): FinalValidation {
-  const summary = summarizeFinalDrc(baseline, final)
+  const summary = summarizeFinalDrc(baseline, final, options)
   return {
     completed: true,
     valid: summary.newErrorViolations.length === 0
       && summary.missingNonGroundItems === 0
+      && summary.missingRequiredGroundItems === 0
       && (powerValidation?.valid ?? true),
     ...summary,
     ...(powerValidation ? {
@@ -644,6 +678,7 @@ async function main() {
   let latestBoard: string | undefined
   let baselineBoard: string | undefined
   let plans: ZonePlan[] = []
+  let planeIntents: PlaneIntent[] = []
   let specialIntent: SpecialIntent | undefined
   let compiledPowerIntent: CompiledPowerIntent | undefined
   let preflightBlocked = false
@@ -812,6 +847,7 @@ async function main() {
         const nativeRules = await readPcbRoutingRules(config.rulesBoard)
         const rules = nativeRules
         const program = runPolygonDsl(await readFile(config.polygonDsl, "utf8"))
+        planeIntents = program.planes
         const result = planPolygons(raw, program, {
           rulesForNet: (net) => geometryRulesForNet(rules, net),
         })
@@ -1560,6 +1596,106 @@ async function main() {
       stages.push({ stage: "remaining", status: "skipped_due_to_dependency", diagnostics: [] })
     }
 
+    if (latestBoard && routingRules && planeIntents.length) {
+      const groundInput = latestBoard
+      const groundOutput = resolve(config.resultDirectory, "04-ground.kicad_pcb")
+      const groundStarted = performance.now()
+      try {
+        await copyFile(groundInput, groundOutput)
+        await copySidecars(groundInput, groundOutput)
+        const document = await readPcb(groundOutput)
+        const root = parsePcbSource(document.source)
+        const manifest = applyPlaneStitching(root, planeIntents, routingRules, {
+          holeToHoleMm: await nativeHoleToHoleRule(groundInput),
+        })
+        await writeFile(groundOutput, serializePcb(root))
+        let refill = await runNativeDrc(
+          groundOutput,
+          resolve(config.resultDirectory, "04-ground-drc.json"),
+          config,
+          true,
+        )
+        await writeFile(
+          resolve(config.resultDirectory, "04-ground-manifest.json"),
+          `${JSON.stringify(manifest, null, 2)}\n`,
+        )
+        let cleanup = { expected: manifest.generatedViaUuids.length, removed: 0, removedUuids: [] as string[] }
+        if (refill.report && await exists(groundOutput)) {
+          const refilled = await readPcb(groundOutput)
+          const refilledRoot = parsePcbSource(refilled.source)
+          cleanup = removeInvalidPlaneVias(refilledRoot, manifest, refill.report)
+          if (cleanup.removed) {
+            await writeFile(groundOutput, serializePcb(refilledRoot))
+            refill = await runNativeDrc(
+              groundOutput,
+              resolve(config.resultDirectory, "04-ground-cleaned-drc.json"),
+              config,
+              true,
+            )
+          }
+        }
+        await writeFile(
+          resolve(config.resultDirectory, "04-ground-cleanup.json"),
+          `${JSON.stringify(cleanup, null, 2)}\n`,
+        )
+        latestBoard = groundOutput
+        const diagnostics: WorkflowDiagnostic[] = []
+        if (manifest.unsupportedRegions.length) diagnostics.push(diagnostic(
+          "GROUND_REGION_UNSUPPORTED",
+          "error",
+          "components(...) plane regions are reserved but not implemented.",
+          manifest.unsupportedRegions,
+        ))
+        if (manifest.padViaFailures.length) diagnostics.push(diagnostic(
+          "GROUND_PAD_VIA_UNAVAILABLE",
+          "warning",
+          `${manifest.padViaFailures.length} GND pad(s) have no visible stitching via and could not accept via-in-pad.`,
+          manifest.padViaFailures,
+        ))
+        if (!refill.report || refill.process.error || refill.process.timedOut) diagnostics.push(diagnostic(
+          "GROUND_REFILL_FAILED",
+          "error",
+          "KiCad did not complete a readable GND plane refill.",
+          refill.process,
+        ))
+        stages.push({
+          stage: "ground",
+          status: diagnostics.some((item) => item.severity === "error")
+            ? "error"
+            : diagnostics.length ? "partial" : "ok",
+          inputBoard: groundInput,
+          outputBoard: groundOutput,
+          diagnostics,
+          metrics: {
+            elapsedMs: performance.now() - groundStarted,
+            zonesAdded: manifest.zonesAdded,
+            gridVias: manifest.gridVias,
+            padVias: manifest.padVias,
+            padsCoveredByVisibleVia: manifest.padsCoveredByVisibleVia,
+            pthPadsSkipped: manifest.pthPadsSkipped,
+            invalidViasRemoved: cleanup.removed,
+          },
+          details: { manifest, cleanup },
+        })
+      } catch (error) {
+        latestBoard = groundInput
+        stages.push({
+          stage: "ground",
+          status: "error",
+          inputBoard: groundInput,
+          outputBoard: groundInput,
+          diagnostics: [diagnostic("GROUND_STAGE_FAILED", "error", errorText(error))],
+          metrics: { elapsedMs: performance.now() - groundStarted },
+        })
+      }
+    } else {
+      stages.push({
+        stage: "ground",
+        status: planeIntents.length ? "skipped_due_to_dependency" : "skipped",
+        diagnostics: [],
+      })
+    }
+
     let finalValidation: FinalValidation | { completed: false; valid: false; reason: string }
     if (latestBoard && baselineReport) {
       await copyFile(latestBoard, config.outputBoard)
@@ -1582,7 +1718,9 @@ async function main() {
           resolve(config.resultDirectory, "99-final-power-validation.json"),
           `${JSON.stringify(powerValidation, null, 2)}\n`,
         )
-        finalValidation = deriveFinalValidation(baselineReport, finalDrc.report, powerValidation)
+        finalValidation = deriveFinalValidation(baselineReport, finalDrc.report, powerValidation, {
+          requiredGroundNets: planeIntents.map((plane) => plane.net),
+        })
         const finalPolygonValidation = validateFilledPolygonPlans(
           kicadToRawPcb(finalRoot, { includeZones: true }),
           plans,
@@ -1596,6 +1734,11 @@ async function main() {
           diagnostics: [
             ...finalValidation.newErrorViolations.map((item) => diagnostic("FINAL_NEW_DRC_ERROR", "error", item.type, item)),
             ...finalValidation.missingNonGroundNets.map((net) => diagnostic("FINAL_NET_OPEN", "error", `${net} remains unconnected.`)),
+            ...finalValidation.missingRequiredGroundNets.map((net) => diagnostic(
+              "FINAL_GROUND_NET_OPEN",
+              "error",
+              `${net} remains unconnected after plane stitching.`,
+            )),
             ...(finalValidation.powerValidation?.violations ?? []).map((item) => diagnostic(
               item.code,
               "error",

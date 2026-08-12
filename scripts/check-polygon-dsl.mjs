@@ -48,16 +48,44 @@ polygon("WIDE")
   .on(topLayer())
   .compact();
 
-polygon("GND")
-  .connect(net("GND"))
-  .on(outerLayers())
-  .plane();
+plane({
+  net: "GND",
+  layers: outerLayers(),
+  region: board(),
+  priority: 1,
+  stitching: {
+    gridMm: 5,
+    maxPadViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+    maxVias: 500,
+  },
+});
 `)
-assert.equal(program.polygons.length, 5)
+assert.equal(program.polygons.length, 4)
+assert.equal(program.planes.length, 1)
+assert.deepEqual(program.planes[0], {
+  kind: "plane",
+  net: "GND",
+  layers: { kind: "outer" },
+  region: { kind: "board" },
+  paddingMm: 0,
+  priority: 1,
+  stitching: {
+    gridMm: 5,
+    maxPadViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+    maxVias: 500,
+  },
+})
 assert.equal("clearance" in program.polygons[0], false)
 assert.equal("around" in program.polygons[0], false)
 assert.equal("refillBy" in program.polygons[0], false)
-assert.throws(() => runPolygonDsl(`polygon("GND").plane()`), /no connect/)
+assert.throws(() => runPolygonDsl(`polygon("GND").plane()`), /plane is not a function/)
+assert.throws(() => runPolygonDsl(`plane({ net: "GND", region: components() })`), /at least one designator/)
+assert.throws(() => runPolygonDsl(`plane({ net: "GND", stitching: { via: "small" } })`), /drc-min/)
+assert.throws(() => runPolygonDsl(`plane({ net: "GND", region: board(), paddingMm: 2 })`), /reserved/)
 assert.throws(() => runPolygonDsl(`polygon("GND").connect(net("OTHER"))`), /cannot connect/)
 assert.throws(() => runPolygonDsl(`polygon("GND").connect(net("GND")).on(layers("F.Cu"))`), /universal RawPcb copper layer/)
 assert.throws(() => runPolygonDsl(`polygon("GND").connect(net("GND")).maxPadFreeGap(0)`), /finite number > 0/)
@@ -222,7 +250,6 @@ const local = first.plans.find((plan) => plan.net === "LOCAL")
 const wide = first.plans.find((plan) => plan.net === "WIDE")
 const tunable = first.plans.find((plan) => plan.net === "TUNABLE")
 const strict = first.plans.find((plan) => plan.net === "STRICT")
-const planes = first.plans.filter((plan) => plan.net === "GND")
 assert.equal(local?.status, "ready")
 assert.ok(local.boardAreaRatio <= MAX_COMPACT_BOARD_AREA_RATIO)
 assert.ok(isOctilinearBoundary(local.boundary))
@@ -236,8 +263,7 @@ assert.match(wide?.reason ?? "", /pad-free gap/)
 assert.equal(strict?.status, "error")
 assert.match(strict?.reason ?? "", /configured maxPadFreeGap/)
 assert.equal(first.metrics.errors, 1)
-assert.equal(planes.length, 2)
-assert.ok(planes.every((plan) => plan.status === "ready" && plan.boardAreaRatio === 1))
+assert.equal(first.program.planes.length, 1)
 assert.deepEqual(first.plans.map((plan) => plan.boundary), second.plans.map((plan) => plan.boundary))
 
 const angledProgram = runPolygonDsl(`

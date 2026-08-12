@@ -1,5 +1,14 @@
 export { runPolygonDsl } from "./dsl"
-export type { PolygonIntent, PolygonLayerSelector, PolygonMode, PolygonProgram, PolygonTarget } from "./dsl"
+export type {
+  PlaneIntent,
+  PlaneRegionSelector,
+  PlaneStitchingIntent,
+  PolygonIntent,
+  PolygonLayerSelector,
+  PolygonMode,
+  PolygonProgram,
+  PolygonTarget,
+} from "./dsl"
 export {
   DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM,
   DEFAULT_OBSTACLE_CLEARANCE_MM,

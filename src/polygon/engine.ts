@@ -353,25 +353,6 @@ function planIntent(
   const explicitPadKeys = new Set(explicitPads.map(padKey))
   if (!targetPads.length) return [failed(intent, layer, boardAreaMm2, `no target pads are present on ${layer}`)]
 
-  if (intent.mode === "plane") {
-    const boundary = pcb.board?.polygon
-    if (!boundary || boundary.length < 3 || boardAreaMm2 <= 0) {
-      return [failed(intent, layer, boardAreaMm2, "board outline is missing or invalid", targetPads)]
-    }
-    return [{
-      intent,
-      net: intent.net,
-      layer,
-      status: "ready",
-      targetPads: targetPads.map(resolvedPad),
-      boundary: boundary.map((point) => ({ ...point })),
-      boardAreaMm2,
-      boundaryAreaMm2: boardAreaMm2,
-      boardAreaRatio: 1,
-      warnings: ["plane() explicitly permits a board-scale native EDA zone"],
-    }]
-  }
-
   if (targetPads.length < 2) {
     const createDiagnostic = explicitPads.length ? failed : skipped
     return [createDiagnostic(intent, layer, boardAreaMm2, "compact polygon needs at least two target pads", targetPads)]
@@ -482,7 +463,7 @@ function coalesceSharedPadIntents(items: LayerIntent[]) {
   }
   const merged: LayerIntent[] = []
   for (const bucket of buckets.values()) {
-    if (bucket[0].intent.mode !== "compact" || bucket.length < 2) {
+    if (bucket.length < 2) {
       merged.push(...bucket)
       continue
     }

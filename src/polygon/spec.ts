@@ -14,7 +14,9 @@ are mandatory: if they cannot share one compact boundary the planner reports an 
 For net(...) targets, distant local clusters may intentionally remain for the router.
 Every compact boundary uses only 0/45/90-degree edges and removes sub-width spikes and protrusions.
 Boundary complexity is unrestricted; a valid detailed contour must not be split merely to reduce points.
-Use plane() only when a board-scale zone is genuinely intended, such as the final GND plane.
+Use plane({...}) only when a board-scale native zone is genuinely intended, such as the final GND plane.
+The current engine implements region: board(). components(...) is reserved syntax and is reported as unsupported.
+Plane stitching uses native DRC minimum vias and never derives absolute via geometry from the LLM.
 
 Examples:
 
@@ -24,10 +26,12 @@ polygon("VSYS")
   .on(topLayer())
   .compact()
 
-polygon("GND")
-  .connect(net("GND"))
-  .on(outerLayers())
-  .plane()
+plane({
+  net: "GND",
+  layers: outerLayers(),
+  region: board(),
+  stitching: true,
+})
 \`\`\`
 
 \`\`\`ts

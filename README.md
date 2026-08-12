@@ -52,11 +52,18 @@ polygon("VSYS")
   .on(topLayer())
   .compact()
 
-polygon("GND")
-  .connect(net("GND"))
-  .on(outerLayers())
-  .plane()
-  .priority(1)
+plane({
+  net: "GND",
+  layers: outerLayers(),
+  region: board(),
+  priority: 1,
+  stitching: {
+    gridMm: 5,
+    maxPadViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+  },
+})
 ```
 
 `compact()` derives point-like pad heads joined by obstacle-aware 0/45/90-degree
@@ -86,8 +93,11 @@ validator.
 The default maximum pad-free span is 4.5 widths of the narrower target pad;
 `.maxPadFreeGap(...)` overrides it per rule. Explicit `pad(...)` targets are
 mandatory: an impossible compact connection is reported as a plan error while
-the rest of the program continues. Only an explicit `plane()` permits a
-board-scale outline. Touching same-net plans are unioned before native-zone
+the rest of the program continues. Only the standalone `plane({...})` macro
+permits a late board-scale outline. Its `components(...)` region syntax is
+reserved but deliberately unsupported in the current engine. Stitching ignores
+component bodies and courtyards; only copper, pads, holes, keepouts, board edges,
+and native DRC constrain via placement. Touching same-net plans are unioned before native-zone
 export. The adapter reads physical values from the target EDA's design rules
 when it creates the native zone.
 

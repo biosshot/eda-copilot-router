@@ -18,7 +18,29 @@ export type PolygonNetTarget = {
 }
 
 export type PolygonTarget = PolygonPadTarget | PolygonNetTarget
-export type PolygonMode = "compact" | "plane"
+export type PolygonMode = "compact"
+
+export type PlaneRegionSelector =
+  | { kind: "board" }
+  | { kind: "components"; designators: string[] }
+
+export type PlaneStitchingIntent = {
+  gridMm: number
+  maxPadViaDistanceMm: number
+  via: "drc-min"
+  viaInPad: boolean
+  maxVias: number
+}
+
+export type PlaneIntent = {
+  kind: "plane"
+  net: string
+  layers: PolygonLayerSelector
+  region: PlaneRegionSelector
+  paddingMm: number
+  priority: number
+  stitching: false | PlaneStitchingIntent
+}
 
 export type PolygonIntent = {
   kind: "polygon"
@@ -34,6 +56,7 @@ export type PolygonIntent = {
 export type PolygonProgram = {
   version: 1
   polygons: PolygonIntent[]
+  planes: PlaneIntent[]
 }
 
 const nonEmpty = (value: unknown, label: string) => {
@@ -75,11 +98,6 @@ class PolygonRuleBuilder {
     return this
   }
 
-  plane() {
-    this.intent.mode = "plane"
-    return this
-  }
-
   priority(value: number) {
     if (!Number.isInteger(value) || value < 0) throw new Error("polygon.priority must be an integer >= 0")
     this.intent.priority = value
@@ -97,10 +115,12 @@ class PolygonRuleBuilder {
 
 class PolygonDslBuilder {
   private readonly polygons: PolygonIntent[] = []
+  private readonly planes: PlaneIntent[] = []
 
   createSandbox() {
     return {
       polygon: (net: string) => this.addPolygon(net),
+      plane: (options: unknown) => this.addPlane(options),
       pad: (component: string, padNumber: string | number): PolygonPadTarget => ({
         kind: "pad",
         component: nonEmpty(component, "pad component"),
@@ -120,11 +140,18 @@ class PolygonDslBuilder {
           return normalized
         }),
       }),
+      board: (): PlaneRegionSelector => ({ kind: "board" }),
+      components: (...designators: string[]): PlaneRegionSelector => ({
+        kind: "components",
+        designators: designators.map((designator, index) => nonEmpty(designator, `components[${index}]`)),
+      }),
     }
   }
 
   toProgram(): PolygonProgram {
-    if (this.polygons.length === 0) throw new Error("polygon DSL produced no polygon rules")
+    if (this.polygons.length === 0 && this.planes.length === 0) {
+      throw new Error("polygon DSL produced no polygon or plane rules")
+    }
     for (const [index, intent] of this.polygons.entries()) {
       if (!intent.targets.length) throw new Error(`polygon rule ${index + 1} (${intent.net}) has no connect(...) targets`)
       for (const target of intent.targets) {
@@ -138,7 +165,84 @@ class PolygonDslBuilder {
       polygons: this.polygons
         .map((intent) => structuredClone(intent))
         .sort((a, b) => b.priority - a.priority),
+      planes: this.planes
+        .map((intent) => structuredClone(intent))
+        .sort((a, b) => b.priority - a.priority),
     }
+  }
+
+  private addPlane(value: unknown) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("plane(...) requires an options object")
+    }
+    const options = value as Record<string, unknown>
+    const layers = options.layers ?? { kind: "outer" }
+    if (!layers || typeof layers !== "object"
+      || !["outer", "top", "bottom", "named"].includes(String((layers as { kind?: unknown }).kind))) {
+      throw new Error("plane.layers requires a layer selector")
+    }
+    const region = options.region ?? { kind: "board" }
+    if (!region || typeof region !== "object"
+      || !["board", "components"].includes(String((region as { kind?: unknown }).kind))) {
+      throw new Error("plane.region requires board() or components(...)")
+    }
+    const normalizedRegion = structuredClone(region) as PlaneRegionSelector
+    if (normalizedRegion.kind === "components" && !normalizedRegion.designators?.length) {
+      throw new Error("components(...) requires at least one designator")
+    }
+    const finiteNonNegative = (input: unknown, fallback: number, label: string) => {
+      const number = input === undefined ? fallback : Number(input)
+      if (!Number.isFinite(number) || number < 0) throw new Error(`${label} must be a finite number >= 0`)
+      return number
+    }
+    const positive = (input: unknown, fallback: number, label: string) => {
+      const number = input === undefined ? fallback : Number(input)
+      if (!Number.isFinite(number) || number <= 0) throw new Error(`${label} must be a finite number > 0`)
+      return number
+    }
+    const integer = (input: unknown, fallback: number, label: string) => {
+      const number = input === undefined ? fallback : Number(input)
+      if (!Number.isInteger(number) || number < 0) throw new Error(`${label} must be an integer >= 0`)
+      return number
+    }
+    let stitching: PlaneIntent["stitching"] = false
+    if (options.stitching !== false && options.stitching !== null) {
+      const source = options.stitching === true || options.stitching === undefined
+        ? {}
+        : options.stitching
+      if (!source || typeof source !== "object" || Array.isArray(source)) {
+        throw new Error("plane.stitching must be true, false, or an options object")
+      }
+      const item = source as Record<string, unknown>
+      if (item.via !== undefined && item.via !== "drc-min") {
+        throw new Error('plane.stitching.via currently supports only "drc-min"')
+      }
+      stitching = {
+        gridMm: positive(item.gridMm, 5, "plane.stitching.gridMm"),
+        maxPadViaDistanceMm: positive(
+          item.maxPadViaDistanceMm,
+          10,
+          "plane.stitching.maxPadViaDistanceMm",
+        ),
+        via: "drc-min",
+        viaInPad: item.viaInPad === undefined ? true : Boolean(item.viaInPad),
+        maxVias: integer(item.maxVias, 500, "plane.stitching.maxVias"),
+      }
+    }
+    const paddingMm = finiteNonNegative(options.paddingMm, 0, "plane.paddingMm")
+    if (normalizedRegion.kind === "board" && paddingMm > 0) {
+      throw new Error("plane.paddingMm is reserved for components(...) regions")
+    }
+    const priority = integer(options.priority, 0, "plane.priority")
+    this.planes.push({
+      kind: "plane",
+      net: nonEmpty(options.net, "plane net"),
+      layers: structuredClone(layers) as PolygonLayerSelector,
+      region: normalizedRegion,
+      paddingMm,
+      priority,
+      stitching,
+    })
   }
 
   private addPolygon(netValue: string) {
