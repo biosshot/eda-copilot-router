@@ -141,6 +141,13 @@ type WorkflowConfig = {
   freeroutingRunner: string
   freeroutingMaxPasses: number
   freeroutingThreads: number
+  krtViaCost: number
+  krtViaProximityCost: number
+  krtTurnCost: number
+  krtDirectionPreferenceCost: number
+  krtMaxRipup: number
+  krtHeuristicWeight: number
+  krtOrdering: "inside_out" | "mps" | "original"
 }
 
 const DEFAULT_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.kicad_pcb"
@@ -496,6 +503,12 @@ function readRemainingBackend(value: string | undefined): WorkflowConfig["remain
   return "krt"
 }
 
+function readKrtOrdering(value: string | undefined): WorkflowConfig["krtOrdering"] {
+  const normalized = String(value ?? "mps").trim().toLowerCase()
+  if (normalized === "inside_out" || normalized === "mps" || normalized === "original") return normalized
+  return "mps"
+}
+
 function configFromEnvironment(): WorkflowConfig {
   const sourceBoard = resolve(process.argv[2] ?? process.env.COPILOT_ROUTER_BOARD ?? DEFAULT_BOARD)
   const rulesBoard = resolve(process.argv[3] ?? process.env.COPILOT_ROUTER_RULES_BOARD ?? DEFAULT_RULES_BOARD)
@@ -522,6 +535,13 @@ function configFromEnvironment(): WorkflowConfig {
     freeroutingRunner: resolve(process.env.COPILOT_ROUTER_FREEROUTING_RUNNER ?? "scripts/freerouting/ScopedFreeroutingRunner.java"),
     freeroutingMaxPasses: Number(process.env.COPILOT_ROUTER_FREEROUTING_MAX_PASSES ?? 100),
     freeroutingThreads: Number(process.env.COPILOT_ROUTER_FREEROUTING_THREADS ?? 4),
+    krtViaCost: Number(process.env.COPILOT_ROUTER_KRT_VIA_COST ?? 50),
+    krtViaProximityCost: Number(process.env.COPILOT_ROUTER_KRT_VIA_PROXIMITY_COST ?? 10),
+    krtTurnCost: Number(process.env.COPILOT_ROUTER_KRT_TURN_COST ?? 1000),
+    krtDirectionPreferenceCost: Number(process.env.COPILOT_ROUTER_KRT_DIRECTION_PREFERENCE_COST ?? 250),
+    krtMaxRipup: Number(process.env.COPILOT_ROUTER_KRT_MAX_RIPUP ?? 5),
+    krtHeuristicWeight: Number(process.env.COPILOT_ROUTER_KRT_HEURISTIC_WEIGHT ?? 1.2),
+    krtOrdering: readKrtOrdering(process.env.COPILOT_ROUTER_KRT_ORDERING),
   }
 }
 
@@ -564,6 +584,22 @@ async function main() {
     }
     if (!Number.isFinite(config.timeoutMs) || config.timeoutMs <= 0) {
       preflightDiagnostics.push(diagnostic("PREFLIGHT_INVALID_TIMEOUT", "error", "Workflow timeout must be positive."))
+    }
+    const krtQualityValues = [
+      ["via cost", config.krtViaCost, false],
+      ["via proximity cost", config.krtViaProximityCost, true],
+      ["turn cost", config.krtTurnCost, true],
+      ["direction preference cost", config.krtDirectionPreferenceCost, true],
+      ["max rip-up", config.krtMaxRipup, false],
+      ["heuristic weight", config.krtHeuristicWeight, false],
+    ] as const
+    for (const [label, value, allowZero] of krtQualityValues) {
+      if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) preflightDiagnostics.push(diagnostic(
+        "PREFLIGHT_INVALID_KRT_QUALITY",
+        "error",
+        `KRT ${label} must be ${allowZero ? "non-negative" : "positive"}.`,
+        { value },
+      ))
     }
     if (config.remainingBackend === "freerouting"
       && (!Number.isInteger(config.freeroutingMaxPasses) || config.freeroutingMaxPasses <= 0)) {
@@ -868,11 +904,15 @@ async function main() {
           diffPairs: specialIntent.diffPairs,
           matchedGroups: specialIntent.matchedGroups,
           remainingNets: [],
-          ordering: "mps",
+          ordering: config.krtOrdering,
           maxIterations: 1_000_000,
           maxProbeIterations: 50_000,
-          maxRipup: 5,
-          heuristicWeight: 1.2,
+          maxRipup: config.krtMaxRipup,
+          heuristicWeight: config.krtHeuristicWeight,
+          viaCost: config.krtViaCost,
+          viaProximityCost: config.krtViaProximityCost,
+          turnCost: config.krtTurnCost,
+          directionPreferenceCost: config.krtDirectionPreferenceCost,
           debugMemory: true,
           filledCopperProxy: true,
         }
@@ -1109,11 +1149,15 @@ async function main() {
           matchedGroups: specialIntent.matchedGroups,
           remainingNets,
           powerNets,
-          ordering: "mps",
+          ordering: config.krtOrdering,
           maxIterations: 1_000_000,
           maxProbeIterations: 50_000,
-          maxRipup: 5,
-          heuristicWeight: 1.2,
+          maxRipup: config.krtMaxRipup,
+          heuristicWeight: config.krtHeuristicWeight,
+          viaCost: config.krtViaCost,
+          viaProximityCost: config.krtViaProximityCost,
+          turnCost: config.krtTurnCost,
+          directionPreferenceCost: config.krtDirectionPreferenceCost,
           collectStats: true,
           debugMemory: true,
           filledCopperProxy: true,
@@ -1261,6 +1305,15 @@ async function main() {
     const report = {
       workflow: `power-polygons-krt-special-${config.remainingBackend}-remaining`,
       remainingBackend: config.remainingBackend,
+      krtQuality: {
+        viaCost: config.krtViaCost,
+        viaProximityCost: config.krtViaProximityCost,
+        turnCost: config.krtTurnCost,
+        directionPreferenceCost: config.krtDirectionPreferenceCost,
+        maxRipup: config.krtMaxRipup,
+        heuristicWeight: config.krtHeuristicWeight,
+        ordering: config.krtOrdering,
+      },
       sourceBoard: config.sourceBoard,
       rulesBoard: config.rulesBoard,
       polygonDsl: config.polygonDsl,

@@ -59,6 +59,11 @@ export type KrtStageSpec = {
   maxProbeIterations?: number
   maxRipup?: number
   heuristicWeight?: number
+  /** Route-quality costs only; these never weaken DRC geometry. */
+  viaCost?: number
+  viaProximityCost?: number
+  turnCost?: number
+  directionPreferenceCost?: number
   collectStats?: boolean
   debugMemory?: boolean
   /** Exact native filled copper was materialized as locked same-net tracks. */
@@ -625,6 +630,20 @@ function validatePositiveNumber(
   ))
 }
 
+function validateNonNegativeNumber(
+  value: number | undefined,
+  field: string,
+  diagnostics: KrtDiagnostic[],
+) {
+  if (value === undefined) return
+  if (!Number.isFinite(value) || Number(value) < 0) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    `${field} must be a non-negative finite number.`,
+    { field, value },
+  ))
+}
+
 async function commonPreflight(
   inputBoard: string,
   outputBoard: string,
@@ -675,6 +694,10 @@ async function commonPreflight(
   validatePositiveNumber(spec.maxProbeIterations, "maxProbeIterations", diagnostics)
   validatePositiveNumber(spec.maxRipup, "maxRipup", diagnostics)
   validatePositiveNumber(spec.heuristicWeight, "heuristicWeight", diagnostics)
+  validatePositiveNumber(spec.viaCost, "viaCost", diagnostics)
+  validateNonNegativeNumber(spec.viaProximityCost, "viaProximityCost", diagnostics)
+  validateNonNegativeNumber(spec.turnCost, "turnCost", diagnostics)
+  validateNonNegativeNumber(spec.directionPreferenceCost, "directionPreferenceCost", diagnostics)
 
   if (spec.rules.viaDrill >= spec.rules.viaSize) diagnostics.push(diagnostic(
     "KRT_INVALID_SPEC",
@@ -871,6 +894,10 @@ function commonArgs(
   pushNumericArg(args, "--max-probe-iterations", spec.maxProbeIterations)
   pushNumericArg(args, "--max-ripup", spec.maxRipup)
   pushNumericArg(args, "--heuristic-weight", spec.heuristicWeight)
+  pushNumericArg(args, "--via-cost", spec.viaCost)
+  pushNumericArg(args, "--via-proximity-cost", spec.viaProximityCost)
+  pushNumericArg(args, "--turn-cost", spec.turnCost)
+  pushNumericArg(args, "--direction-preference-cost", spec.directionPreferenceCost)
   if (spec.debugMemory) args.push("--debug-memory")
   args.push("--keep-input-copper", "--no-fix-drc-settings")
   args.push("--fab-overrides", resolve(spec.fabOverridesPath))
