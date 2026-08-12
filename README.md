@@ -138,7 +138,7 @@ Stock KRT still uses its Default width in some multi-point fallback paths. The
 adapter does not globally widen other classes or weaken the power rule to hide
 that limitation: final native DRC reports any such segment as an error.
 
-The same orchestration can use Freerouting for the ordinary stage while KRT
+The same orchestration can use Freerouting or EasyEDA WASM for the ordinary stage while KRT
 continues to own every special pair/group. The Freerouting adapter exports a
 staged KiCad copy to Specctra DSN, locks all existing KRT copper, and assigns
 `GND` plus every special net to temporary ignored net classes. KiCad imports the
@@ -151,6 +151,13 @@ only fixes scope selection, while all routing and optimization remain stock
 Freerouting. Custom `.kicad_dru` constraints that are not represented by the
 effective KiCad net classes are not weakened or guessed: native final DRC
 reports any resulting violation.
+
+The EasyEDA WASM adapter reuses the same KiCad/netclass exporter as the earlier
+benchmark, passes all pre-existing KRT tracks and vias as occupied copper, and
+imports only traces/vias belonging to the exact remaining scope. The current
+exporter does not expose native filled-zone contours to the WASM maze, so zone
+outlines are preserved and KiCad refill resolves actual clearances afterwards;
+final DRC/connectivity is still the only validity decision.
 
 The Powerbank intent files are
 [`examples/powerbank.polygons.js`](examples/powerbank.polygons.js) and
@@ -168,6 +175,7 @@ npm run build
 npm run test:workflow
 npm run route:full
 npm run route:full:freerouting
+npm run route:full:easyeda
 ```
 
 By default the result is written under `results/full-cycle/`; the source board
@@ -182,7 +190,7 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_FULL_RESULT`
 - `COPILOT_ROUTER_FULL_OUTPUT`
 - `COPILOT_ROUTER_FULL_TIMEOUT_MS`
-- `COPILOT_ROUTER_REMAINING_BACKEND=krt|freerouting`
+- `COPILOT_ROUTER_REMAINING_BACKEND=krt|freerouting|easyeda-wasm`
 - `COPILOT_ROUTER_FREEROUTING_JAR`
 - `COPILOT_ROUTER_JAVA`
 - `COPILOT_ROUTER_JAVAC`

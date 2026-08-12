@@ -41,6 +41,11 @@ import {
   type FreeroutingProcessResult,
   type FreeroutingStageSpec,
 } from "./backends/freerouting-adapter"
+import {
+  runEasyEdaWasmRemaining,
+  type EasyEdaWasmProcessResult,
+  type EasyEdaWasmStageSpec,
+} from "./backends/easyeda-wasm-adapter"
 import { isOctilinearBoundary } from "./polygon/boundary-optimizer"
 import { runPolygonDsl } from "./polygon/dsl"
 import {
@@ -121,7 +126,7 @@ type WorkflowConfig = {
   pythonPath: string
   kicadCli: string
   timeoutMs: number
-  remainingBackend: "krt" | "freerouting"
+  remainingBackend: "krt" | "freerouting" | "easyeda-wasm"
   freeroutingJar: string
   javaPath: string
   javacPath: string
@@ -473,9 +478,15 @@ function freeroutingStageStatus(result: FreeroutingProcessResult): WorkflowStage
   return result.diagnostics.some((item) => item.severity === "error") ? "partial" : "ok"
 }
 
+function easyEdaWasmStageStatus(result: EasyEdaWasmProcessResult): WorkflowStage["status"] {
+  if (result.status === "skipped") return "skipped"
+  if (result.status !== "completed") return result.attempted ? "partial" : "error"
+  return result.diagnostics.some((item) => item.severity === "error") ? "partial" : "ok"
+}
+
 function readRemainingBackend(value: string | undefined): WorkflowConfig["remainingBackend"] {
   const normalized = String(value ?? "krt").trim().toLowerCase()
-  if (normalized === "krt" || normalized === "freerouting") return normalized
+  if (normalized === "krt" || normalized === "freerouting" || normalized === "easyeda-wasm") return normalized
   return "krt"
 }
 
@@ -534,7 +545,7 @@ async function main() {
     if (config.remainingBackend === "krt") requiredPaths.push([
       "KRT route", join(config.krtDirectory, "py_router", "route.py"),
     ])
-    else requiredPaths.push(
+    else if (config.remainingBackend === "freerouting") requiredPaths.push(
       ["Freerouting JAR", config.freeroutingJar],
       ["KiCad Python", config.kicadPythonPath],
       ["Freerouting KiCad bridge", config.freeroutingBridge],
@@ -914,9 +925,9 @@ async function main() {
       ])
       // Polygon intents are local copper ownership, not whole-net ownership.
       // A multi-point power net can have several valid local islands that still
-      // need the ordinary router to connect them. KRT receives the complete
-      // remaining non-GND scope and skips the portions already connected by
-      // the native refill.
+      // need the ordinary router to connect them. The selected backend receives
+      // the complete remaining non-GND scope and may reuse portions already
+      // connected by native refill.
       const groundNets = allNets.filter((net) => net.toUpperCase() === "GND")
       const remainingNets = allNets.filter((net) => net.toUpperCase() !== "GND" && !specialNets.has(net))
       const remainingOutput = resolve(config.resultDirectory, "03-remaining.kicad_pcb")
@@ -951,7 +962,7 @@ async function main() {
         const rule = classRule(routingRules!, net)
         return rule.name === "Power" ? [{ net, width: rule.trackWidth }] : []
       })
-      let result: KrtProcessResult | FreeroutingProcessResult
+      let result: KrtProcessResult | FreeroutingProcessResult | EasyEdaWasmProcessResult
       if (config.remainingBackend === "freerouting") {
         const freeroutingSpec: FreeroutingStageSpec = {
           javaPath: config.javaPath,
@@ -973,6 +984,21 @@ async function main() {
           remainingInput,
           remainingOutput,
           freeroutingSpec,
+          config.resultDirectory,
+        )
+      } else if (config.remainingBackend === "easyeda-wasm") {
+        const easyEdaSpec: EasyEdaWasmStageSpec = {
+          timeoutMs: config.timeoutMs,
+          remainingNets,
+          excludedNets: [...groundNets, ...specialNets],
+          routeLayers: ["F.Cu", "B.Cu"],
+          rules: routingRules,
+          clearanceMarginMm: 0,
+        }
+        result = await runEasyEdaWasmRemaining(
+          remainingInput,
+          remainingOutput,
+          easyEdaSpec,
           config.resultDirectory,
         )
       } else {
@@ -1020,7 +1046,11 @@ async function main() {
         stage: "remaining",
         status: diagnostics.some((item) => item.severity === "error")
           ? (result.attempted ? "partial" : "error")
-          : (result.backend === "freerouting" ? freeroutingStageStatus(result) : krtStageStatus(result)),
+          : (result.backend === "freerouting"
+            ? freeroutingStageStatus(result)
+            : result.backend === "easyeda-wasm"
+              ? easyEdaWasmStageStatus(result)
+              : krtStageStatus(result)),
         inputBoard: result.inputBoard,
         outputBoard: latestBoard,
         diagnostics,
@@ -1030,7 +1060,9 @@ async function main() {
           attempted: result.attempted,
           exitCode: result.exitCode,
           nets: remainingNets.length,
-          ...(result.backend === "freerouting" ? { routerSummary: result.routerSummary } : {}),
+          ...(result.backend === "freerouting" || result.backend === "easyeda-wasm"
+            ? { routerSummary: result.routerSummary }
+            : {}),
         },
         details: result,
       })
