@@ -36,6 +36,11 @@ import {
   type KrtProcessResult,
   type KrtStageSpec,
 } from "./backends/krt-adapter"
+import {
+  runFreeroutingRemaining,
+  type FreeroutingProcessResult,
+  type FreeroutingStageSpec,
+} from "./backends/freerouting-adapter"
 import { isOctilinearBoundary } from "./polygon/boundary-optimizer"
 import { runPolygonDsl } from "./polygon/dsl"
 import {
@@ -116,12 +121,23 @@ type WorkflowConfig = {
   pythonPath: string
   kicadCli: string
   timeoutMs: number
+  remainingBackend: "krt" | "freerouting"
+  freeroutingJar: string
+  javaPath: string
+  javacPath: string
+  kicadPythonPath: string
+  freeroutingBridge: string
+  freeroutingRunner: string
+  freeroutingMaxPasses: number
+  freeroutingThreads: number
 }
 
 const DEFAULT_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.kicad_pcb"
 const DEFAULT_RULES_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.drc-benchmark-clean-no-gnd.kicad_pcb"
 const DEFAULT_KRT = "D:\\MyProject\\kicad\\Powerbank\\tmp\\KiCadRoutingTools-v0.20.2"
 const DEFAULT_KICAD = "C:\\Users\\kiril\\AppData\\Local\\Programs\\KiCad\\10.0\\bin\\kicad-cli.exe"
+const DEFAULT_KICAD_PYTHON = "C:\\Users\\kiril\\AppData\\Local\\Programs\\KiCad\\10.0\\bin\\python.exe"
+const DEFAULT_FREEROUTING_JAR = "D:\\MyProject\\NN\\projects\\Agents\\easyeda-copilot\\mcp-work\\autorouter-comparison-drc\\freerouting\\freerouting-2.3.0.jar"
 function diagnostic(
   code: string,
   severity: WorkflowDiagnostic["severity"],
@@ -271,7 +287,10 @@ function copperCounts(root: SExpression[]) {
 function canonicalCopperNode(value: SExpression): unknown {
   if (!Array.isArray(value)) return { value: value.value, quoted: value.quoted }
   const head = atom(value[0]) ?? ""
-  if (head === "uuid" || head === "tstamp") return undefined
+  // Backend custody guards compare electrical geometry, not staging metadata.
+  // The DSN bridge locks pre-existing copper so Freerouting exports it as
+  // SYSTEM_FIXED; that adds `(locked yes)` without changing its geometry.
+  if (head === "uuid" || head === "tstamp" || head === "locked") return undefined
   return value
     .map(canonicalCopperNode)
     .filter((item) => item !== undefined)
@@ -448,6 +467,18 @@ function krtDiagnostics(result: KrtProcessResult): WorkflowDiagnostic[] {
   return result.diagnostics.map((item) => ({ ...item }))
 }
 
+function freeroutingStageStatus(result: FreeroutingProcessResult): WorkflowStage["status"] {
+  if (result.status === "skipped") return "skipped"
+  if (result.status !== "completed") return "error"
+  return result.diagnostics.some((item) => item.severity === "error") ? "partial" : "ok"
+}
+
+function readRemainingBackend(value: string | undefined): WorkflowConfig["remainingBackend"] {
+  const normalized = String(value ?? "krt").trim().toLowerCase()
+  if (normalized === "krt" || normalized === "freerouting") return normalized
+  return "krt"
+}
+
 function configFromEnvironment(): WorkflowConfig {
   const sourceBoard = resolve(process.argv[2] ?? process.env.COPILOT_ROUTER_BOARD ?? DEFAULT_BOARD)
   const rulesBoard = resolve(process.argv[3] ?? process.env.COPILOT_ROUTER_RULES_BOARD ?? DEFAULT_RULES_BOARD)
@@ -465,6 +496,15 @@ function configFromEnvironment(): WorkflowConfig {
     pythonPath: process.env.COPILOT_ROUTER_PYTHON ?? "python",
     kicadCli: resolve(process.env.COPILOT_ROUTER_KICAD_CLI ?? DEFAULT_KICAD),
     timeoutMs: Number(process.env.COPILOT_ROUTER_FULL_TIMEOUT_MS ?? 10 * 60_000),
+    remainingBackend: readRemainingBackend(process.env.COPILOT_ROUTER_REMAINING_BACKEND),
+    freeroutingJar: resolve(process.env.COPILOT_ROUTER_FREEROUTING_JAR ?? DEFAULT_FREEROUTING_JAR),
+    javaPath: process.env.COPILOT_ROUTER_JAVA ?? "java",
+    javacPath: process.env.COPILOT_ROUTER_JAVAC ?? "javac",
+    kicadPythonPath: resolve(process.env.COPILOT_ROUTER_KICAD_PYTHON ?? DEFAULT_KICAD_PYTHON),
+    freeroutingBridge: resolve(process.env.COPILOT_ROUTER_FREEROUTING_BRIDGE ?? "scripts/freerouting-kicad-bridge.py"),
+    freeroutingRunner: resolve(process.env.COPILOT_ROUTER_FREEROUTING_RUNNER ?? "scripts/freerouting/ScopedFreeroutingRunner.java"),
+    freeroutingMaxPasses: Number(process.env.COPILOT_ROUTER_FREEROUTING_MAX_PASSES ?? 100),
+    freeroutingThreads: Number(process.env.COPILOT_ROUTER_FREEROUTING_THREADS ?? 4),
   }
 }
 
@@ -483,21 +523,42 @@ async function main() {
 
   try {
     const preflightDiagnostics: WorkflowDiagnostic[] = []
-    for (const [label, path] of [
+    const requiredPaths: Array<readonly [string, string]> = [
       ["source board", config.sourceBoard],
       ["rules board", config.rulesBoard],
       ["polygon DSL", config.polygonDsl],
       ["special intent", config.specialIntentPath],
       ["KRT route_diff", join(config.krtDirectory, "py_router", "route_diff.py")],
-      ["KRT route", join(config.krtDirectory, "py_router", "route.py")],
       ["KiCad CLI", config.kicadCli],
-    ] as const) {
+    ]
+    if (config.remainingBackend === "krt") requiredPaths.push([
+      "KRT route", join(config.krtDirectory, "py_router", "route.py"),
+    ])
+    else requiredPaths.push(
+      ["Freerouting JAR", config.freeroutingJar],
+      ["KiCad Python", config.kicadPythonPath],
+      ["Freerouting KiCad bridge", config.freeroutingBridge],
+      ["scoped Freerouting runner", config.freeroutingRunner],
+    )
+    for (const [label, path] of requiredPaths) {
       if (!(await exists(path))) preflightDiagnostics.push(diagnostic(
         "PREFLIGHT_INPUT_MISSING", "error", `${label} was not found.`, { path },
       ))
     }
     if (!Number.isFinite(config.timeoutMs) || config.timeoutMs <= 0) {
       preflightDiagnostics.push(diagnostic("PREFLIGHT_INVALID_TIMEOUT", "error", "Workflow timeout must be positive."))
+    }
+    if (config.remainingBackend === "freerouting"
+      && (!Number.isInteger(config.freeroutingMaxPasses) || config.freeroutingMaxPasses <= 0)) {
+      preflightDiagnostics.push(diagnostic(
+        "PREFLIGHT_INVALID_FREEROUTING_CONFIG", "error", "Freerouting max passes must be a positive integer.",
+      ))
+    }
+    if (config.remainingBackend === "freerouting"
+      && (!Number.isInteger(config.freeroutingThreads) || config.freeroutingThreads <= 0)) {
+      preflightDiagnostics.push(diagnostic(
+        "PREFLIGHT_INVALID_FREEROUTING_CONFIG", "error", "Freerouting threads must be a positive integer.",
+      ))
     }
     if (samePath(config.sourceBoard, config.outputBoard)) {
       preflightDiagnostics.push(diagnostic(
@@ -521,20 +582,21 @@ async function main() {
           memberSet.add(net)
         }
       }
-      const unsupported = specialIntent.matchedGroups.flatMap((group) => group.filter((net) => !memberSet.has(net)))
-      if (unsupported.length) preflightDiagnostics.push(diagnostic(
-        "CAPABILITY_MISMATCH",
-        "error",
-        "This KRT adapter cannot route ordinary matched groups in the same one-call special pass.",
-        unsupported,
-      ))
+      for (const [index, group] of specialIntent.matchedGroups.entries()) {
+        if (group.length < 2 || new Set(group).size !== group.length) preflightDiagnostics.push(diagnostic(
+          "SPECIAL_INTENT_INVALID",
+          "error",
+          `Matched group ${index} needs at least two distinct nets.`,
+          group,
+        ))
+      }
     }
     preflightBlocked = preflightDiagnostics.some((item) => item.severity === "error")
     stages.push({
       stage: "preflight",
       status: preflightBlocked ? "error" : "ok",
       diagnostics: preflightDiagnostics,
-      metrics: { sourceHash },
+      metrics: { sourceHash, remainingBackend: config.remainingBackend },
     })
 
     if (!preflightBlocked) {
@@ -680,40 +742,71 @@ async function main() {
       try {
       const before = parsePcbSource((await readPcb(specialInput)).source)
       const zonesBefore = zoneOutlineSignatures(before)
-      const specialNets = specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative])
-      const specialRules = specialNets.map((net) => classRule(routingRules!, net))
-      const widths = new Set(specialRules.map((rule) => Math.max(routingRules!.minimumTrackWidth, rule.diffPairWidth)))
-      const clearances = new Set(specialRules.map((rule) => Math.max(routingRules!.minimumClearance, rule.clearance)))
+      const specialNets = [...new Set([
+        ...specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]),
+        ...specialIntent.matchedGroups.flat(),
+      ])]
+      const diffNets = [...new Set(specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]))]
+      const diffMemberSet = new Set(diffNets)
+      const ordinaryMatchedNets = [...new Set(specialIntent.matchedGroups.flat()
+        .filter((net) => !diffMemberSet.has(net)))]
+      const diffRules = diffNets.map((net) => classRule(routingRules!, net))
+      const ordinaryRules = ordinaryMatchedNets.map((net) => classRule(routingRules!, net))
+      const widths = new Set(diffRules.map((rule) => Math.max(routingRules!.minimumTrackWidth, rule.diffPairWidth)))
+      const clearances = new Set(diffRules.map((rule) => Math.max(routingRules!.minimumClearance, rule.clearance)))
       // KiCad netclass diff gap is an optimum, not a DRC minimum. KRT cannot
       // use a pair gap smaller than its routing clearance, so select the
       // stricter of the two without weakening either native hard rule.
-      const gaps = new Set(specialRules.map((rule) => Math.max(
+      const gaps = new Set(diffRules.map((rule) => Math.max(
         Math.max(routingRules!.minimumClearance, rule.clearance),
         rule.diffPairGap,
       )))
-      const viaSizes = new Set(specialRules.map((rule) => Math.max(routingRules!.minimumViaDiameter, rule.viaDiameter)))
-      const viaDrills = new Set(specialRules.map((rule) => Math.max(routingRules!.minimumViaDrill, rule.viaDrill)))
+      const viaSizes = new Set(diffRules.map((rule) => Math.max(routingRules!.minimumViaDiameter, rule.viaDiameter)))
+      const viaDrills = new Set(diffRules.map((rule) => Math.max(routingRules!.minimumViaDrill, rule.viaDrill)))
+      const ordinaryWidths = new Set(ordinaryRules.map((rule) => Math.max(routingRules!.minimumTrackWidth, rule.trackWidth)))
+      const ordinaryClearances = new Set(ordinaryRules.map((rule) => Math.max(routingRules!.minimumClearance, rule.clearance)))
+      const ordinaryViaSizes = new Set(ordinaryRules.map((rule) => Math.max(routingRules!.minimumViaDiameter, rule.viaDiameter)))
+      const ordinaryViaDrills = new Set(ordinaryRules.map((rule) => Math.max(routingRules!.minimumViaDrill, rule.viaDrill)))
       const specDiagnostics: WorkflowDiagnostic[] = []
-      if ([widths, clearances, gaps, viaSizes, viaDrills].some((set) => set.size > 1)) {
+      if ([widths, clearances, gaps, viaSizes, viaDrills, ordinaryViaSizes, ordinaryViaDrills]
+        .some((set) => set.size > 1)) {
         specDiagnostics.push(diagnostic(
           "LOSSY_RULE_TRANSLATION",
           "error",
-          "The one-call KRT special backend requires common geometry across every submitted pair.",
-          { widths: [...widths], clearances: [...clearances], gaps: [...gaps], viaSizes: [...viaSizes], viaDrills: [...viaDrills] },
+          "Each batched KRT special subcall requires common clearance/via geometry across its submitted nets.",
+          {
+            diff: { widths: [...widths], clearances: [...clearances], gaps: [...gaps], viaSizes: [...viaSizes], viaDrills: [...viaDrills] },
+            ordinary: { widths: [...ordinaryWidths], clearances: [...ordinaryClearances], viaSizes: [...ordinaryViaSizes], viaDrills: [...ordinaryViaDrills] },
+          },
         ))
       }
       if (!specDiagnostics.length) {
         const specialOutput = resolve(config.resultDirectory, "02-special.kicad_pcb")
         const fabPath = resolve(config.resultDirectory, "02-special-fab.txt")
+        const ordinaryFabPath = resolve(config.resultDirectory, "02-special-ordinary-fab.txt")
+        const fallbackRule = classRule(routingRules!, specialNets[0] ?? "")
         const values = {
-          trackWidth: [...widths][0],
-          clearance: [...clearances][0],
-          viaSize: [...viaSizes][0],
-          viaDrill: [...viaDrills][0],
+          trackWidth: [...widths][0] ?? Math.max(routingRules.minimumTrackWidth, fallbackRule.diffPairWidth),
+          clearance: [...clearances][0] ?? Math.max(routingRules.minimumClearance, fallbackRule.clearance),
+          viaSize: [...viaSizes][0] ?? Math.max(routingRules.minimumViaDiameter, fallbackRule.viaDiameter),
+          viaDrill: [...viaDrills][0] ?? Math.max(routingRules.minimumViaDrill, fallbackRule.viaDrill),
           holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
           boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
         }
+        const ordinaryValues = {
+          trackWidth: Math.min(...ordinaryWidths, values.trackWidth),
+          // route.py honors per-net netclass clearances when --clearance is
+          // omitted; this value is only the hard fabrication floor.
+          clearance: ordinaryClearances.size
+            ? Math.min(...ordinaryClearances)
+            : values.clearance,
+          viaSize: [...ordinaryViaSizes][0] ?? values.viaSize,
+          viaDrill: [...ordinaryViaDrills][0] ?? values.viaDrill,
+          holeToHole: values.holeToHole,
+          boardEdge: values.boardEdge,
+        }
         await writeFabOverrides(fabPath, values)
+        if (ordinaryMatchedNets.length) await writeFabOverrides(ordinaryFabPath, ordinaryValues)
         const krtSpec: KrtStageSpec = {
           pythonPath: config.pythonPath,
           krtDirectory: config.krtDirectory,
@@ -721,7 +814,7 @@ async function main() {
           layers: ["F.Cu", "B.Cu"],
           rules: {
             ...values,
-            diffPairGap: [...gaps][0],
+            diffPairGap: [...gaps][0] ?? values.clearance,
             gridStep: 0.05,
             holeToHoleClearance: values.holeToHole,
             boardEdgeClearance: values.boardEdge,
@@ -731,6 +824,17 @@ async function main() {
             meanderSpacing: specialIntent.meanderSpacingWidths,
           },
           fabOverridesPath: fabPath,
+          ordinaryMatchedRules: {
+            ...ordinaryValues,
+            gridStep: 0.05,
+            holeToHoleClearance: ordinaryValues.holeToHole,
+            boardEdgeClearance: ordinaryValues.boardEdge,
+            routingClearanceMargin: 1,
+            lengthMatchTolerance: specialIntent.lengthMatchToleranceMm,
+            meanderAmplitude: specialIntent.meanderAmplitudeMm,
+            meanderSpacing: specialIntent.meanderSpacingWidths,
+          },
+          ordinaryMatchedFabOverridesPath: ordinaryFabPath,
           diffPairs: specialIntent.diffPairs,
           matchedGroups: specialIntent.matchedGroups,
           remainingNets: [],
@@ -804,13 +908,17 @@ async function main() {
       const remainingInput = latestBoard
       const remainingStarted = performance.now()
       try {
-      const specialNets = new Set(specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]))
+      const specialNets = new Set([
+        ...specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]),
+        ...specialIntent.matchedGroups.flat(),
+      ])
       // Polygon intents are local copper ownership, not whole-net ownership.
       // A multi-point power net can have several valid local islands that still
       // need the ordinary router to connect them. KRT receives the complete
       // remaining non-GND scope and skips the portions already connected by
       // the native refill.
-      const remainingNets = allNets.filter((net) => net !== "GND" && !specialNets.has(net))
+      const groundNets = allNets.filter((net) => net.toUpperCase() === "GND")
+      const remainingNets = allNets.filter((net) => net.toUpperCase() !== "GND" && !specialNets.has(net))
       const remainingOutput = resolve(config.resultDirectory, "03-remaining.kicad_pcb")
       const remainingRules = remainingNets.map((net) => classRule(routingRules!, net))
       const values = {
@@ -837,60 +945,93 @@ async function main() {
         holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
         boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
       }
-      const fabPath = resolve(config.resultDirectory, "03-remaining-fab.txt")
-      await writeFabOverrides(fabPath, values)
       const before = parsePcbSource((await readPcb(remainingInput)).source)
       const zonesBefore = zoneOutlineSignatures(before)
       const powerNets = remainingNets.flatMap((net) => {
         const rule = classRule(routingRules!, net)
         return rule.name === "Power" ? [{ net, width: rule.trackWidth }] : []
       })
-      const krtSpec: KrtStageSpec = {
-        pythonPath: config.pythonPath,
-        krtDirectory: config.krtDirectory,
-        timeoutMs: config.timeoutMs,
-        layers: ["F.Cu", "B.Cu"],
-        rules: {
-          ...values,
-          gridStep: 0.05,
-          holeToHoleClearance: values.holeToHole,
-          boardEdgeClearance: values.boardEdge,
-          routingClearanceMargin: 1,
-        },
-        fabOverridesPath: fabPath,
-        diffPairs: specialIntent.diffPairs,
-        matchedGroups: specialIntent.matchedGroups,
-        remainingNets,
-        powerNets,
-        ordering: "mps",
-        maxIterations: 1_000_000,
-        maxProbeIterations: 50_000,
-        maxRipup: 5,
-        heuristicWeight: 1.2,
-        collectStats: true,
-        debugMemory: true,
+      let result: KrtProcessResult | FreeroutingProcessResult
+      if (config.remainingBackend === "freerouting") {
+        const freeroutingSpec: FreeroutingStageSpec = {
+          javaPath: config.javaPath,
+          javacPath: config.javacPath,
+          jarPath: config.freeroutingJar,
+          kicadPythonPath: config.kicadPythonPath,
+          bridgePath: config.freeroutingBridge,
+          runnerSourcePath: config.freeroutingRunner,
+          timeoutMs: config.timeoutMs,
+          remainingNets,
+          excludedNets: [...groundNets, ...specialNets],
+          maxPasses: config.freeroutingMaxPasses,
+          threads: config.freeroutingThreads,
+          optimizerImprovementThreshold: 0.1,
+          updateStrategy: "hybrid",
+          itemSelectionStrategy: "prioritized",
+        }
+        result = await runFreeroutingRemaining(
+          remainingInput,
+          remainingOutput,
+          freeroutingSpec,
+          config.resultDirectory,
+        )
+      } else {
+        const fabPath = resolve(config.resultDirectory, "03-remaining-fab.txt")
+        await writeFabOverrides(fabPath, values)
+        const krtSpec: KrtStageSpec = {
+          pythonPath: config.pythonPath,
+          krtDirectory: config.krtDirectory,
+          timeoutMs: config.timeoutMs,
+          layers: ["F.Cu", "B.Cu"],
+          rules: {
+            ...values,
+            gridStep: 0.05,
+            holeToHoleClearance: values.holeToHole,
+            boardEdgeClearance: values.boardEdge,
+            routingClearanceMargin: 1,
+          },
+          fabOverridesPath: fabPath,
+          diffPairs: specialIntent.diffPairs,
+          matchedGroups: specialIntent.matchedGroups,
+          remainingNets,
+          powerNets,
+          ordering: "mps",
+          maxIterations: 1_000_000,
+          maxProbeIterations: 50_000,
+          maxRipup: 5,
+          heuristicWeight: 1.2,
+          collectStats: true,
+          debugMemory: true,
+        }
+        result = await runKrtRemaining(remainingInput, remainingOutput, krtSpec, config.resultDirectory)
       }
-      const result = await runKrtRemaining(remainingInput, remainingOutput, krtSpec, config.resultDirectory)
       const afterBoard = await exists(remainingOutput) ? remainingOutput : remainingInput
       const after = parsePcbSource((await readPcb(afterBoard)).source)
-      const diagnostics = krtDiagnostics(result)
+      const diagnostics: WorkflowDiagnostic[] = result.diagnostics.map((item) => ({ ...item }))
       if (!sameStrings(zonesBefore, zoneOutlineSignatures(after))) diagnostics.push(diagnostic(
-        "KRT_ZONE_OUTLINES_CHANGED", "error", "KRT changed or removed power zone outlines.",
+        "REMAINING_ZONE_OUTLINES_CHANGED", "error", `${config.remainingBackend} changed or removed power zone outlines.`,
       ))
       const changedSpecial = changedCopperGeometryNets(before, after, [...specialNets])
       if (changedSpecial.length) diagnostics.push(diagnostic(
-        "KRT_SPECIAL_COPPER_CHANGED", "error", "The remaining pass changed special-net copper.", changedSpecial,
+        "REMAINING_SPECIAL_COPPER_CHANGED", "error", "The remaining pass changed special-net copper.", changedSpecial,
       ))
       latestBoard = afterBoard
       stages.push({
         stage: "remaining",
         status: diagnostics.some((item) => item.severity === "error")
           ? (result.attempted ? "partial" : "error")
-          : krtStageStatus(result),
+          : (result.backend === "freerouting" ? freeroutingStageStatus(result) : krtStageStatus(result)),
         inputBoard: result.inputBoard,
         outputBoard: latestBoard,
         diagnostics,
-        metrics: { elapsedMs: result.elapsedMs, attempted: result.attempted, exitCode: result.exitCode, nets: remainingNets.length },
+        metrics: {
+          backend: config.remainingBackend,
+          elapsedMs: result.elapsedMs,
+          attempted: result.attempted,
+          exitCode: result.exitCode,
+          nets: remainingNets.length,
+          ...(result.backend === "freerouting" ? { routerSummary: result.routerSummary } : {}),
+        },
         details: result,
       })
       } catch (error) {
@@ -968,7 +1109,8 @@ async function main() {
     const currentSourceHash = sourceHash && await exists(config.sourceBoard) ? await sha256(config.sourceBoard) : ""
     const sourceUnchanged = Boolean(sourceHash) && sourceHash === currentSourceHash
     const report = {
-      workflow: "power-polygons-krt-special-krt-remaining",
+      workflow: `power-polygons-krt-special-${config.remainingBackend}-remaining`,
+      remainingBackend: config.remainingBackend,
       sourceBoard: config.sourceBoard,
       rulesBoard: config.rulesBoard,
       polygonDsl: config.polygonDsl,

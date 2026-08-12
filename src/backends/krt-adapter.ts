@@ -1,8 +1,11 @@
 import { spawn } from "node:child_process"
-import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { constants } from "node:fs"
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
+import { atom, findChild, type SExpression } from "../../../kicad-copilot/src/kicad/sexpr/ast"
+import { listChildren } from "../../../kicad-copilot/src/kicad/pcb-reader"
+import { parsePcbSource } from "../../../kicad-copilot/src/kicad/pcb-writer"
 
 export type KrtDiagnosticSeverity = "info" | "warning" | "error"
 
@@ -44,6 +47,9 @@ export type KrtStageSpec = {
   layers: readonly string[]
   rules: KrtNumericRules
   fabOverridesPath: string
+  /** Geometry/fabrication floor for the route.py equal-length subcall. */
+  ordinaryMatchedRules?: KrtNumericRules
+  ordinaryMatchedFabOverridesPath?: string
   diffPairs: readonly KrtDiffPair[]
   matchedGroups: readonly KrtMatchedGroup[]
   remainingNets: readonly string[]
@@ -65,6 +71,7 @@ export type KrtProcessStatus =
 
 export type KrtProcessResult = {
   stage: "special" | "remaining"
+  backend: "krt"
   status: KrtProcessStatus
   attempted: boolean
   inputBoard: string
@@ -87,10 +94,20 @@ export type KrtProcessResult = {
   jsonSummary?: Record<string, unknown>
   jsonSummaries: Record<string, unknown>[]
   diagnostics: KrtDiagnostic[]
+  /**
+   * Present only when one logical special stage required more than one KRT
+   * executable. Diff-only callers keep the historical single-process shape.
+   */
+  subcalls?: KrtProcessResult[]
 }
 
 type NormalizedPair = { positive: string; negative: string }
 type NormalizedGroup = { nets: string[] }
+type NormalizedSpecial = {
+  pairs: NormalizedPair[]
+  coupledGroups: NormalizedGroup[]
+  ordinaryGroups: NormalizedGroup[]
+}
 
 type CapturedProcess = {
   exitCode: number | null
@@ -132,6 +149,47 @@ function pythonCommand(path: string) {
 
 function unique(values: readonly string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function nodeNetName(root: SExpression[], node: SExpression[]) {
+  const net = findChild(node, "net")
+  if (!net) return ""
+  if (net.length >= 3) return atom(net[2]) ?? ""
+  const number = atom(net[1]) ?? ""
+  if (!/^\d+$/.test(number)) return number
+  return atom(listChildren(root, "net").find((entry) => atom(entry[1]) === number)?.[2]) ?? ""
+}
+
+function canonicalCopperNode(value: SExpression): unknown {
+  if (!Array.isArray(value)) return { value: value.value, quoted: value.quoted }
+  const head = atom(value[0]) ?? ""
+  if (head === "uuid" || head === "tstamp" || head === "locked") return undefined
+  return value.map(canonicalCopperNode).filter((item) => item !== undefined)
+}
+
+function copperGeometrySignatures(root: SExpression[], netName: string) {
+  return (["segment", "arc", "via"] as const).flatMap((head) => (
+    listChildren(root, head)
+      .filter((item) => nodeNetName(root, item) === netName)
+      .map((item) => `${head}:${JSON.stringify(canonicalCopperNode(item))}`)
+  )).sort()
+}
+
+async function changedCopperGeometryNets(
+  beforePath: string,
+  afterPath: string,
+  netNames: readonly string[],
+) {
+  const before = parsePcbSource(await readFile(beforePath, "utf8"))
+  const after = parsePcbSource(await readFile(afterPath, "utf8"))
+  return unique(netNames).filter((net) => !sameStrings(
+    copperGeometrySignatures(before, net),
+    copperGeometrySignatures(after, net),
+  ))
 }
 
 function jsonObject(value: unknown): Record<string, unknown> | undefined {
@@ -272,6 +330,12 @@ async function copyBoardAndSidecars(
     }
   }
   return true
+}
+
+async function removeBoardAndSidecars(board: string) {
+  await rm(board, { force: true })
+  const stem = boardStem(board)
+  await Promise.all(SIDECAR_SUFFIXES.map((suffix) => rm(`${stem}${suffix}`, { force: true })))
 }
 
 async function writeArtifact(
@@ -664,10 +728,11 @@ async function commonPreflight(
   }
 }
 
-function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
+function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): NormalizedSpecial {
   const pairs = spec.diffPairs.map(normalizePair)
   const groups = spec.matchedGroups.map(normalizeGroup)
   const memberOwner = new Map<string, number>()
+  const groupOwner = new Map<string, number>()
 
   pairs.forEach((pair, index) => {
     validateExactNetNames([pair.positive, pair.negative], `diffPairs[${index}]`, diagnostics)
@@ -703,12 +768,25 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
       "Every matched group must contain at least two exact net names.",
       { index, group },
     ))
-    const nonDiff = group.nets.filter((net) => !memberOwner.has(net))
-    if (nonDiff.length) diagnostics.push(diagnostic(
+    for (const net of group.nets) {
+      if (net.toUpperCase() === "GND") diagnostics.push(diagnostic(
+        "KRT_GND_EXCLUDED", "error", "GND cannot belong to a matched group.", { index, net },
+      ))
+      const previous = groupOwner.get(net)
+      if (previous !== undefined) diagnostics.push(diagnostic(
+        "KRT_MATCHED_GROUP_CONFLICT",
+        "error",
+        `Net ${net} belongs to more than one matched group.`,
+        { firstGroup: previous, secondGroup: index },
+      ))
+      else groupOwner.set(net, index)
+    }
+    const diffMembers = group.nets.filter((net) => memberOwner.has(net))
+    if (diffMembers.length && diffMembers.length !== group.nets.length) diagnostics.push(diagnostic(
       "CAPABILITY_MISMATCH",
       "error",
-      "route_diff.py skips generic single-ended nets, so one-call special routing cannot satisfy this matched group.",
-      { group: group.nets, unsupportedNets: nonDiff },
+      "KRT cannot route one matched group partly as coupled pairs and partly as ordinary single-ended nets.",
+      { group: group.nets, diffMembers, ordinaryMembers: group.nets.filter((net) => !memberOwner.has(net)) },
     ))
   })
 
@@ -731,7 +809,11 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
       { diffPairGap: spec.rules.diffPairGap, clearance: spec.rules.clearance },
     ))
   }
-  return { pairs, groups }
+  return {
+    pairs,
+    coupledGroups: groups.filter((group) => group.nets.every((net) => memberOwner.has(net))),
+    ordinaryGroups: groups.filter((group) => group.nets.every((net) => !memberOwner.has(net))),
+  }
 }
 
 function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
@@ -763,10 +845,18 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
   return nets
 }
 
-function commonArgs(inputBoard: string, outputBoard: string, spec: KrtStageSpec) {
+function commonArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtStageSpec,
+  options: { omitClearanceCeiling?: boolean } = {},
+) {
   const args = [resolve(inputBoard), resolve(outputBoard)]
   args.push("--layers", ...unique(spec.layers))
-  args.push("--clearance", numberArg(spec.rules.clearance))
+  // route.py treats --clearance as a ceiling on native netclass clearance.
+  // Ordinary groups can span classes, so omitting it is the only lossless
+  // translation; the fab-overrides floor remains mandatory below.
+  if (!options.omitClearanceCeiling) args.push("--clearance", numberArg(spec.rules.clearance))
   args.push("--via-size", numberArg(spec.rules.viaSize))
   args.push("--via-drill", numberArg(spec.rules.viaDrill))
   pushNumericArg(args, "--grid-step", spec.rules.gridStep)
@@ -805,6 +895,25 @@ function specialArgs(
   return args
 }
 
+function matchedOrdinaryArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtStageSpec,
+  groups: NormalizedGroup[],
+) {
+  const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
+  const nets = unique(groups.flatMap((group) => group.nets))
+  args.push("--nets", ...nets)
+  // route.py performs matching only over results produced by this invocation,
+  // so every ordinary member is deliberately submitted together.
+  for (const group of groups) args.push("--length-match-group", ...group.nets)
+  pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
+  pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
+  pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
+  args.push("--no-power-tap-neckdown")
+  return args
+}
+
 function remainingArgs(
   inputBoard: string,
   outputBoard: string,
@@ -830,6 +939,7 @@ async function executeStage(
   artifactsDir: string,
   scriptName: "route_diff.py" | "route.py",
   buildArgs: (diagnostics: KrtDiagnostic[]) => string[] | undefined,
+  summaryKind: "special" | "remaining" = stage,
 ) : Promise<KrtProcessResult> {
   const diagnostics: KrtDiagnostic[] = []
   const normalizedInput = resolve(inputBoard)
@@ -839,6 +949,7 @@ async function executeStage(
   const executable = pythonCommand(spec.pythonPath)
   const result: KrtProcessResult = {
     stage,
+    backend: "krt",
     status: "preflight_failed",
     attempted: false,
     inputBoard: normalizedInput,
@@ -873,6 +984,9 @@ async function executeStage(
       scriptName,
       diagnostics,
     )
+    if (resolve(normalizedInput).toLowerCase() !== resolve(normalizedOutput).toLowerCase()) {
+      await removeBoardAndSidecars(normalizedOutput)
+    }
     await copyBoardAndSidecars(normalizedInput, normalizedOutput, diagnostics)
 
     const inputArtifactPath = join(normalizedArtifacts, `krt-${stage}-input.kicad_pcb`)
@@ -969,7 +1083,7 @@ async function executeStage(
       "error",
       "KRT produced no parseable JSON_SUMMARY; exit code alone is not a routing result.",
     ))
-    else if (stage === "special") addSpecialSummaryDiagnostics(
+    else if (summaryKind === "special") addSpecialSummaryDiagnostics(
       result.jsonSummary, spec.rules, diagnostics,
     )
     else addRemainingSummaryDiagnostics(result.jsonSummary, spec.rules, diagnostics)
@@ -1058,21 +1172,178 @@ export async function runKrtSpecial(
   spec: KrtStageSpec,
   artifactsDir: string,
 ): Promise<KrtProcessResult> {
-  let normalized: ReturnType<typeof specialPreflight> | undefined
-  return executeStage(
+  const initialDiagnostics: KrtDiagnostic[] = []
+  const normalized = specialPreflight(spec, initialDiagnostics)
+  if (initialDiagnostics.some((item) => item.severity === "error")) {
+    const scriptName = normalized.ordinaryGroups.length ? "route.py" : "route_diff.py"
+    return executeStage(
+      "special",
+      inputBoard,
+      outputBoard,
+      spec,
+      artifactsDir,
+      scriptName,
+      (diagnostics) => {
+        specialPreflight(spec, diagnostics)
+        return undefined
+      },
+      scriptName === "route.py" ? "remaining" : "special",
+    )
+  }
+  if (!normalized.ordinaryGroups.length) {
+    return executeStage(
+      "special",
+      inputBoard,
+      outputBoard,
+      spec,
+      artifactsDir,
+      "route_diff.py",
+      (diagnostics) => {
+        const current = specialPreflight(spec, diagnostics)
+        if (!current.pairs.length) return []
+        if (diagnostics.some((item) => item.severity === "error")) return undefined
+        return specialArgs(inputBoard, outputBoard, spec, current.pairs, current.coupledGroups)
+      },
+    )
+  }
+
+  const subcalls: KrtProcessResult[] = []
+  const diffNets = unique(normalized.pairs.flatMap((pair) => [pair.positive, pair.negative]))
+  let ordinaryInput = resolve(inputBoard)
+
+  if (normalized.pairs.length) {
+    const diffOutput = join(resolve(artifactsDir), "special-diff-board.kicad_pcb")
+    const diffSpec: KrtStageSpec = {
+      ...spec,
+      matchedGroups: normalized.coupledGroups.map((group) => group.nets),
+    }
+    const diff = await executeStage(
+      "special",
+      inputBoard,
+      diffOutput,
+      diffSpec,
+      join(artifactsDir, "special-diff"),
+      "route_diff.py",
+      (diagnostics) => {
+        const current = specialPreflight(diffSpec, diagnostics)
+        if (diagnostics.some((item) => item.severity === "error")) return undefined
+        return specialArgs(inputBoard, diffOutput, diffSpec, current.pairs, current.coupledGroups)
+      },
+    )
+    subcalls.push(diff)
+    if (diff.status === "completed" && !diff.diagnostics.some((item) => item.severity === "error")) {
+      ordinaryInput = diffOutput
+    }
+  }
+
+  const ordinarySpec: KrtStageSpec = {
+    ...spec,
+    rules: spec.ordinaryMatchedRules ?? spec.rules,
+    fabOverridesPath: spec.ordinaryMatchedFabOverridesPath ?? spec.fabOverridesPath,
+    diffPairs: [],
+    matchedGroups: normalized.ordinaryGroups.map((group) => group.nets),
+  }
+  const ordinary = await executeStage(
     "special",
-    inputBoard,
+    ordinaryInput,
     outputBoard,
-    spec,
-    artifactsDir,
-    "route_diff.py",
+    ordinarySpec,
+    join(artifactsDir, "special-ordinary"),
+    "route.py",
     (diagnostics) => {
-      normalized = specialPreflight(spec, diagnostics)
-      if (!normalized.pairs.length) return []
+      const current = specialPreflight(ordinarySpec, diagnostics)
       if (diagnostics.some((item) => item.severity === "error")) return undefined
-      return specialArgs(inputBoard, outputBoard, spec, normalized.pairs, normalized.groups)
+      return matchedOrdinaryArgs(
+        ordinaryInput,
+        outputBoard,
+        ordinarySpec,
+        current.ordinaryGroups,
+      )
     },
+    "remaining",
   )
+  subcalls.push(ordinary)
+
+  const diagnostics = subcalls.flatMap((item) => item.diagnostics)
+  const diffSucceeded = !normalized.pairs.length || ordinaryInput !== resolve(inputBoard)
+  if (diffNets.length && diffSucceeded && await exists(ordinaryInput) && await exists(resolve(outputBoard))) {
+    try {
+      const changed = await changedCopperGeometryNets(ordinaryInput, resolve(outputBoard), diffNets)
+      if (changed.length) diagnostics.push(diagnostic(
+        "KRT_SPECIAL_PROTECTED_COPPER_CHANGED",
+        "error",
+        "The ordinary matched-group subcall changed differential copper from the preceding special subcall.",
+        changed,
+      ))
+      if (changed.length) await copyBoardAndSidecars(ordinaryInput, resolve(outputBoard), diagnostics)
+    } catch (error) {
+      diagnostics.push(diagnostic(
+        "KRT_SPECIAL_PROTECTION_GUARD_FAILED",
+        "error",
+        `Could not compare protected special copper: ${errorText(error)}`,
+      ))
+      await copyBoardAndSidecars(ordinaryInput, resolve(outputBoard), diagnostics)
+    }
+  }
+  if (/\bWARNING:.*(?:NOT fully matched|SHORT of the group target)/i.test(ordinary.stdout)) {
+    diagnostics.push(diagnostic(
+      "KRT_LENGTH_MATCH_INCOMPLETE",
+      "error",
+      "KRT reported that an ordinary equal-length group did not meet its requested tolerance.",
+    ))
+  }
+
+  const specialNets = unique([
+    ...diffNets,
+    ...normalized.coupledGroups.flatMap((group) => group.nets),
+    ...normalized.ordinaryGroups.flatMap((group) => group.nets),
+  ])
+  let protectedNetsPath: string | undefined
+  let protectedNets: string[] | undefined
+  if (await exists(resolve(outputBoard))) {
+    try {
+      const persisted = await persistKrtProtectedNets(resolve(outputBoard), specialNets)
+      protectedNetsPath = persisted.path
+      protectedNets = persisted.nets
+    } catch (error) {
+      diagnostics.push(diagnostic(
+        "KRT_SPECIAL_PROTECTION_FAILED",
+        "error",
+        `Could not protect special-net copper for later stages: ${errorText(error)}`,
+      ))
+    }
+  }
+
+  const aggregate: KrtProcessResult = {
+    stage: "special",
+    backend: "krt",
+    status: subcalls.some((item) => item.status === "process_failed")
+      ? "process_failed"
+      : subcalls.some((item) => item.status === "preflight_failed")
+        ? "preflight_failed"
+        : subcalls.every((item) => item.status === "skipped") ? "skipped" : "completed",
+    attempted: subcalls.some((item) => item.attempted),
+    inputBoard: resolve(inputBoard),
+    outputBoard: resolve(outputBoard),
+    command: [],
+    exitCode: subcalls.find((item) => item.exitCode !== null && item.exitCode !== 0)?.exitCode
+      ?? ordinary.exitCode,
+    signal: subcalls.find((item) => item.signal)?.signal ?? null,
+    timedOut: subcalls.some((item) => item.timedOut),
+    elapsedMs: subcalls.reduce((sum, item) => sum + item.elapsedMs, 0),
+    stdout: subcalls.map((item) => item.stdout).filter(Boolean).join("\n"),
+    stderr: subcalls.map((item) => item.stderr).filter(Boolean).join("\n"),
+    jsonSummary: ordinary.jsonSummary,
+    jsonSummaries: subcalls.flatMap((item) => item.jsonSummaries),
+    diagnostics,
+    subcalls,
+    ...(protectedNetsPath ? { protectedNetsPath } : {}),
+    ...(protectedNets ? { protectedNets } : {}),
+  }
+  await mkdir(resolve(artifactsDir), { recursive: true }).catch(() => undefined)
+  await saveOutputArtifact(aggregate, resolve(artifactsDir))
+  await persistResultArtifacts(aggregate, resolve(artifactsDir)).catch(() => undefined)
+  return aggregate
 }
 
 export async function runKrtRemaining(

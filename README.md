@@ -122,8 +122,9 @@ The first complete workflow keeps the placement fixed and runs exactly three
 authoring stages followed by one authoritative check:
 
 1. generate and natively refill every ready power polygon;
-2. run all declared differential pairs in one KiCadRoutingTools special pass,
-   protect their exact copper, and natively refill the polygons again;
+2. run all declared differential pairs and equal-length groups in one logical
+   KiCadRoutingTools special stage, protect their exact copper, and natively
+   refill the polygons again;
 3. run every remaining non-GND net in one KiCadRoutingTools ordinary pass;
 4. refill again and run KiCad's final DRC/connectivity validation.
 
@@ -137,12 +138,28 @@ Stock KRT still uses its Default width in some multi-point fallback paths. The
 adapter does not globally widen other classes or weaken the power rule to hide
 that limitation: final native DRC reports any such segment as an error.
 
+The same orchestration can use Freerouting for the ordinary stage while KRT
+continues to own every special pair/group. The Freerouting adapter exports a
+staged KiCad copy to Specctra DSN, locks all existing KRT copper, and assigns
+`GND` plus every special net to temporary ignored net classes. KiCad imports the
+resulting SES into that staged native board, preserving polygon zones and
+sidecars. Freerouting's own unrouted/violation counters are diagnostics only;
+the final refilled KiCad DRC/connectivity result remains authoritative.
+The bundled thin launcher is necessary because Freerouting 2.3.0 parses its
+headless ignore-class option without applying it to the batch scheduler; it
+only fixes scope selection, while all routing and optimization remain stock
+Freerouting. Custom `.kicad_dru` constraints that are not represented by the
+effective KiCad net classes are not weakened or guessed: native final DRC
+reports any resulting violation.
+
 The Powerbank intent files are
 [`examples/powerbank.polygons.js`](examples/powerbank.polygons.js) and
 [`examples/powerbank.special.json`](examples/powerbank.special.json). There is
 no USB-C or single-ended differential-pair exception. Stock KRT cannot route
-ordinary matched groups in the same single invocation as coupled pairs, so such
-a mixed special intent is reported as `CAPABILITY_MISMATCH` during preflight.
+ordinary matched groups through `route_diff.py`; when both kinds are declared,
+the adapter chains one batched diff invocation and one batched ordinary-group
+invocation inside the same logical special stage. A group that mixes coupled
+pair members and ordinary nets is still a `CAPABILITY_MISMATCH`.
 
 Build, test the validity contract, and run the workflow:
 
@@ -150,6 +167,7 @@ Build, test the validity contract, and run the workflow:
 npm run build
 npm run test:workflow
 npm run route:full
+npm run route:full:freerouting
 ```
 
 By default the result is written under `results/full-cycle/`; the source board
@@ -164,3 +182,12 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_FULL_RESULT`
 - `COPILOT_ROUTER_FULL_OUTPUT`
 - `COPILOT_ROUTER_FULL_TIMEOUT_MS`
+- `COPILOT_ROUTER_REMAINING_BACKEND=krt|freerouting`
+- `COPILOT_ROUTER_FREEROUTING_JAR`
+- `COPILOT_ROUTER_JAVA`
+- `COPILOT_ROUTER_JAVAC`
+- `COPILOT_ROUTER_KICAD_PYTHON`
+- `COPILOT_ROUTER_FREEROUTING_BRIDGE`
+- `COPILOT_ROUTER_FREEROUTING_RUNNER`
+- `COPILOT_ROUTER_FREEROUTING_MAX_PASSES`
+- `COPILOT_ROUTER_FREEROUTING_THREADS`

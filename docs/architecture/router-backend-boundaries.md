@@ -132,8 +132,12 @@ usable board artifact remains.
 - `KiCadRoutingToolsBackendAdapter`: first complete-cycle backend for both the
   single special-net invocation and the single remaining-net invocation.
 - `EasyEdaWasmBackendAdapter`: compatibility and benchmark backend only.
-- `FreeroutingBackendAdapter`: mature ordinary-net batch baseline and possible
-  later replacement behind the same adapter contract.
+- `FreeroutingBackendAdapter`: selectable ordinary-net batch backend. It uses a
+  KiCad DSN/SES bridge, temporary ignored classes for GND and special nets, and
+  fixed pre-existing copper; KRT remains the special-net backend. A thin
+  headless launcher applies the ignore-class flags that Freerouting 2.3.0 only
+  applies in its GUI path and disables its unscoped fanout pre-pass; the stock
+  Freerouting batch router and optimizer still own all routing geometry.
 - Core polygon engine: native-zone outline planning, independent of trace
   routing backends.
 - Core special-net intent and final validators remain backend-neutral; detailed

@@ -7,6 +7,7 @@ import {
   summarizeFinalDrc,
 } from "../dist/staged-routing.js"
 import { persistKrtProtectedNets } from "../dist/backends/krt-adapter.js"
+import { runFreeroutingRemaining } from "../dist/backends/freerouting-adapter.js"
 
 const token = (value, quoted = false) => ({ value, quoted })
 const node = (head, ...children) => [token(head), ...children]
@@ -165,5 +166,52 @@ assert.deepEqual(openSignalValidation.newErrorViolations, [])
 assert.deepEqual(openSignalValidation.missingNonGroundNets, ["SIG"])
 assert.equal(openSignalValidation.missingNonGroundItems, 1)
 assert.equal(openSignalValidation.totalUnconnectedItems, 2)
+
+// Backend preflight is non-throwing and must never launch Java when scope or
+// dependencies are invalid.
+const adapterDirectory = await mkdtemp(join(process.cwd(), ".tmp-freerouting-adapter-"))
+try {
+  const baseSpec = {
+    javaPath: "java",
+    javacPath: "javac",
+    jarPath: join(adapterDirectory, "missing.jar"),
+    kicadPythonPath: join(adapterDirectory, "missing-python.exe"),
+    bridgePath: join(adapterDirectory, "missing-bridge.py"),
+    runnerSourcePath: join(adapterDirectory, "missing-runner.java"),
+    timeoutMs: 1000,
+    remainingNets: ["SIG"],
+    excludedNets: ["GND", "USB_DP", "USB_DM"],
+  }
+  const missing = await runFreeroutingRemaining(
+    join(adapterDirectory, "missing.kicad_pcb"),
+    join(adapterDirectory, "output.kicad_pcb"),
+    baseSpec,
+    adapterDirectory,
+  )
+  assert.equal(missing.attempted, false)
+  assert.equal(missing.status, "preflight_failed")
+  assert.ok(missing.diagnostics.some((item) => item.code === "FREEROUTING_DEPENDENCY_MISSING"))
+
+  const overlap = await runFreeroutingRemaining(
+    join(adapterDirectory, "missing.kicad_pcb"),
+    join(adapterDirectory, "overlap.kicad_pcb"),
+    { ...baseSpec, remainingNets: ["USB_DP"], excludedNets: ["GND", "USB_DP"] },
+    adapterDirectory,
+  )
+  assert.equal(overlap.attempted, false)
+  assert.ok(overlap.diagnostics.some((item) => item.code === "FREEROUTING_SCOPE_CONFLICT"))
+} finally {
+  await rm(adapterDirectory, { recursive: true, force: true })
+}
+
+// The KiCad bridge must require an exact partition of all board nets. This is
+// the invariant that prevents a Freerouting remaining pass from silently
+// broadening its scope to GND or special copper.
+const bridgeSource = await readFile(new URL("./freerouting-kicad-bridge.py", import.meta.url), "utf8")
+assert.match(bridgeSource, /Nets missing from the exact workflow scope/)
+assert.match(bridgeSource, /Nets assigned to both route and ignore scopes/)
+const runnerSource = await readFile(new URL("./freerouting\/ScopedFreeroutingRunner.java", import.meta.url), "utf8")
+assert.match(runnerSource, /netClass\.is_ignored_by_autorouter = true/)
+assert.match(runnerSource, /settings\.fanout\.enabled = false/)
 
 console.log("staged workflow final-validation semantics passed")
