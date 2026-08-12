@@ -55,6 +55,12 @@ export type KrtStageSpec = {
   remainingNets: readonly string[]
   powerNets?: readonly { net: string; width: number }[]
   ordering?: "inside_out" | "mps" | "original"
+  /** Disable KRT's secondary bare-ball repartition when testing an external exact order. */
+  preserveNetOrder?: boolean
+  /** Allow KRT's additive rescue pass without relaxing native clearance. */
+  enableNetRescue?: boolean
+  /** Allow geometry fallback only when the fab overrides contain a real lower rung. */
+  enableTerminalEscalation?: boolean
   maxIterations?: number
   maxProbeIterations?: number
   maxRipup?: number
@@ -545,6 +551,7 @@ async function runCaptured(
   args: string[],
   cwd: string,
   timeoutMs: number,
+  environment: Record<string, string> = {},
 ) : Promise<CapturedProcess> {
   const started = performance.now()
   return await new Promise((resolvePromise) => {
@@ -568,6 +575,7 @@ async function runCaptured(
         KICAD_NET_RESCUE: "0",
         KICAD_TERMINAL_ESCALATION: "0",
         KICAD_IMPEDANCE_NECKDOWN: "0",
+        ...environment,
       },
       stdio: ["ignore", "pipe", "pipe"],
     })
@@ -1059,9 +1067,10 @@ async function executeStage(
         KICAD_RIP_PREEXISTING: "0",
         KICAD_PLANE_FINALIZE: "0",
         KICAD_FINALIZE_RIP: "0",
-        KICAD_NET_RESCUE: "0",
-        KICAD_TERMINAL_ESCALATION: "0",
+        KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
+        KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
         KICAD_IMPEDANCE_NECKDOWN: "0",
+        ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
       },
     }, null, 2)}\n`, diagnostics)
 
@@ -1071,6 +1080,11 @@ async function executeStage(
       [scriptPath, ...args],
       normalizedKrt,
       spec.timeoutMs,
+      {
+        ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
+        KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
+        KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
+      },
     )
     result.exitCode = captured.exitCode
     result.signal = captured.signal

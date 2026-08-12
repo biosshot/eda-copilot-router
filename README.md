@@ -173,6 +173,7 @@ Build, test the validity contract, and run the workflow:
 ```powershell
 npm run build
 npm run test:workflow
+npm run test:scheduler
 npm run route:full
 npm run route:full:freerouting
 npm run route:full:easyeda
@@ -186,6 +187,10 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_POLYGON_DSL`
 - `COPILOT_ROUTER_SPECIAL_INTENT`
 - `COPILOT_ROUTER_KRT_DIR`
+- `COPILOT_ROUTER_KRT_ORDERING=inside_out|mps|original`
+- `COPILOT_ROUTER_KRT_NET_RESCUE=1` enables KRT's additive, native-clearance rescue pass
+- `COPILOT_ROUTER_NET_SCHEDULING=diagnostic|ordered|batched|singleton`
+  (`diagnostic` is the non-mutating default; the others are experimental completion profiles)
 - `COPILOT_ROUTER_KICAD_CLI`
 - `COPILOT_ROUTER_FULL_RESULT`
 - `COPILOT_ROUTER_FULL_OUTPUT`

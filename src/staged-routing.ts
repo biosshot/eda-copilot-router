@@ -31,6 +31,7 @@ import {
   type PcbRoutingRules,
 } from "../../kicad-copilot/src/pcb/router-rules"
 import {
+  persistKrtProtectedNets,
   runKrtRemaining,
   runKrtSpecial,
   type KrtProcessResult,
@@ -64,6 +65,7 @@ import {
   fullyConnectedByFilledCopperNets,
   removeFilledCopperProxy,
 } from "./filled-copper-proxy"
+import { scheduleNets, type NetSchedule } from "./net-scheduler"
 
 type JsonRecord = Record<string, unknown>
 
@@ -148,6 +150,8 @@ type WorkflowConfig = {
   krtMaxRipup: number
   krtHeuristicWeight: number
   krtOrdering: "inside_out" | "mps" | "original"
+  netScheduling: "diagnostic" | "ordered" | "batched" | "singleton"
+  krtNetRescue: boolean
   skipSpecial: boolean
 }
 
@@ -168,6 +172,49 @@ function diagnostic(
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error)
+}
+
+function krtSummaryNetNames(value: unknown): string[] {
+  const output = new Set<string>()
+  const visit = (candidate: unknown) => {
+    if (typeof candidate === "string") {
+      output.add(candidate)
+      return
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) visit(item)
+      return
+    }
+    if (!candidate || typeof candidate !== "object") return
+    const record = candidate as Record<string, unknown>
+    for (const key of ["net", "net_name", "name"]) {
+      if (typeof record[key] === "string") output.add(record[key] as string)
+    }
+    for (const key of ["failed_pads", "incomplete_members", "nets"]) {
+      if (record[key] !== undefined) visit(record[key])
+    }
+  }
+  visit(value)
+  return [...output]
+}
+
+function incompleteKrtNets(result: KrtProcessResult, attemptedNets: readonly string[]) {
+  if (!result.attempted || result.status !== "completed" || !result.jsonSummary) {
+    return new Set(attemptedNets)
+  }
+  const summary = result.jsonSummary
+  const incomplete = new Set<string>()
+  for (const key of [
+    "failed_single",
+    "open_single",
+    "failed_multipoint",
+    "cleanup_disconnected",
+    "coverage_gate_nets",
+    "pad_pairs_open",
+  ]) {
+    for (const net of krtSummaryNetNames(summary[key])) incomplete.add(net)
+  }
+  return new Set(attemptedNets.filter((net) => incomplete.has(net)))
 }
 
 function extractNet(description: unknown) {
@@ -510,6 +557,12 @@ function readKrtOrdering(value: string | undefined): WorkflowConfig["krtOrdering
   return "mps"
 }
 
+function readNetScheduling(value: string | undefined): WorkflowConfig["netScheduling"] {
+  return value === "ordered" || value === "batched" || value === "singleton"
+    ? value
+    : "diagnostic"
+}
+
 function configFromEnvironment(): WorkflowConfig {
   const sourceBoard = resolve(process.argv[2] ?? process.env.COPILOT_ROUTER_BOARD ?? DEFAULT_BOARD)
   const rulesBoard = resolve(process.argv[3] ?? process.env.COPILOT_ROUTER_RULES_BOARD ?? DEFAULT_RULES_BOARD)
@@ -543,6 +596,8 @@ function configFromEnvironment(): WorkflowConfig {
     krtMaxRipup: Number(process.env.COPILOT_ROUTER_KRT_MAX_RIPUP ?? 5),
     krtHeuristicWeight: Number(process.env.COPILOT_ROUTER_KRT_HEURISTIC_WEIGHT ?? 1.2),
     krtOrdering: readKrtOrdering(process.env.COPILOT_ROUTER_KRT_ORDERING),
+    netScheduling: readNetScheduling(process.env.COPILOT_ROUTER_NET_SCHEDULING),
+    krtNetRescue: process.env.COPILOT_ROUTER_KRT_NET_RESCUE === "1",
     skipSpecial: process.env.COPILOT_ROUTER_SKIP_SPECIAL === "1",
   }
 }
@@ -1034,10 +1089,29 @@ async function main() {
       const remainingNets = allNets.filter((net) => net.toUpperCase() !== "GND"
         && !specialNets.has(net)
         && !filledConnectedNetSet.has(net))
+      const netSchedule: NetSchedule = scheduleNets(
+        kicadToRawPcb(remainingBoardRoot, { includeZones: true }),
+        routingRules!,
+        {
+          nets: remainingNets,
+          excludedNets: [...groundNets, ...specialNets, ...filledConnectedNets],
+          layers: ["TOP", "BOTTOM"],
+        },
+      )
+      const scheduledRemainingNets = config.netScheduling === "diagnostic"
+        ? remainingNets
+        : [
+            ...netSchedule.orderedNets,
+            ...remainingNets.filter((net) => !netSchedule.orderedNets.includes(net)).sort(),
+          ]
+      await writeFile(
+        resolve(config.resultDirectory, "03-net-schedule.json"),
+        `${JSON.stringify(netSchedule, null, 2)}\n`,
+      )
       const remainingOutput = resolve(config.resultDirectory, "03-remaining.kicad_pcb")
       const proxyInput = resolve(config.resultDirectory, "03-remaining-proxy-input.kicad_pcb")
       const proxyOutput = resolve(config.resultDirectory, "03-remaining-proxy-output.kicad_pcb")
-      const remainingRules = remainingNets.map((net) => classRule(routingRules!, net))
+      const remainingRules = scheduledRemainingNets.map((net) => classRule(routingRules!, net))
       const values = {
         // route.py reads each netclass when --track-width is omitted. This is
         // only the hard fabrication floor. Stock KRT still has a few fallback
@@ -1097,7 +1171,7 @@ async function main() {
         "One or more filled copper components were too narrow to model safely for the remaining router.",
         emptyComponents,
       ))
-      const powerNets = remainingNets.flatMap((net) => {
+      const powerNets = scheduledRemainingNets.flatMap((net) => {
         const rule = classRule(routingRules!, net)
         return rule.name === "Power" ? [{ net, width: rule.trackWidth }] : []
       })
@@ -1111,7 +1185,7 @@ async function main() {
           bridgePath: config.freeroutingBridge,
           runnerSourcePath: config.freeroutingRunner,
           timeoutMs: config.timeoutMs,
-          remainingNets,
+          remainingNets: scheduledRemainingNets,
           excludedNets: [...groundNets, ...specialNets, ...filledConnectedNets],
           maxPasses: config.freeroutingMaxPasses,
           threads: config.freeroutingThreads,
@@ -1130,7 +1204,7 @@ async function main() {
       } else if (config.remainingBackend === "easyeda-wasm") {
         const easyEdaSpec: EasyEdaWasmStageSpec = {
           timeoutMs: config.timeoutMs,
-          remainingNets,
+          remainingNets: scheduledRemainingNets,
           excludedNets: [...groundNets, ...specialNets, ...filledConnectedNets],
           routeLayers: ["F.Cu", "B.Cu"],
           rules: routingRules,
@@ -1161,9 +1235,17 @@ async function main() {
           fabOverridesPath: fabPath,
           diffPairs: config.skipSpecial ? [] : specialIntent.diffPairs,
           matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
-          remainingNets,
+          remainingNets: scheduledRemainingNets,
           powerNets,
-          ordering: config.krtOrdering,
+          ordering: config.netScheduling === "ordered" || config.netScheduling === "batched"
+            ? "original"
+            : config.krtOrdering,
+          preserveNetOrder: config.netScheduling === "ordered" || config.netScheduling === "batched",
+          enableNetRescue: config.krtNetRescue,
+          // The hard fab override equals the native floor, so KRT has no legal
+          // smaller track/via rung. Keep terminal geometry escalation disabled;
+          // an impossible route must remain an explicit error, not weakened DRC.
+          enableTerminalEscalation: false,
           maxIterations: 1_000_000,
           maxProbeIterations: 50_000,
           maxRipup: config.krtMaxRipup,
@@ -1176,7 +1258,138 @@ async function main() {
           debugMemory: true,
           filledCopperProxy: true,
         }
-        result = await runKrtRemaining(proxyInput, proxyOutput, krtSpec, config.resultDirectory)
+        const priorityNets = netSchedule.tiers
+          .find((tier) => tier.tier === "escape_critical")?.nets ?? []
+        const laterNets = scheduledRemainingNets.filter((net) => !priorityNets.includes(net))
+        if (config.netScheduling === "singleton") {
+          const singletonCandidates = netSchedule.items
+            .filter((item) => item.densePadCount > 0
+              && item.denseDirectionChoices > 0
+              && item.denseMinFreeDirections / item.denseDirectionChoices <= 0.25)
+            .sort((left, right) =>
+              left.denseMinFreeDirections / left.denseDirectionChoices
+                - right.denseMinFreeDirections / right.denseDirectionChoices
+              || right.spanMm - left.spanMm
+              || right.priority - left.priority
+              || left.net.localeCompare(right.net))
+            .map((item) => item.net)
+          let singletonBoard = proxyInput
+          const acceptedSingletons: string[] = []
+          const rejectedSingletons: string[] = []
+          const singletonSubcalls: KrtProcessResult[] = []
+          for (const [index, net] of singletonCandidates.entries()) {
+            const singletonOutput = resolve(
+              config.resultDirectory,
+              `03-singleton-${String(index + 1).padStart(2, "0")}.kicad_pcb`,
+            )
+            const singletonResult = await runKrtRemaining(
+              singletonBoard,
+              singletonOutput,
+              {
+                ...krtSpec,
+                remainingNets: [net],
+                powerNets: powerNets.filter((item) => item.net === net),
+              },
+              resolve(config.resultDirectory, `03-singleton-${String(index + 1).padStart(2, "0")}-krt`),
+            )
+            singletonSubcalls.push(singletonResult)
+            const complete = incompleteKrtNets(singletonResult, [net]).size === 0
+              && !singletonResult.diagnostics.some((item) => item.severity === "error")
+              && await exists(singletonOutput)
+            if (!complete) {
+              rejectedSingletons.push(net)
+              continue
+            }
+            singletonBoard = singletonOutput
+            acceptedSingletons.push(net)
+            await persistKrtProtectedNets(singletonBoard, [net], "workflow-escape-singleton")
+          }
+          const recoveryNets = scheduledRemainingNets.filter((net) => !acceptedSingletons.includes(net))
+          if (recoveryNets.length) {
+            const recoveryResult = await runKrtRemaining(
+              singletonBoard,
+              proxyOutput,
+              {
+                ...krtSpec,
+                remainingNets: recoveryNets,
+                powerNets: powerNets.filter((item) => recoveryNets.includes(item.net)),
+              },
+              resolve(config.resultDirectory, "03-recovery-krt"),
+            )
+            result = {
+              ...recoveryResult,
+              inputBoard: proxyInput,
+              elapsedMs: singletonSubcalls.reduce((sum, item) => sum + item.elapsedMs, 0)
+                + recoveryResult.elapsedMs,
+              jsonSummaries: [
+                ...singletonSubcalls.flatMap((item) => item.jsonSummaries),
+                ...recoveryResult.jsonSummaries,
+              ],
+              subcalls: [...singletonSubcalls, recoveryResult],
+            }
+          } else {
+            await copyFile(singletonBoard, proxyOutput)
+            await copySidecars(singletonBoard, proxyOutput)
+            result = {
+              ...singletonSubcalls[singletonSubcalls.length - 1],
+              inputBoard: proxyInput,
+              outputBoard: proxyOutput,
+              elapsedMs: singletonSubcalls.reduce((sum, item) => sum + item.elapsedMs, 0),
+              subcalls: singletonSubcalls,
+            }
+          }
+          ;(result as KrtProcessResult & { singletonScheduling?: unknown }).singletonScheduling = {
+            candidates: singletonCandidates,
+            accepted: acceptedSingletons,
+            rejected: rejectedSingletons,
+          }
+        } else if (config.netScheduling === "batched" && priorityNets.length && laterNets.length) {
+          const priorityOutput = resolve(config.resultDirectory, "03-priority-proxy-output.kicad_pcb")
+          const priorityResult = await runKrtRemaining(
+            proxyInput,
+            priorityOutput,
+            {
+              ...krtSpec,
+              remainingNets: priorityNets,
+              powerNets: powerNets.filter((item) => priorityNets.includes(item.net)),
+            },
+            resolve(config.resultDirectory, "03-priority-krt"),
+          )
+          const priorityBoard = await exists(priorityOutput) ? priorityOutput : proxyInput
+          const incompletePriority = incompleteKrtNets(priorityResult, priorityNets)
+          const protectedPriority = priorityNets.filter((net) => !incompletePriority.has(net))
+          if (protectedPriority.length) await persistKrtProtectedNets(
+            priorityBoard,
+            protectedPriority,
+            "workflow-escape-critical",
+          )
+          const recoveryNets = [
+            ...priorityNets.filter((net) => incompletePriority.has(net)),
+            ...laterNets,
+          ]
+          const recoveryResult = await runKrtRemaining(
+            priorityBoard,
+            proxyOutput,
+            {
+              ...krtSpec,
+              remainingNets: recoveryNets,
+              powerNets: powerNets.filter((item) => recoveryNets.includes(item.net)),
+            },
+            resolve(config.resultDirectory, "03-recovery-krt"),
+          )
+          result = {
+            ...recoveryResult,
+            inputBoard: proxyInput,
+            elapsedMs: priorityResult.elapsedMs + recoveryResult.elapsedMs,
+            jsonSummaries: [
+              ...priorityResult.jsonSummaries,
+              ...recoveryResult.jsonSummaries,
+            ],
+            subcalls: [priorityResult, recoveryResult],
+          }
+        } else {
+          result = await runKrtRemaining(proxyInput, proxyOutput, krtSpec, config.resultDirectory)
+        }
       }
       const backendBoard = await exists(proxyOutput) ? proxyOutput : proxyInput
       const after = parsePcbSource((await readPcb(backendBoard)).source)
@@ -1229,7 +1442,15 @@ async function main() {
           elapsedMs: result.elapsedMs,
           attempted: result.attempted,
           exitCode: result.exitCode,
-          nets: remainingNets.length,
+          nets: scheduledRemainingNets.length,
+          netSchedule: {
+            strategy: netSchedule.strategy,
+            tiers: netSchedule.tiers,
+            orderedNets: netSchedule.orderedNets,
+            backendOrderMode: config.remainingBackend === "krt"
+              ? config.netScheduling
+              : "diagnostic_only",
+          },
           filledConnectedNets,
           filledCopperProxy: {
             segments: proxyManifest.segmentUuids.length,
@@ -1327,6 +1548,8 @@ async function main() {
         maxRipup: config.krtMaxRipup,
         heuristicWeight: config.krtHeuristicWeight,
         ordering: config.krtOrdering,
+        netScheduling: config.netScheduling,
+        netRescue: config.krtNetRescue,
       },
       skipSpecial: config.skipSpecial,
       sourceBoard: config.sourceBoard,
