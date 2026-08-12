@@ -803,10 +803,14 @@ async function main() {
         const removedRouting = clearRouting(root)
         const removedZones = removeKicadZones(root)
         const raw = kicadToRawPcb(root, { includeZones: false })
+        // Compact zones derive their useful cross-section from target pads and
+        // native polygon geometry. Applying the trace-current class here would
+        // multiply its width again (`minimumCorridorWidth = 3 * trackWidth`),
+        // making both the outline and obstacle search needlessly huge. Power
+        // intent is compiled into trace backends and checked against final
+        // exposed copper; the polygon planner keeps its independent geometry.
         const nativeRules = await readPcbRoutingRules(config.rulesBoard)
-        const rules = compiledPowerIntent
-          ? withCompiledPowerRules(nativeRules, compiledPowerIntent)
-          : nativeRules
+        const rules = nativeRules
         const program = runPolygonDsl(await readFile(config.polygonDsl, "utf8"))
         const result = planPolygons(raw, program, {
           rulesForNet: (net) => geometryRulesForNet(rules, net),
