@@ -148,6 +148,8 @@ type WorkflowConfig = {
   krtTurnCost: number
   krtDirectionPreferenceCost: number
   krtMaxRipup: number
+  krtMaxIterations: number
+  krtMaxProbeIterations: number
   krtHeuristicWeight: number
   krtOrdering: "inside_out" | "mps" | "original"
   netScheduling: "diagnostic" | "ordered" | "batched" | "singleton"
@@ -594,6 +596,8 @@ function configFromEnvironment(): WorkflowConfig {
     krtTurnCost: Number(process.env.COPILOT_ROUTER_KRT_TURN_COST ?? 1000),
     krtDirectionPreferenceCost: Number(process.env.COPILOT_ROUTER_KRT_DIRECTION_PREFERENCE_COST ?? 250),
     krtMaxRipup: Number(process.env.COPILOT_ROUTER_KRT_MAX_RIPUP ?? 5),
+    krtMaxIterations: Number(process.env.COPILOT_ROUTER_KRT_MAX_ITERATIONS ?? 1_000_000),
+    krtMaxProbeIterations: Number(process.env.COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS ?? 50_000),
     krtHeuristicWeight: Number(process.env.COPILOT_ROUTER_KRT_HEURISTIC_WEIGHT ?? 1.2),
     krtOrdering: readKrtOrdering(process.env.COPILOT_ROUTER_KRT_ORDERING),
     netScheduling: readNetScheduling(process.env.COPILOT_ROUTER_NET_SCHEDULING),
@@ -648,6 +652,8 @@ async function main() {
       ["turn cost", config.krtTurnCost, true],
       ["direction preference cost", config.krtDirectionPreferenceCost, true],
       ["max rip-up", config.krtMaxRipup, false],
+      ["maximum iterations", config.krtMaxIterations, false],
+      ["maximum probe iterations", config.krtMaxProbeIterations, false],
       ["heuristic weight", config.krtHeuristicWeight, false],
     ] as const
     for (const [label, value, allowZero] of krtQualityValues) {
@@ -974,8 +980,8 @@ async function main() {
           matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
           remainingNets: [],
           ordering: config.krtOrdering,
-          maxIterations: 1_000_000,
-          maxProbeIterations: 50_000,
+          maxIterations: config.krtMaxIterations,
+          maxProbeIterations: config.krtMaxProbeIterations,
           maxRipup: config.krtMaxRipup,
           heuristicWeight: config.krtHeuristicWeight,
           viaCost: config.krtViaCost,
@@ -1246,8 +1252,8 @@ async function main() {
           // smaller track/via rung. Keep terminal geometry escalation disabled;
           // an impossible route must remain an explicit error, not weakened DRC.
           enableTerminalEscalation: false,
-          maxIterations: 1_000_000,
-          maxProbeIterations: 50_000,
+          maxIterations: config.krtMaxIterations,
+          maxProbeIterations: config.krtMaxProbeIterations,
           maxRipup: config.krtMaxRipup,
           heuristicWeight: config.krtHeuristicWeight,
           viaCost: config.krtViaCost,
@@ -1546,6 +1552,8 @@ async function main() {
         turnCost: config.krtTurnCost,
         directionPreferenceCost: config.krtDirectionPreferenceCost,
         maxRipup: config.krtMaxRipup,
+        maxIterations: config.krtMaxIterations,
+        maxProbeIterations: config.krtMaxProbeIterations,
         heuristicWeight: config.krtHeuristicWeight,
         ordering: config.krtOrdering,
         netScheduling: config.netScheduling,

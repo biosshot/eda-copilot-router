@@ -174,7 +174,9 @@ Build, test the validity contract, and run the workflow:
 npm run build
 npm run test:workflow
 npm run test:scheduler
+npm run test:portfolio
 npm run route:full
+npm run route:portfolio
 npm run route:full:freerouting
 npm run route:full:easyeda
 ```
@@ -189,6 +191,8 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_KRT_DIR`
 - `COPILOT_ROUTER_KRT_ORDERING=inside_out|mps|original`
 - `COPILOT_ROUTER_KRT_NET_RESCUE=1` enables KRT's additive, native-clearance rescue pass
+- `COPILOT_ROUTER_KRT_MAX_ITERATIONS` and `COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS`
+  control search depth without weakening native geometry rules
 - `COPILOT_ROUTER_NET_SCHEDULING=diagnostic|ordered|batched|singleton`
   (`diagnostic` is the non-mutating default; the others are experimental completion profiles)
 - `COPILOT_ROUTER_KICAD_CLI`
@@ -204,3 +208,25 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_FREEROUTING_RUNNER`
 - `COPILOT_ROUTER_FREEROUTING_MAX_PASSES`
 - `COPILOT_ROUTER_FREEROUTING_THREADS`
+
+## Routing portfolio
+
+`npm run route:portfolio` runs isolated full-workflow candidates in descending
+quality tiers: `max`, `high`, `medium`, then `low`. It varies KRT ordering,
+escape-risk scheduling, batching, singleton escape probes, and the additive net
+rescue pass. Track width, clearance, via diameter, and drill remain fixed to
+the compiled native rules in every tier; lower quality only reduces aesthetic
+costs and permits more rip-up/search alternatives.
+
+The portfolio stops at the first candidate that passes the final native KiCad
+DRC and non-GND connectivity checks. If none is valid, it keeps all candidate
+boards and deterministically selects the best by: fewest unrouted non-GND
+nets/items, fewest new DRC errors, fewest vias, then shortest routed copper.
+
+- `COPILOT_ROUTER_PORTFOLIO_MAX_RUNS=8` sets the candidate budget (hard maximum 32)
+- `COPILOT_ROUTER_PORTFOLIO_CANDIDATE_TIMEOUT_MS` sets a per-candidate wall-time limit
+- `COPILOT_ROUTER_PORTFOLIO_RESULT` selects the result root
+
+Every candidate has its own directory and workflow report. The selected board
+is copied to `<source>.portfolio-best.kicad_pcb` inside the portfolio root; the
+source board is hashed before and after the entire run and is never overwritten.

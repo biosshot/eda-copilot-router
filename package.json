@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/staged-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
     "test:baseline": "node dist/benchmark.js baseline",
     "test:block": "node dist/benchmark.js block-local-first",
     "test:hybrid": "node dist/benchmark.js skeleton-first-repair",
@@ -12,7 +12,9 @@
     "test:poly:dsl": "node scripts/check-polygon-dsl.mjs",
     "test:workflow": "node scripts/check-staged-workflow.mjs",
     "test:scheduler": "node scripts/check-net-scheduler.mjs",
+    "test:portfolio": "node scripts/check-routing-portfolio.mjs",
     "route:full": "node dist/staged-routing.js",
+    "route:portfolio": "node dist/portfolio-routing.js",
     "route:full:freerouting": "node scripts/run-staged-freerouting.mjs",
     "route:full:easyeda": "node scripts/run-staged-easyeda.mjs",
     "test": "node scripts/run-all.mjs && node scripts/check-polygon-dsl.mjs && node scripts/check-staged-workflow.mjs"
