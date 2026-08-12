@@ -115,3 +115,52 @@ npm run test:poly:fill
 The post-refill test verifies connectivity against KiCad's actual filled copper.
 If refill clips a corridor into islands, validation returns an error with the
 target-pad copper groups and continues without crashing.
+
+## Polygon-first KRT full-cycle MVP
+
+The first complete workflow keeps the placement fixed and runs exactly three
+authoring stages followed by one authoritative check:
+
+1. generate and natively refill every ready power polygon;
+2. run all declared differential pairs in one KiCadRoutingTools special pass,
+   protect their exact copper, and natively refill the polygons again;
+3. run every remaining non-GND net in one KiCadRoutingTools ordinary pass;
+4. refill again and run KiCad's final DRC/connectivity validation.
+
+Runtime errors are persisted in the stage report and do not crash later stages
+when a usable board artifact remains. Polygon errors and KRT's own success
+summary do not directly set board validity. Only the final KiCad result sets
+`valid`: it requires no new hard DRC errors relative to the clean-board
+baseline and no unconnected non-GND nets. Final polygon-only diagnostics remain
+visible but do not invalidate a board that was completed by later copper.
+Stock KRT still uses its Default width in some multi-point fallback paths. The
+adapter does not globally widen other classes or weaken the power rule to hide
+that limitation: final native DRC reports any such segment as an error.
+
+The Powerbank intent files are
+[`examples/powerbank.polygons.js`](examples/powerbank.polygons.js) and
+[`examples/powerbank.special.json`](examples/powerbank.special.json). There is
+no USB-C or single-ended differential-pair exception. Stock KRT cannot route
+ordinary matched groups in the same single invocation as coupled pairs, so such
+a mixed special intent is reported as `CAPABILITY_MISMATCH` during preflight.
+
+Build, test the validity contract, and run the workflow:
+
+```powershell
+npm run build
+npm run test:workflow
+npm run route:full
+```
+
+By default the result is written under `results/full-cycle/`; the source board
+is never modified. Useful overrides are:
+
+- `COPILOT_ROUTER_BOARD`
+- `COPILOT_ROUTER_RULES_BOARD`
+- `COPILOT_ROUTER_POLYGON_DSL`
+- `COPILOT_ROUTER_SPECIAL_INTENT`
+- `COPILOT_ROUTER_KRT_DIR`
+- `COPILOT_ROUTER_KICAD_CLI`
+- `COPILOT_ROUTER_FULL_RESULT`
+- `COPILOT_ROUTER_FULL_OUTPUT`
+- `COPILOT_ROUTER_FULL_TIMEOUT_MS`

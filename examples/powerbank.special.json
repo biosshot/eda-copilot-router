@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "diffPairs": [
+    {
+      "positive": "USB_DP",
+      "negative": "USB_DM"
+    },
+    {
+      "positive": "USB_A1_DP",
+      "negative": "USB_A1_DM"
+    },
+    {
+      "positive": "USB_A2_DP",
+      "negative": "USB_A2_DM"
+    }
+  ],
+  "matchedGroups": [],
+  "lengthMatchToleranceMm": 0.1,
+  "meanderAmplitudeMm": 0.2,
+  "meanderSpacingWidths": 2
+}

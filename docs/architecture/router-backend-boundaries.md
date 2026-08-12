@@ -25,6 +25,22 @@ Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
 delegates only supported ordinary nets to a backend.
 
+The first complete-cycle implementation uses one routing backend and four
+ordered stages:
+
+1. Plan all requested power polygons, apply every ready outline, and run the
+   native EDA refill.
+2. Invoke the backend once for all special nets: every declared differential
+   pair and every explicit equal-length group. Persist these nets as protected
+   copper and run native refill before the next backend invocation.
+3. Invoke the same backend once for all remaining non-GND nets, excluding the
+   special nets from the ordinary pass.
+4. Run the final native refill and complete validation.
+
+This staging is an orchestration policy, not a set of DSL route-job types. A
+future backend may replace KiCadRoutingTools without changing the electrical
+intent or the stage contract.
+
 ## Rule ownership and preflight
 
 Native board DRC and net classes are the default rule source. DSL rules may add
@@ -52,30 +68,45 @@ deterministic seeds, native coupled differential pairs, paired vias, skew
 limits, and matched-group tuning. A capability declaration is not trusted until
 the backend passes the corresponding conformance test.
 
-## Differential-pair fallback
+## Special-net routing
 
-A differential pair is never routed as two independent nets followed by length
-tuning. If the selected backend cannot satisfy every required coupled-pair
-constraint, the core-owned `CoupledPairRouter` must route it first as one atomic
-bundle:
+A differential pair is never intentionally routed as two independent ordinary
+nets followed by length tuning. The special stage submits all declared
+differential pairs and explicit equal-length groups to one backend invocation.
+There is no core-owned differential-pair router and no protocol-specific
+exception, including for USB-C. If the backend cannot represent the required
+coupling or matching constraints, preflight records `CAPABILITY_MISMATCH` and
+does not invoke that backend.
 
-1. Route a centerline in `(x, y, direction, layer)` state using an obstacle
-   envelope for both traces and their gap.
-2. Generate symmetric 0/45/90-degree P/N offsets.
-3. Insert paired vias atomically with symmetric approaches and exits.
-4. Validate clearance, pair gap, connectivity, skew, and maximum uncoupled
-   length.
-5. Lock the resulting pair before ordinary-net routing.
+The special-net result is untrusted geometry. Coupling, connectivity, pair gap,
+skew, maximum uncoupled length, equal-length tolerance, widths, vias, and layers
+are checked during final native validation when the native project declares
+those rules; the workflow never invents missing electrical limits. A backend
+fallback that emits single-ended members is not silently accepted as a
+differential-pair result.
+The special nets are excluded from the remaining-net invocation so the ordinary
+pass cannot reinterpret or replace them as independent nets. Their exact
+segment/arc/via geometry is also protected in backend project metadata and
+compared after the pass; net-count equality is insufficient because a
+same-count reroute can still destroy coupling or matching.
 
-The ordinary-net backend is eligible for this fallback only if it can exclude
-the pair nets and either preserve the resulting fixed copper or obey an
-equivalent hard keepout envelope. Otherwise preflight returns
-`CAPABILITY_MISMATCH`. Failure to find a valid coupled route returns
-`DIFF_PAIR_UNROUTABLE` and aborts the transaction.
+## Stage diagnostics and final validity
 
-Matched groups follow the same principle: the global planner reserves tuning
-capacity before detailed routing. If a hard length/skew target cannot be met,
-the run fails instead of adding arbitrary meanders after the board is full.
+Runtime failures do not crash the workflow. Every stage records its status,
+diagnostics, elapsed time, memory metrics when available, and the latest board
+artifact it was able to produce. A failed polygon plan does not suppress other
+ready polygon plans. A failed routing or refill stage does not prevent a later
+stage when a usable input artifact still exists; an impossible dependency is
+recorded as `skipped_due_to_dependency`.
+
+Intermediate stage statuses are diagnostic only. In particular, polygon plan
+or post-refill connectivity errors do not directly make the board invalid.
+The board's `valid` value is derived solely from the final validation result
+after the last native refill. Final validation re-evaluates all applicable DRC,
+connectivity, polygon-target, differential-pair, and equal-length constraints
+against the actual final copper. A previously reported stage error may therefore
+coexist with `valid: true` if the final board satisfies every required check.
+Conversely, successful stages never imply `valid: true`.
 
 ## Transaction invariant
 
@@ -83,26 +114,30 @@ The source board is immutable throughout routing:
 
 1. Import and hash an immutable snapshot.
 2. Compile rules and complete capability negotiation.
-3. Route into a neutral `RoutePatch` in a temporary workspace.
-4. Validate the patch as untrusted geometry.
-5. Apply it to a temporary native board.
-6. Run native refill, DRC, and connectivity verification.
-7. Commit atomically only when every hard rule passes.
+3. Plan and refill polygons on a temporary native board.
+4. Route all special nets in one backend invocation, protect their copper, and
+   run native refill on the resulting snapshot.
+5. Route all remaining non-GND nets in one backend invocation.
+6. Run the final native refill and complete validation.
+7. Commit atomically only when final validation passes every hard rule.
 
-`preflight_failed`, `routing_failed`, and `validation_failed` results never
-modify the source document. Partial output may be retained only as an explicitly
-named diagnostic artifact.
+No failed result modifies the source document. Partial and invalid output may
+be retained only as an explicitly named diagnostic artifact together with its
+stage report. A preflight conflict prevents backend invocation, while runtime
+routing/refill diagnostics are recorded and the workflow continues whenever a
+usable board artifact remains.
 
 ## Planned backend roles
 
+- `KiCadRoutingToolsBackendAdapter`: first complete-cycle backend for both the
+  single special-net invocation and the single remaining-net invocation.
 - `EasyEdaWasmBackendAdapter`: compatibility and benchmark backend only.
-- `FreeroutingBackendAdapter`: mature ordinary-net batch baseline.
-- `KiCadRoutingToolsBackendAdapter`: experimental octilinear, length-matching,
-  and differential-pair backend.
+- `FreeroutingBackendAdapter`: mature ordinary-net batch baseline and possible
+  later replacement behind the same adapter contract.
 - Core polygon engine: native-zone outline planning, independent of trace
   routing backends.
-- Core special-net modules: portable differential-pair and matched-group
-  handling.
+- Core special-net intent and final validators remain backend-neutral; detailed
+  coupled routing and length tuning belong to a capable backend.
 
 Longer term, a backend-neutral global capacity planner should reserve routing
 regions, bottlenecks, layer transitions, pair corridors, and tuning space. This
