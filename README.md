@@ -138,6 +138,39 @@ Stock KRT still uses its Default width in some multi-point fallback paths. The
 adapter does not globally widen other classes or weaken the power rule to hide
 that limitation: final native DRC reports any such segment as an error.
 
+The same special-intent JSON also carries electrical power intent. Each power
+net declares exactly one source of truth: either `maxCurrentA` (the engine
+calculates copper) or `minTrackWidthMm` (an explicit engineering override).
+`maxTempRiseC` defaults to 16 °C. Physical KiCad stackup copper thickness wins;
+when it is absent, the deterministic baseline is 1 oz. `maxTrackWidthMm`
+defaults to 10 mm and can never exceed 10 mm; an over-limit calculation is a
+preflight error, never a silent clamp. Example:
+
+```json
+{
+  "powerNets": [
+    { "net": "VBUS", "maxCurrentA": 2 },
+    { "net": "SW_NODE", "minTrackWidthMm": 0.8 }
+  ],
+  "manufacturing": {
+    "defaultCopperThicknessOz": 1,
+    "viaPlatingThicknessUm": 20,
+    "maxTrackWidthMm": 10
+  }
+}
+```
+
+The current fallback width model is the IPC-2221 chart equation, rounded up to
+0.05 mm. It is intentionally calculated in the engine, not by the LLM. Via
+geometry starts at the global DRC/fabrication minimum; the engine derives a
+parallel-via count from barrel plating and required copper cross-section. Final
+validation rejects exposed undersized tracks and insufficient via transitions,
+while a narrow bookkeeping segment fully embedded in a sufficiently wide
+same-net native filled polygon is accepted as reinforced copper. Generated
+per-net classes carry the calculated widths into KRT, Freerouting, and EasyEDA
+WASM. The final electrical report is stored as
+`99-final-power-validation.json`.
+
 The same orchestration can use Freerouting or EasyEDA WASM for the ordinary stage while KRT
 continues to own every special pair/group. The Freerouting adapter exports a
 staged KiCad copy to Specctra DSN, locks all existing KRT copper, and assigns
@@ -175,6 +208,7 @@ npm run build
 npm run test:workflow
 npm run test:scheduler
 npm run test:portfolio
+npm run test:power
 npm run route:full
 npm run route:portfolio
 npm run route:full:freerouting
@@ -220,10 +254,11 @@ rescue pass. Track width, clearance, via diameter, and drill remain fixed to
 the compiled native rules in every tier; lower quality only reduces aesthetic
 costs and permits more rip-up/search alternatives.
 
-The portfolio stops at the first candidate that passes the final native KiCad
-DRC and non-GND connectivity checks. If none is valid, it keeps all candidate
-boards and deterministically selects the best by: fewest unrouted non-GND
-nets/items, fewest new DRC errors, fewest vias, then shortest routed copper.
+The portfolio stops at the first candidate that passes final native KiCad DRC,
+non-GND connectivity, and electrical power validation. If none is valid, it
+keeps all candidate boards and deterministically selects the best by: fewest
+power violations, fewest unrouted non-GND nets/items, fewest new DRC errors,
+fewest vias, then shortest routed copper.
 
 - `COPILOT_ROUTER_PORTFOLIO_MAX_RUNS=8` sets the candidate budget (hard maximum 32)
 - `COPILOT_ROUTER_PORTFOLIO_CANDIDATE_TIMEOUT_MS` sets a per-candidate wall-time limit

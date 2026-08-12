@@ -15,6 +15,20 @@
     }
   ],
   "matchedGroups": [],
+  "powerNets": [
+    { "net": "BAT_POS", "maxCurrentA": 2 },
+    { "net": "Net-(C2-Pad2)", "maxCurrentA": 2 },
+    { "net": "VSYS_CONV", "maxCurrentA": 2 },
+    { "net": "VSYS_PORT", "maxCurrentA": 2 },
+    { "net": "USB_VBUS", "maxCurrentA": 2 },
+    { "net": "USB_A1_VBUS", "maxCurrentA": 2 },
+    { "net": "USB_A2_VBUS", "maxCurrentA": 2 }
+  ],
+  "manufacturing": {
+    "defaultCopperThicknessOz": 1,
+    "viaPlatingThicknessUm": 20,
+    "maxTrackWidthMm": 10
+  },
   "lengthMatchToleranceMm": 0.1,
   "meanderAmplitudeMm": 0.2,
   "meanderSpacingWidths": 2

@@ -66,6 +66,16 @@ import {
   removeFilledCopperProxy,
 } from "./filled-copper-proxy"
 import { scheduleNets, type NetSchedule } from "./net-scheduler"
+import {
+  compilePowerIntent,
+  parsePowerIntent,
+  persistCompiledPowerRules,
+  validatePowerRouting,
+  withCompiledPowerRules,
+  type CompiledPowerIntent,
+  type PowerIntentInput,
+  type PowerRoutingValidation,
+} from "./power-intent"
 
 type JsonRecord = Record<string, unknown>
 
@@ -93,6 +103,8 @@ export type SpecialIntent = {
   lengthMatchToleranceMm: number
   meanderAmplitudeMm: number
   meanderSpacingWidths: number
+  powerNets: NonNullable<PowerIntentInput["powerNets"]>
+  manufacturing: NonNullable<PowerIntentInput["manufacturing"]>
 }
 
 export type FinalDrcSummary = {
@@ -105,6 +117,8 @@ export type FinalDrcSummary = {
 export type FinalValidation = FinalDrcSummary & {
   completed: true
   valid: boolean
+  powerValidation?: PowerRoutingValidation
+  powerViolationCount?: number
 }
 
 type ProcessResult = {
@@ -269,12 +283,22 @@ export function summarizeFinalDrc(baseline: unknown, final: unknown): FinalDrcSu
   }
 }
 
-export function deriveFinalValidation(baseline: unknown, final: unknown): FinalValidation {
+export function deriveFinalValidation(
+  baseline: unknown,
+  final: unknown,
+  powerValidation?: PowerRoutingValidation,
+): FinalValidation {
   const summary = summarizeFinalDrc(baseline, final)
   return {
     completed: true,
-    valid: summary.newErrorViolations.length === 0 && summary.missingNonGroundItems === 0,
+    valid: summary.newErrorViolations.length === 0
+      && summary.missingNonGroundItems === 0
+      && (powerValidation?.valid ?? true),
     ...summary,
+    ...(powerValidation ? {
+      powerValidation,
+      powerViolationCount: powerValidation.violations.length,
+    } : {}),
   }
 }
 
@@ -491,7 +515,9 @@ function geometryRulesForNet(rules: PcbRoutingRules, net: string) {
 }
 
 async function readSpecialIntent(path: string): Promise<SpecialIntent> {
-  const raw = JSON.parse(await readFile(path, "utf8")) as Partial<SpecialIntent>
+  const source = JSON.parse(await readFile(path, "utf8")) as unknown
+  const raw = source && typeof source === "object" ? source as Partial<SpecialIntent> : {}
+  const power = parsePowerIntent(source)
   return {
     version: 1,
     diffPairs: Array.isArray(raw.diffPairs) ? raw.diffPairs.map((pair) => ({
@@ -504,6 +530,8 @@ async function readSpecialIntent(path: string): Promise<SpecialIntent> {
     lengthMatchToleranceMm: Number(raw.lengthMatchToleranceMm ?? 0.1),
     meanderAmplitudeMm: Number(raw.meanderAmplitudeMm ?? 0.2),
     meanderSpacingWidths: Number(raw.meanderSpacingWidths ?? 2),
+    powerNets: power.powerNets ?? [],
+    manufacturing: power.manufacturing ?? {},
   }
 }
 
@@ -617,6 +645,7 @@ async function main() {
   let baselineBoard: string | undefined
   let plans: ZonePlan[] = []
   let specialIntent: SpecialIntent | undefined
+  let compiledPowerIntent: CompiledPowerIntent | undefined
   let preflightBlocked = false
 
   try {
@@ -706,6 +735,25 @@ async function main() {
           group,
         ))
       }
+      const sourceDocument = await readPcb(config.sourceBoard)
+      const sourceRoot = parsePcbSource(sourceDocument.source)
+      const sourceRules = await readPcbRoutingRules(config.rulesBoard)
+      compiledPowerIntent = compilePowerIntent(
+        specialIntent,
+        sourceRoot,
+        sourceRules,
+        [...pcbNetNames(sourceRoot)],
+      )
+      await writeFile(
+        resolve(config.resultDirectory, "00-power-intent.json"),
+        `${JSON.stringify(compiledPowerIntent, null, 2)}\n`,
+      )
+      for (const item of compiledPowerIntent.diagnostics) preflightDiagnostics.push(diagnostic(
+        item.code,
+        item.severity,
+        item.message,
+        { net: item.net, details: item.details },
+      ))
     }
     preflightBlocked = preflightDiagnostics.some((item) => item.severity === "error")
     stages.push({
@@ -755,7 +803,10 @@ async function main() {
         const removedRouting = clearRouting(root)
         const removedZones = removeKicadZones(root)
         const raw = kicadToRawPcb(root, { includeZones: false })
-        const rules = await readPcbRoutingRules(config.rulesBoard)
+        const nativeRules = await readPcbRoutingRules(config.rulesBoard)
+        const rules = compiledPowerIntent
+          ? withCompiledPowerRules(nativeRules, compiledPowerIntent)
+          : nativeRules
         const program = runPolygonDsl(await readFile(config.polygonDsl, "utf8"))
         const result = planPolygons(raw, program, {
           rulesForNet: (net) => geometryRulesForNet(rules, net),
@@ -784,6 +835,11 @@ async function main() {
         })
         await writeFile(polygonBoard, serializePcb(root))
         await copySidecars(config.rulesBoard, polygonBoard)
+        if (compiledPowerIntent) await persistCompiledPowerRules(
+          polygonBoard,
+          nativeRules,
+          compiledPowerIntent,
+        )
         await Promise.all([
           writeFile(resolve(config.resultDirectory, "01-polygon-plans.json"), `${JSON.stringify(plans, null, 2)}\n`),
           writeFile(resolve(config.resultDirectory, "01-polygon-metrics.json"), `${JSON.stringify({
@@ -846,7 +902,15 @@ async function main() {
     let allNets: string[] = []
     if (latestBoard && specialIntent) {
       try {
-        routingRules = await readPcbRoutingRules(config.rulesBoard)
+        const nativeRules = await readPcbRoutingRules(config.rulesBoard)
+        routingRules = compiledPowerIntent
+          ? withCompiledPowerRules(nativeRules, compiledPowerIntent)
+          : nativeRules
+        if (compiledPowerIntent) await persistCompiledPowerRules(
+          latestBoard,
+          nativeRules,
+          compiledPowerIntent,
+        )
         const board = await readPcb(latestBoard)
         allNets = [...pcbNetNames(parsePcbSource(board.source))]
       } catch {}
@@ -1128,16 +1192,21 @@ async function main() {
           routingRules.minimumClearance,
           ...remainingRules.map((rule) => rule.clearance),
         ),
-        // One KRT invocation has one via floor. Use the largest required
-        // geometry across remaining classes; a larger via is legal for the
-        // signal classes, while a smaller one would silently weaken Power.
+        // Start from the smallest globally legal manufacturing geometry.
+        // Per-power current capacity is expressed as a required parallel-via
+        // count and verified after routing; it is never hidden by an oversized
+        // global via that penalizes every signal net.
         viaSize: Math.max(
           routingRules.minimumViaDiameter,
-          ...remainingRules.map((rule) => rule.viaDiameter),
+          ...[...(compiledPowerIntent?.nets ?? [])
+            .filter((item) => item.status === "ready")
+            .map((item) => item.viaDiameterMm), 0.001],
         ),
         viaDrill: Math.max(
           routingRules.minimumViaDrill,
-          ...remainingRules.map((rule) => rule.viaDrill),
+          ...[...(compiledPowerIntent?.nets ?? [])
+            .filter((item) => item.status === "ready")
+            .map((item) => item.viaDrillMm), 0.001],
         ),
         holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
         boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
@@ -1177,9 +1246,12 @@ async function main() {
         "One or more filled copper components were too narrow to model safely for the remaining router.",
         emptyComponents,
       ))
+      const compiledPowerByNet = new Map((compiledPowerIntent?.nets ?? [])
+        .filter((item) => item.status === "ready")
+        .map((item) => [item.net, item]))
       const powerNets = scheduledRemainingNets.flatMap((net) => {
-        const rule = classRule(routingRules!, net)
-        return rule.name === "Power" ? [{ net, width: rule.trackWidth }] : []
+        const power = compiledPowerByNet.get(net)
+        return power ? [{ net, width: power.requiredTrackWidthMm }] : []
       })
       let result: KrtProcessResult | FreeroutingProcessResult | EasyEdaWasmProcessResult
       if (config.remainingBackend === "freerouting") {
@@ -1498,8 +1570,15 @@ async function main() {
         && !finalDrc.process.error
         && !finalDrc.process.timedOut
       if (finalDrc.report && finalCompleted) {
-        finalValidation = deriveFinalValidation(baselineReport, finalDrc.report)
         const finalRoot = parsePcbSource((await readPcb(config.outputBoard)).source)
+        const powerValidation = compiledPowerIntent
+          ? validatePowerRouting(finalRoot, compiledPowerIntent)
+          : undefined
+        if (powerValidation) await writeFile(
+          resolve(config.resultDirectory, "99-final-power-validation.json"),
+          `${JSON.stringify(powerValidation, null, 2)}\n`,
+        )
+        finalValidation = deriveFinalValidation(baselineReport, finalDrc.report, powerValidation)
         const finalPolygonValidation = validateFilledPolygonPlans(
           kicadToRawPcb(finalRoot, { includeZones: true }),
           plans,
@@ -1513,6 +1592,12 @@ async function main() {
           diagnostics: [
             ...finalValidation.newErrorViolations.map((item) => diagnostic("FINAL_NEW_DRC_ERROR", "error", item.type, item)),
             ...finalValidation.missingNonGroundNets.map((net) => diagnostic("FINAL_NET_OPEN", "error", `${net} remains unconnected.`)),
+            ...(finalValidation.powerValidation?.violations ?? []).map((item) => diagnostic(
+              item.code,
+              "error",
+              item.message,
+              item.details,
+            )),
             ...finalPolygonValidation.diagnostics.filter((item) => item.status === "error").map((item) => diagnostic(
               "FINAL_POLYGON_DIAGNOSTIC",
               "warning",
@@ -1524,6 +1609,7 @@ async function main() {
             elapsedMs: finalDrc.process.elapsedMs,
             copper: copperCounts(finalRoot),
             polygonFillErrors: finalPolygonValidation.errors,
+            powerViolationCount: finalValidation.powerViolationCount ?? 0,
           },
         })
       } else {
@@ -1564,6 +1650,7 @@ async function main() {
       rulesBoard: config.rulesBoard,
       polygonDsl: config.polygonDsl,
       specialIntentPath: config.specialIntentPath,
+      powerIntent: compiledPowerIntent,
       outputBoard: await exists(config.outputBoard) ? config.outputBoard : null,
       sourceHash,
       currentSourceHash,

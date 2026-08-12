@@ -53,6 +53,7 @@ export type CandidateMetrics = {
   missingNonGroundNets: string[]
   missingNonGroundItems: number
   newDrcErrors: number
+  powerViolationCount: number
   viaCount: number
   segmentCount: number
   arcCount: number
@@ -189,6 +190,7 @@ function candidateScore(result: Pick<CandidateResult, "candidate" | "metrics">) 
   return [
     metrics.valid ? 0 : 1,
     metrics.validationCompleted ? 0 : 1,
+    finiteMetric(metrics.powerViolationCount),
     metrics.missingNonGroundNets.length,
     finiteMetric(metrics.missingNonGroundItems),
     finiteMetric(metrics.newDrcErrors),
@@ -301,6 +303,7 @@ function emptyMetrics(elapsedMs: number): CandidateMetrics {
     missingNonGroundNets: [],
     missingNonGroundItems: Number.MAX_SAFE_INTEGER,
     newDrcErrors: Number.MAX_SAFE_INTEGER,
+    powerViolationCount: Number.MAX_SAFE_INTEGER,
     viaCount: Number.MAX_SAFE_INTEGER,
     segmentCount: Number.MAX_SAFE_INTEGER,
     arcCount: Number.MAX_SAFE_INTEGER,
@@ -447,6 +450,7 @@ async function runCandidate(
       newDrcErrors: Array.isArray(final.newErrorViolations)
         ? final.newErrorViolations.length
         : Number.MAX_SAFE_INTEGER,
+      powerViolationCount: Number(final.powerViolationCount ?? 0),
       ...copper,
       elapsedMs: processResult.elapsedMs,
     }
@@ -524,6 +528,7 @@ async function main() {
       valid: result.metrics.valid,
       missingNets: result.metrics.missingNonGroundNets.length,
       newDrcErrors: result.metrics.newDrcErrors,
+      powerViolationCount: result.metrics.powerViolationCount,
       vias: result.metrics.viaCount,
       wireLengthMm: result.metrics.wireLengthMm,
     }))

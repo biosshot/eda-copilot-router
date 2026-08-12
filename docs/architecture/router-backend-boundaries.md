@@ -55,6 +55,15 @@ All hard constraints are combined by intersection:
 - differential-pair width, gap, skew, via, and maximum-uncoupled-length
   constraints are intersected.
 
+Power-current intent is compiled in the core, not in an LLM or backend. Each
+declared power net supplies exactly one of `maxCurrentA` or `minTrackWidthMm`.
+Current-derived width uses the physical native stackup when present, otherwise
+the documented 1 oz baseline, with `maxTempRiseC=16` by default. Calculated
+width may not exceed the configured limit or the absolute 10 mm guard. Via
+geometry starts from the smallest legal DRC/fabrication size; required parallel
+barrel-copper capacity is calculated and checked after routing. These compiled
+per-net constraints are shared by every remaining backend and final validation.
+
 An empty intersection is `RULE_CONFLICT`. A backend translation that cannot
 prove exact preservation of a required rule is `LOSSY_RULE_TRANSLATION`. Either
 condition rejects the complete run before any routing begins. Preflight should

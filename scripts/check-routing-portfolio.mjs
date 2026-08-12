@@ -48,6 +48,7 @@ function result(index, overrides = {}) {
     missingNonGroundNets: ["OPEN"],
     missingNonGroundItems: 1,
     newDrcErrors: 0,
+    powerViolationCount: 0,
     viaCount: 10,
     segmentCount: 20,
     arcCount: 0,
@@ -69,6 +70,10 @@ function result(index, overrides = {}) {
   }
 }
 
+assert.ok(compareCandidateResults(
+  result(1, { powerViolationCount: 0, missingNonGroundNets: ["A", "B"] }),
+  result(2, { powerViolationCount: 1, missingNonGroundNets: [] }),
+) < 0, "electrically safe copper must outrank a completed but undersized board")
 assert.ok(compareCandidateResults(
   result(1, { valid: true, missingNonGroundNets: [] }),
   result(2, { valid: false, missingNonGroundNets: [] }),
