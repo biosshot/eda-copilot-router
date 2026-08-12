@@ -6,6 +6,12 @@ import {
   deriveFinalValidation,
   summarizeFinalDrc,
 } from "../dist/staged-routing.js"
+import {
+  appendFilledCopperProxy,
+  filledCopperPadGroups,
+  fullyConnectedByFilledCopperNets,
+  removeFilledCopperProxy,
+} from "../dist/filled-copper-proxy.js"
 import { persistKrtProtectedNets } from "../dist/backends/krt-adapter.js"
 import { runFreeroutingRemaining } from "../dist/backends/freerouting-adapter.js"
 
@@ -37,6 +43,77 @@ assert.deepEqual(changedCopperGeometryNets(
   copperBoard(11, "after-id"),
   ["PAIR"],
 ), ["PAIR"])
+
+// The native filled zone becomes connected, locked same-net copper for the
+// remaining backend, then is removed exactly before the user-visible board.
+const proxyBoard = [
+  token("kicad_pcb"),
+  node("net", token("1"), token("PWR", true)),
+  node("gr_rect", node("start", token("-1"), token("-1")), node("end", token("8"), token("3")),
+    node("stroke", node("width", token("0.05")), node("type", token("default"))),
+    node("fill", token("none")), node("layer", token("Edge.Cuts", true)), node("uuid", token("edge", true))),
+  node(
+    "zone",
+    node("net", token("PWR", true)),
+    node("layer", token("F.Cu", true)),
+    node(
+      "filled_polygon",
+      node("layer", token("F.Cu", true)),
+      node(
+        "pts",
+        node("xy", token("0"), token("0")),
+        node("xy", token("4"), token("0")),
+        node("xy", token("4"), token("2")),
+        node("xy", token("0"), token("2")),
+      ),
+    ),
+  ),
+]
+const footprint = (reference, at, pads) => node(
+  "footprint",
+  token("Test", true),
+  node("layer", token("F.Cu", true)),
+  node("at", token(String(at[0])), token(String(at[1]))),
+  node("property", token("Reference", true), token(reference, true)),
+  ...pads.map(([number, x, y]) => node(
+    "pad", token(String(number), true), token("smd"), token("rect"),
+    node("at", token(String(x)), token(String(y))),
+    node("size", token("0.5"), token("0.5")),
+    node("layers", token("F.Cu", true)),
+    node("net", token("PWR", true)),
+    node("uuid", token(`${reference}-${number}`, true)),
+  )),
+)
+proxyBoard.push(
+  footprint("U1", [0, 0], [["1", 1, 1], ["2", 2, 1]]),
+  footprint("J1", [0, 0], [["1", 6, 1]]),
+)
+const padGroups = filledCopperPadGroups(proxyBoard)
+assert.equal(padGroups.length, 1)
+assert.deepEqual(padGroups[0].pads.map((pad) => `${pad.component}.${pad.padNumber}`).sort(), ["U1.1", "U1.2"])
+assert.equal(padGroups[0].representative.padNumber, "2")
+assert.equal(padGroups[0].redundantPads[0].padNumber, "1")
+assert.deepEqual(fullyConnectedByFilledCopperNets(proxyBoard), [])
+const fullyFilledBoard = structuredClone(proxyBoard)
+fullyFilledBoard.splice(fullyFilledBoard.indexOf(fullyFilledBoard.find((item) => Array.isArray(item)
+  && item[0]?.value === "footprint" && item.some((child) => Array.isArray(child)
+    && child[0]?.value === "property" && child[2]?.value === "J1"))), 1)
+assert.deepEqual(fullyConnectedByFilledCopperNets(fullyFilledBoard), ["PWR"])
+const proxyManifest = appendFilledCopperProxy(proxyBoard, { widthMm: 0.1, pitchMm: 0.2 })
+assert.ok(proxyManifest.segmentUuids.length > 0)
+const proxySegments = proxyBoard.filter((item) => Array.isArray(item) && item[0]?.value === "segment")
+assert.equal(proxySegments.length, proxyManifest.segmentUuids.length)
+assert.ok(proxySegments.every((segment) => segment.some((item) => Array.isArray(item)
+  && item[0]?.value === "locked" && item[1]?.value === "yes")))
+assert.ok(proxySegments.every((segment) => segment.some((item) => Array.isArray(item)
+  && item[0]?.value === "net" && item[1]?.value === "PWR")))
+const proxyRemoval = removeFilledCopperProxy(proxyBoard, proxyManifest)
+assert.deepEqual(proxyRemoval, {
+  expected: proxyManifest.segmentUuids.length,
+  removed: proxyManifest.segmentUuids.length,
+  missingUuids: [],
+})
+assert.equal(proxyBoard.filter((item) => Array.isArray(item) && item[0]?.value === "segment").length, 0)
 
 // --no-fix-drc-settings suppresses KRT's own protected-net writeback. The
 // adapter must merge the invariant without replacing unrelated project data.

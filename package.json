@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/staged-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/filled-copper-proxy.ts src/staged-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
     "test:baseline": "node dist/benchmark.js baseline",
     "test:block": "node dist/benchmark.js block-local-first",
     "test:hybrid": "node dist/benchmark.js skeleton-first-repair",

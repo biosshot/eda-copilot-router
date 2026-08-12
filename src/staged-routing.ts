@@ -58,6 +58,12 @@ import {
   kicadToRawPcb,
   removeKicadZones,
 } from "./polygon/kicad-adapter"
+import {
+  appendFilledCopperProxy,
+  filledCopperPadGroups,
+  fullyConnectedByFilledCopperNets,
+  removeFilledCopperProxy,
+} from "./filled-copper-proxy"
 
 type JsonRecord = Record<string, unknown>
 
@@ -793,6 +799,19 @@ async function main() {
       }
       if (!specDiagnostics.length) {
         const specialOutput = resolve(config.resultDirectory, "02-special.kicad_pcb")
+        const specialProxyInput = resolve(config.resultDirectory, "02-special-proxy-input.kicad_pcb")
+        const specialProxyOutput = resolve(config.resultDirectory, "02-special-proxy-output.kicad_pcb")
+        const specialProxyRoot = structuredClone(before)
+        const specialProxyManifest = appendFilledCopperProxy(specialProxyRoot, {
+          widthMm: 0.1,
+          pitchMm: Math.max(0.2, routingRules.minimumClearance),
+        })
+        await writeFile(specialProxyInput, serializePcb(specialProxyRoot))
+        await copySidecars(specialInput, specialProxyInput)
+        await writeFile(
+          resolve(config.resultDirectory, "02-filled-copper-proxy.json"),
+          `${JSON.stringify(specialProxyManifest, null, 2)}\n`,
+        )
         const fabPath = resolve(config.resultDirectory, "02-special-fab.txt")
         const ordinaryFabPath = resolve(config.resultDirectory, "02-special-ordinary-fab.txt")
         const fallbackRule = classRule(routingRules!, specialNets[0] ?? "")
@@ -855,10 +874,36 @@ async function main() {
           maxRipup: 5,
           heuristicWeight: 1.2,
           debugMemory: true,
+          filledCopperProxy: true,
         }
-        const result = await runKrtSpecial(specialInput, specialOutput, krtSpec, config.resultDirectory)
-        const afterBoard = await exists(specialOutput) ? specialOutput : specialInput
+        const result = await runKrtSpecial(
+          specialProxyInput,
+          specialProxyOutput,
+          krtSpec,
+          config.resultDirectory,
+        )
+        const backendBoard = await exists(specialProxyOutput) ? specialProxyOutput : specialProxyInput
         const diagnostics = krtDiagnostics(result)
+        const specialAfter = parsePcbSource((await readPcb(backendBoard)).source)
+        const specialProxyRemoval = removeFilledCopperProxy(specialAfter, specialProxyManifest)
+        if (specialProxyManifest.zonesWithoutNativeFill.length
+          || specialProxyManifest.components.some((component) => component.proxySegments === 0)) {
+          diagnostics.push(diagnostic(
+            "SPECIAL_FILLED_COPPER_PROXY_INCOMPLETE",
+            "error",
+            "KRT special did not receive a complete model of native filled power copper.",
+            specialProxyManifest,
+          ))
+        }
+        if (specialProxyRemoval.missingUuids.length) diagnostics.push(diagnostic(
+          "SPECIAL_FILLED_COPPER_PROXY_CUSTODY_LOST",
+          "error",
+          "KRT special changed or removed temporary filled-copper geometry before cleanup.",
+          specialProxyRemoval,
+        ))
+        await writeFile(specialOutput, serializePcb(specialAfter))
+        await copySidecars(backendBoard, specialOutput)
+        const afterBoard = specialOutput
         if (await exists(specialOutput)) {
           // KRT preserves zone nodes but does not route against exact native
           // fill contours. Refill immediately so the remaining pass sees the
@@ -929,8 +974,15 @@ async function main() {
       // the complete remaining non-GND scope and may reuse portions already
       // connected by native refill.
       const groundNets = allNets.filter((net) => net.toUpperCase() === "GND")
-      const remainingNets = allNets.filter((net) => net.toUpperCase() !== "GND" && !specialNets.has(net))
+      const remainingBoardRoot = parsePcbSource((await readPcb(remainingInput)).source)
+      const filledConnectedNets = fullyConnectedByFilledCopperNets(remainingBoardRoot)
+      const filledConnectedNetSet = new Set(filledConnectedNets)
+      const remainingNets = allNets.filter((net) => net.toUpperCase() !== "GND"
+        && !specialNets.has(net)
+        && !filledConnectedNetSet.has(net))
       const remainingOutput = resolve(config.resultDirectory, "03-remaining.kicad_pcb")
+      const proxyInput = resolve(config.resultDirectory, "03-remaining-proxy-input.kicad_pcb")
+      const proxyOutput = resolve(config.resultDirectory, "03-remaining-proxy-output.kicad_pcb")
       const remainingRules = remainingNets.map((net) => classRule(routingRules!, net))
       const values = {
         // route.py reads each netclass when --track-width is omitted. This is
@@ -956,8 +1008,41 @@ async function main() {
         holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
         boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
       }
-      const before = parsePcbSource((await readPcb(remainingInput)).source)
+      const before = remainingBoardRoot
       const zonesBefore = zoneOutlineSignatures(before)
+      const proxyRoot = structuredClone(before)
+      const proxyManifest = appendFilledCopperProxy(proxyRoot, {
+        // Native zone min_thickness is 0.1 mm on this workflow.  The proxy is
+        // staging-only, so use that exact copper resolution rather than
+        // weakening any routed track rule.
+        widthMm: 0.1,
+        pitchMm: Math.max(0.2, routingRules.minimumClearance),
+      })
+      await writeFile(proxyInput, serializePcb(proxyRoot))
+      await copySidecars(remainingInput, proxyInput)
+      await writeFile(
+        resolve(config.resultDirectory, "03-filled-copper-proxy.json"),
+        `${JSON.stringify(proxyManifest, null, 2)}\n`,
+      )
+      const proxyDiagnostics: WorkflowDiagnostic[] = []
+      if (zonesBefore.length && !proxyManifest.segmentUuids.length) proxyDiagnostics.push(diagnostic(
+        "FILLED_COPPER_PROXY_EMPTY",
+        "error",
+        "Native zones exist but no refilled copper could be materialized for the remaining router.",
+      ))
+      if (proxyManifest.zonesWithoutNativeFill.length) proxyDiagnostics.push(diagnostic(
+        "FILLED_COPPER_PROXY_UNFILLED_ZONE",
+        "error",
+        "One or more power zones had no native filled_polygon after the special-stage refill.",
+        proxyManifest.zonesWithoutNativeFill,
+      ))
+      const emptyComponents = proxyManifest.components.filter((component) => component.proxySegments === 0)
+      if (emptyComponents.length) proxyDiagnostics.push(diagnostic(
+        "FILLED_COPPER_PROXY_COMPONENT_EMPTY",
+        "error",
+        "One or more filled copper components were too narrow to model safely for the remaining router.",
+        emptyComponents,
+      ))
       const powerNets = remainingNets.flatMap((net) => {
         const rule = classRule(routingRules!, net)
         return rule.name === "Power" ? [{ net, width: rule.trackWidth }] : []
@@ -973,16 +1058,18 @@ async function main() {
           runnerSourcePath: config.freeroutingRunner,
           timeoutMs: config.timeoutMs,
           remainingNets,
-          excludedNets: [...groundNets, ...specialNets],
+          excludedNets: [...groundNets, ...specialNets, ...filledConnectedNets],
           maxPasses: config.freeroutingMaxPasses,
           threads: config.freeroutingThreads,
           optimizerImprovementThreshold: 0.1,
           updateStrategy: "hybrid",
           itemSelectionStrategy: "prioritized",
+          filledCopperProxy: true,
+          filledCopperPadGroups: filledCopperPadGroups(before),
         }
         result = await runFreeroutingRemaining(
-          remainingInput,
-          remainingOutput,
+          proxyInput,
+          proxyOutput,
           freeroutingSpec,
           config.resultDirectory,
         )
@@ -990,14 +1077,15 @@ async function main() {
         const easyEdaSpec: EasyEdaWasmStageSpec = {
           timeoutMs: config.timeoutMs,
           remainingNets,
-          excludedNets: [...groundNets, ...specialNets],
+          excludedNets: [...groundNets, ...specialNets, ...filledConnectedNets],
           routeLayers: ["F.Cu", "B.Cu"],
           rules: routingRules,
           clearanceMarginMm: 0,
+          filledCopperProxy: true,
         }
         result = await runEasyEdaWasmRemaining(
-          remainingInput,
-          remainingOutput,
+          proxyInput,
+          proxyOutput,
           easyEdaSpec,
           config.resultDirectory,
         )
@@ -1028,12 +1116,36 @@ async function main() {
           heuristicWeight: 1.2,
           collectStats: true,
           debugMemory: true,
+          filledCopperProxy: true,
         }
-        result = await runKrtRemaining(remainingInput, remainingOutput, krtSpec, config.resultDirectory)
+        result = await runKrtRemaining(proxyInput, proxyOutput, krtSpec, config.resultDirectory)
       }
-      const afterBoard = await exists(remainingOutput) ? remainingOutput : remainingInput
-      const after = parsePcbSource((await readPcb(afterBoard)).source)
-      const diagnostics: WorkflowDiagnostic[] = result.diagnostics.map((item) => ({ ...item }))
+      const backendBoard = await exists(proxyOutput) ? proxyOutput : proxyInput
+      const after = parsePcbSource((await readPcb(backendBoard)).source)
+      const proxyRemoval = removeFilledCopperProxy(after, proxyManifest)
+      await writeFile(remainingOutput, serializePcb(after))
+      await copySidecars(backendBoard, remainingOutput)
+      const afterBoard = remainingOutput
+      const diagnostics: WorkflowDiagnostic[] = [
+        ...proxyDiagnostics,
+        ...result.diagnostics.map((item) => ({ ...item })),
+      ]
+      if (proxyRemoval.missingUuids.length) diagnostics.push(diagnostic(
+        "FILLED_COPPER_PROXY_CUSTODY_LOST",
+        "error",
+        "The remaining backend changed or removed temporary filled-copper geometry before cleanup.",
+        proxyRemoval,
+      ))
+      const leakedProxyUuids = new Set(proxyManifest.segmentUuids)
+      const leakedProxy = listChildren(after, "segment")
+        .map((segment) => atom(findChild(segment, "uuid")?.[1]) ?? "")
+        .filter((uuid) => leakedProxyUuids.has(uuid))
+      if (leakedProxy.length) diagnostics.push(diagnostic(
+        "FILLED_COPPER_PROXY_LEAKED",
+        "error",
+        "Temporary filled-copper geometry leaked into the user-visible remaining board.",
+        leakedProxy,
+      ))
       if (!sameStrings(zonesBefore, zoneOutlineSignatures(after))) diagnostics.push(diagnostic(
         "REMAINING_ZONE_OUTLINES_CHANGED", "error", `${config.remainingBackend} changed or removed power zone outlines.`,
       ))
@@ -1060,6 +1172,12 @@ async function main() {
           attempted: result.attempted,
           exitCode: result.exitCode,
           nets: remainingNets.length,
+          filledConnectedNets,
+          filledCopperProxy: {
+            segments: proxyManifest.segmentUuids.length,
+            components: proxyManifest.components.length,
+            removal: proxyRemoval,
+          },
           ...(result.backend === "freerouting" || result.backend === "easyeda-wasm"
             ? { routerSummary: result.routerSummary }
             : {}),

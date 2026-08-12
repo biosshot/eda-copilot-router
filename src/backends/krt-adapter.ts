@@ -61,6 +61,8 @@ export type KrtStageSpec = {
   heuristicWeight?: number
   collectStats?: boolean
   debugMemory?: boolean
+  /** Exact native filled copper was materialized as locked same-net tracks. */
+  filledCopperProxy?: boolean
 }
 
 export type KrtProcessStatus =
@@ -718,7 +720,7 @@ async function commonPreflight(
 
   try {
     const source = await readFile(inputBoard, "utf8")
-    if (/(?:^|\s)\(zone(?=[\s(])/m.test(source)) diagnostics.push(diagnostic(
+    if (!spec.filledCopperProxy && /(?:^|\s)\(zone(?=[\s(])/m.test(source)) diagnostics.push(diagnostic(
       "KRT_ZONE_OBSTACLE_UNSUPPORTED",
       "warning",
       "Stock KRT does not stamp native filled-zone contours as routing obstacles. Native refill and final verification are authoritative.",

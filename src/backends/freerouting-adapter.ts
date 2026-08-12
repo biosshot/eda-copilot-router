@@ -26,6 +26,8 @@ export type FreeroutingStageSpec = {
   optimizerImprovementThreshold?: number
   updateStrategy?: "greedy" | "global" | "hybrid"
   itemSelectionStrategy?: "sequential" | "random" | "prioritized"
+  /** Exact native filled copper was also materialized as fixed same-net tracks. */
+  filledCopperProxy?: boolean
 }
 
 export type FreeroutingProcessResult = {

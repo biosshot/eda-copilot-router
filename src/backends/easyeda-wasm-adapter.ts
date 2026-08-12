@@ -11,6 +11,7 @@ import {
 } from "../../../kicad-copilot/src/pcb/router-adapter"
 import type { PcbRoutingRules } from "../../../kicad-copilot/src/pcb/router-rules"
 import type { RouterResult } from "../../../kicad-copilot/src/pcb/router-runtime"
+import type { FilledCopperPadGroup } from "../filled-copper-proxy"
 
 type Diagnostic = {
   code: string
@@ -26,6 +27,9 @@ export type EasyEdaWasmStageSpec = {
   routeLayers: string[]
   rules: PcbRoutingRules
   clearanceMarginMm?: number
+  /** Exact native filled copper was materialized as locked same-net tracks. */
+  filledCopperProxy?: boolean
+  filledCopperPadGroups?: FilledCopperPadGroup[]
 }
 
 export type EasyEdaWasmProcessResult = {
@@ -247,6 +251,30 @@ export async function runEasyEdaWasmRemaining(
       speedFirst: false,
       designRules: spec.rules,
     })
+    const redundantPads = new Set((spec.filledCopperPadGroups ?? []).flatMap((group) =>
+      group.redundantPads.map((pad) => `${pad.component}\u0000${pad.padNumber}`)))
+    if (redundantPads.size) {
+      for (const [componentName, componentValue] of Object.entries(exported.input.components)) {
+        if (!componentValue || typeof componentValue !== "object") continue
+        const component = componentValue as Record<string, unknown>
+        const nets = component.nets && typeof component.nets === "object"
+          ? component.nets as Record<string, unknown>
+          : {}
+        const pinName = component.pinName && typeof component.pinName === "object"
+          ? component.pinName as Record<string, unknown>
+          : {}
+        for (const [pin, padNumber] of Object.entries(pinName)) {
+          if (!redundantPads.has(`${componentName}\u0000${String(padNumber)}`)) continue
+          delete nets[pin]
+          delete pinName[pin]
+        }
+      }
+      diagnostics.push(diagnostic(
+        "EASYEDA_WASM_FILLED_COPPER_TERMINALS_COLLAPSED",
+        "info",
+        `Collapsed ${redundantPads.size} redundant pad terminal(s) already connected by native filled copper.`,
+      ))
+    }
     configureHardGeometry(exported.input, Number(spec.clearanceMarginMm ?? 0))
     await writeFile(artifactPaths.input, `${JSON.stringify(exported.input, null, 2)}\n`)
 
@@ -284,7 +312,7 @@ export async function runEasyEdaWasmRemaining(
     if (summary.routability !== null && summary.routability < 1) diagnostics.push(diagnostic(
       "EASYEDA_WASM_PARTIAL_ROUTABILITY", "error", "EasyEDA WASM left unrouted connectivity.", summary,
     ))
-    if (document.root.some((item) => Array.isArray(item) && String((item[0] as { value?: string })?.value) === "zone")) {
+    if (!spec.filledCopperProxy && document.root.some((item) => Array.isArray(item) && String((item[0] as { value?: string })?.value) === "zone")) {
       diagnostics.push(diagnostic(
         "EASYEDA_WASM_ZONE_OBSTACLE_UNSUPPORTED",
         "warning",
