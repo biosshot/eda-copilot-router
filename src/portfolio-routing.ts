@@ -17,7 +17,7 @@ import { readPcb } from "../../kicad-copilot/src/kicad/pcb-reader"
 import { parsePcbSource } from "../../kicad-copilot/src/kicad/pcb-writer"
 import { kicadToRawPcb } from "./polygon/kicad-adapter"
 
-type QualityName = "max" | "high" | "medium" | "low"
+type QualityName = "incumbent" | "max" | "high" | "medium" | "low"
 type SchedulingMode = "diagnostic" | "ordered" | "batched" | "singleton"
 type KrtOrdering = "mps" | "inside_out" | "original"
 
@@ -74,10 +74,23 @@ export type CandidateResult = {
   score: Array<number>
 }
 
+export const INCUMBENT_PRESET: QualityPreset = {
+  name: "incumbent",
+  rank: 0,
+  viaCost: 20,
+  viaProximityCost: 3,
+  turnCost: 250,
+  directionPreferenceCost: 50,
+  maxRipup: 5,
+  heuristicWeight: 1,
+  maxIterations: 1_000_000,
+  maxProbeIterations: 50_000,
+}
+
 export const QUALITY_PRESETS: readonly QualityPreset[] = [
   {
     name: "max",
-    rank: 0,
+    rank: 1,
     viaCost: 80,
     viaProximityCost: 16,
     turnCost: 1_500,
@@ -89,7 +102,7 @@ export const QUALITY_PRESETS: readonly QualityPreset[] = [
   },
   {
     name: "high",
-    rank: 1,
+    rank: 2,
     viaCost: 50,
     viaProximityCost: 10,
     turnCost: 1_000,
@@ -101,7 +114,7 @@ export const QUALITY_PRESETS: readonly QualityPreset[] = [
   },
   {
     name: "medium",
-    rank: 2,
+    rank: 3,
     viaCost: 20,
     viaProximityCost: 3,
     turnCost: 250,
@@ -113,7 +126,7 @@ export const QUALITY_PRESETS: readonly QualityPreset[] = [
   },
   {
     name: "low",
-    rank: 3,
+    rank: 4,
     viaCost: 1,
     viaProximityCost: 0,
     turnCost: 0,
@@ -136,7 +149,14 @@ const ROUTE_VARIANTS: readonly RouteVariant[] = [
   { name: "escape-singletons-rescue", scheduling: "singleton", ordering: "original", netRescue: true },
 ] as const
 
-const VARIANTS_BY_QUALITY: Readonly<Record<QualityName, readonly RouteVariant[]>> = {
+const INCUMBENT_VARIANT: RouteVariant = {
+  name: "incumbent-global-mps",
+  scheduling: "diagnostic",
+  ordering: "mps",
+  netRescue: false,
+}
+
+const VARIANTS_BY_QUALITY: Readonly<Record<Exclude<QualityName, "incumbent">, readonly RouteVariant[]>> = {
   // With a tiny 3-5 run budget, do not spend every quality tier on the same
   // ordering.  MPS is the strongest global baseline, while later tiers trade
   // aesthetics for the escape scheduler and additive rescue.
@@ -198,14 +218,21 @@ export function compareCandidateResults(left: CandidateResult, right: CandidateR
  */
 export function buildPortfolioCandidates(requestedRuns: number) {
   const runCount = Math.max(1, Math.min(32, Math.trunc(requestedRuns)))
+  const candidates: PortfolioCandidate[] = [{
+    index: 1,
+    quality: INCUMBENT_PRESET,
+    variant: INCUMBENT_VARIANT,
+  }]
+  if (runCount === 1) return candidates
+
+  const experimentalRuns = runCount - 1
   const counts = QUALITY_PRESETS.map(() => 0)
-  const initial = Math.min(runCount, QUALITY_PRESETS.length)
+  const initial = Math.min(experimentalRuns, QUALITY_PRESETS.length)
   for (let index = 0; index < initial; index += 1) counts[index] = 1
-  for (let index = initial; index < runCount; index += 1) {
+  for (let index = initial; index < experimentalRuns; index += 1) {
     counts[(index - initial) % QUALITY_PRESETS.length] += 1
   }
 
-  const candidates: PortfolioCandidate[] = []
   for (let qualityIndex = 0; qualityIndex < QUALITY_PRESETS.length; qualityIndex += 1) {
     const variants = VARIANTS_BY_QUALITY[QUALITY_PRESETS[qualityIndex].name]
     for (let variantIndex = 0; variantIndex < counts[qualityIndex]; variantIndex += 1) {

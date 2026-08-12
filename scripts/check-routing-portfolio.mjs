@@ -1,23 +1,42 @@
 import assert from "node:assert/strict"
 import {
+  INCUMBENT_PRESET,
   QUALITY_PRESETS,
   buildPortfolioCandidates,
   compareCandidateResults,
 } from "../dist/portfolio-routing.js"
 
 assert.deepEqual(QUALITY_PRESETS.map((preset) => preset.name), ["max", "high", "medium", "low"])
+assert.deepEqual({
+  name: INCUMBENT_PRESET.name,
+  viaCost: INCUMBENT_PRESET.viaCost,
+  viaProximityCost: INCUMBENT_PRESET.viaProximityCost,
+  turnCost: INCUMBENT_PRESET.turnCost,
+  directionPreferenceCost: INCUMBENT_PRESET.directionPreferenceCost,
+  maxRipup: INCUMBENT_PRESET.maxRipup,
+  heuristicWeight: INCUMBENT_PRESET.heuristicWeight,
+}, {
+  name: "incumbent",
+  viaCost: 20,
+  viaProximityCost: 3,
+  turnCost: 250,
+  directionPreferenceCost: 50,
+  maxRipup: 5,
+  heuristicWeight: 1,
+})
 assert.equal(buildPortfolioCandidates(64).length, 32)
+assert.equal(buildPortfolioCandidates(1)[0].variant.name, "incumbent-global-mps")
 
 const small = buildPortfolioCandidates(4)
-assert.deepEqual(small.map((candidate) => candidate.quality.name), ["max", "high", "medium", "low"])
-assert.equal(small[0].variant.name, "global-mps")
-assert.equal(small[1].variant.name, "escape-first")
-assert.ok(small[2].variant.netRescue, "medium should start with a completion-first rescue variant")
-assert.equal(small[3].variant.name, "global-mps-rescue")
+assert.deepEqual(small.map((candidate) => candidate.quality.name), ["incumbent", "max", "high", "medium"])
+assert.equal(small[0].variant.name, "incumbent-global-mps")
+assert.equal(small[1].variant.name, "global-mps")
+assert.equal(small[2].variant.name, "escape-first")
+assert.ok(small[3].variant.netRescue, "medium should start with a completion-first rescue variant")
 
 const eight = buildPortfolioCandidates(8)
 assert.deepEqual(eight.map((candidate) => candidate.quality.name), [
-  "max", "max", "high", "high", "medium", "medium", "low", "low",
+  "incumbent", "max", "max", "high", "high", "medium", "medium", "low",
 ])
 assert.equal(new Set(eight.map((candidate) => `${candidate.quality.name}/${candidate.variant.name}`)).size, 8)
 

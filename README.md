@@ -211,8 +211,10 @@ is never modified. Useful overrides are:
 
 ## Routing portfolio
 
-`npm run route:portfolio` runs isolated full-workflow candidates in descending
-quality tiers: `max`, `high`, `medium`, then `low`. It varies KRT ordering,
+`npm run route:portfolio` first runs an incumbent candidate using the exact
+best-known global MPS profile (`20/3/250/50`, rip-up 5, no rescue), then runs
+isolated experimental candidates in descending quality tiers: `max`, `high`,
+`medium`, then `low`. It varies KRT ordering,
 escape-risk scheduling, batching, singleton escape probes, and the additive net
 rescue pass. Track width, clearance, via diameter, and drill remain fixed to
 the compiled native rules in every tier; lower quality only reduces aesthetic
