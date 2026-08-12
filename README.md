@@ -232,3 +232,6 @@ nets/items, fewest new DRC errors, fewest vias, then shortest routed copper.
 Every candidate has its own directory and workflow report. The selected board
 is copied to `<source>.portfolio-best.kicad_pcb` inside the portfolio root; the
 source board is hashed before and after the entire run and is never overwritten.
+Unless `COPILOT_ROUTER_RULES_BOARD` is explicitly set, portfolio candidates
+compile DRC from the source board itself so the incumbent cannot silently use a
+different benchmark netclass/via configuration.

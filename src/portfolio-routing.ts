@@ -179,7 +179,6 @@ const VARIANTS_BY_QUALITY: Readonly<Record<Exclude<QualityName, "incumbent">, re
 } as const
 
 const DEFAULT_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.kicad_pcb"
-const DEFAULT_RULES = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.drc-benchmark-clean-no-gnd.kicad_pcb"
 
 function finiteMetric(value: number) {
   return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER
@@ -479,7 +478,11 @@ async function runCandidate(
 
 async function main() {
   const sourceBoard = resolve(process.argv[2] ?? process.env.COPILOT_ROUTER_BOARD ?? DEFAULT_BOARD)
-  const rulesBoard = resolve(process.argv[3] ?? process.env.COPILOT_ROUTER_RULES_BOARD ?? DEFAULT_RULES)
+  // The portfolio incumbent must compile the same rules as the source board.
+  // A separate rules board is allowed only when the caller explicitly asks for
+  // it; silently substituting the old Powerbank benchmark changed via geometry
+  // and made the supposedly identical MPS incumbent irreproducible.
+  const rulesBoard = resolve(process.argv[3] ?? process.env.COPILOT_ROUTER_RULES_BOARD ?? sourceBoard)
   const polygonDsl = resolve(process.argv[4] ?? process.env.COPILOT_ROUTER_POLYGON_DSL ?? "examples/powerbank.polygons.js")
   const specialIntent = resolve(process.argv[5] ?? process.env.COPILOT_ROUTER_SPECIAL_INTENT ?? "examples/powerbank.special.json")
   const requestedDirectory = resolve(process.argv[6] ?? process.env.COPILOT_ROUTER_PORTFOLIO_RESULT ?? "results/portfolio")
