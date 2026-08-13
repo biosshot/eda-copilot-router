@@ -54,7 +54,6 @@ export type PolygonIntent = {
 }
 
 export type PolygonProgram = {
-  version: 1
   polygons: PolygonIntent[]
   planes: PlaneIntent[]
 }
@@ -161,7 +160,6 @@ class PolygonDslBuilder {
       }
     }
     return {
-      version: 1,
       polygons: this.polygons
         .map((intent) => structuredClone(intent))
         .sort((a, b) => b.priority - a.priority),

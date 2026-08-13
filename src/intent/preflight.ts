@@ -162,7 +162,9 @@ export function compileRoutingRules(
   }
 
   for (const polygon of program.polygons) {
-    required.add("zones")
+    required.add("preserve-fixed-copper")
+    required.add("fixed-zone-obstacles")
+    required.add("preconnected-pad-groups")
     checkNet(polygon.net)
     checkLayers(polygon.layers)
     for (const target of polygon.targets) {
@@ -175,8 +177,6 @@ export function compileRoutingRules(
     }
   }
   for (const plane of program.planes) {
-    required.add("zones")
-    if (plane.stitching) required.add("plane-stitching")
     checkNet(plane.net)
     checkLayers(plane.layers)
     if (plane.region.kind === "components") diagnostics.push(diagnostic("UNSUPPORTED_CONSTRAINT", "components(...) plane regions are reserved but not implemented."))
@@ -208,6 +208,7 @@ export function compileRoutingRules(
     const requiredArea = requiredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
     const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
     const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
+    if (requiredParallelVias > 1) required.add("parallel-vias")
     byNet.set(power.net, {
       ...explicit,
       preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, requiredWidth),

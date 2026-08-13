@@ -47,11 +47,13 @@ Environment overrides:
 - `COPILOT_ROUTER_DIFF_PAIRS=0` to disable differential-pair routing for an isolation test.
 - `COPILOT_ROUTER_RESULT_SET` to keep isolation runs in a separate results subdirectory.
 
-## Local native-zone planner MVP
+## Local native-zone planner
 
-The mature planner currently consumes the legacy `RawPcb` geometry view.
-`RawPcb` is not the public router contract; its migration target is the package
-`RoutingBoard`. KiCad and EasyEDA are host adapters; their native zone
+The mature planner consumes the package `RoutingBoard` through a private,
+geometry-only `PolygonScene`. `PolygonScene` is an implementation detail, not
+a second board exchange format and not part of the package exports. The legacy
+KiCad workflow normalizes its AST into the same private view. KiCad and EasyEDA
+are host adapters; their native zone
 fillers remain responsible for exact pad avoidance, DRC clearance, thermal
 spokes, clipping, and island removal.
 
@@ -76,6 +78,8 @@ plane({
     viaInPad: true,
   },
 })
+
+runAll()
 ```
 
 `compact()` derives point-like pad heads joined by obstacle-aware 0/45/90-degree

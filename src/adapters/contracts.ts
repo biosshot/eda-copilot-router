@@ -17,6 +17,9 @@ export type RouterCapability =
   | "matched-length"
   | "impedance-controlled"
   | "preserve-fixed-copper"
+  | "fixed-zone-obstacles"
+  | "preconnected-pad-groups"
+  | "parallel-vias"
 
 export type RouterBackendCapabilities = Readonly<{
   supported: readonly RouterCapability[]
@@ -27,6 +30,13 @@ export type BackendRouteRequest = Readonly<{
   board: RoutingBoard
   program: CompiledRoutingProgram
   rules: RoutingRules
+  connectivity?: Readonly<{
+    /** Pads already joined by router-owned copper generated before routing. */
+    preconnectedPadGroups: readonly Readonly<{
+      net: string
+      pads: readonly Readonly<{ component: string; pad: string }>[]
+    }>[]
+  }>
   policy?: RoutingPolicy
   signal?: AbortSignal
 }>

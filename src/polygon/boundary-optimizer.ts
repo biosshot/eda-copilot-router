@@ -1,4 +1,4 @@
-import type { PcbPoint, RawPcbPad } from "./raw-pcb"
+import type { PcbPoint, PolygonScenePad } from "./scene.js"
 import ClipperLib from "clipper-lib"
 
 // Clipper is used only to union rough target-pad/corridor outlines. It does
@@ -28,7 +28,7 @@ const ADAPTIVE_WIDTH_SEARCH_STEPS = 14
 const DEFAULT_MIN_BANK_CONNECTIVITY_NECK_MM = 0.10
 
 type PadGeometry = {
-  pad: RawPcbPad
+  pad: PolygonScenePad
   points: PcbPoint[]
   areaMm2: number
   characteristicWidthMm: number
@@ -59,7 +59,7 @@ type RoutedEdge = {
 }
 
 export type CompactBoundaryOptimization = {
-  pads: RawPcbPad[]
+  pads: PolygonScenePad[]
   boundary: PcbPoint[]
   strategy: "mst_corridor" | "octilinear_envelope"
   mstLengthMm: number
@@ -86,7 +86,7 @@ export type CompactBoundaryOptimizationResult = {
   maxPadFreeGapMm: number
   maxPadFreeGapWidths: number
   isolatedPads: Array<{
-    pad: RawPcbPad
+    pad: PolygonScenePad
     nearestPadFreeGapWidths: number
   }>
 }
@@ -2042,9 +2042,9 @@ function optimizeGroup(
 }
 
 export function optimizeCompactBoundaries(
-  pads: RawPcbPad[],
-  ringsFromPad: (pad: RawPcbPad) => PcbPoint[][],
-  obstaclePads: RawPcbPad[] = [],
+  pads: PolygonScenePad[],
+  ringsFromPad: (pad: PolygonScenePad) => PcbPoint[][],
+  obstaclePads: PolygonScenePad[] = [],
   options: {
     maxPadFreeGapWidths?: number
     padExpansionRatio?: number
@@ -2056,7 +2056,7 @@ export function optimizeCompactBoundaries(
   const padExpansionRatio = options.padExpansionRatio ?? PAD_ENVELOPE_EXPANSION_RATIO
   const minimumCorridorWidthMm = options.minimumCorridorWidthMm ?? DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM
   const obstacleClearanceMm = options.obstacleClearanceMm ?? DEFAULT_OBSTACLE_CLEARANCE_MM
-  const toGeometry = (pad: RawPcbPad) => {
+  const toGeometry = (pad: PolygonScenePad) => {
     const rings = ringsFromPad(pad).filter((ring) => ring.length >= 3)
     const points = rings.flat()
     if (!points.length) return []

@@ -7,7 +7,7 @@ export type PolygonMm = Readonly<{
 }>
 
 export type RoutingLayer = Readonly<{
-  id: string
+  /** Canonical layer key used by every other RoutingBoard structure. */
   name: string
   index: number
   side: "top" | "inner" | "bottom"

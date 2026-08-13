@@ -41,6 +41,19 @@ function polygon(value: unknown): value is PolygonMm {
     && (value.holes === undefined || (Array.isArray(value.holes) && value.holes.every((item) => path(item, 3))))
 }
 
+function padShape(value: unknown) {
+  if (!object(value) || typeof value.kind !== "string") return false
+  if (value.kind === "circle") return positive(value.diameterMm)
+  if (value.kind === "rect" || value.kind === "oval") {
+    return positive(value.widthMm) && positive(value.heightMm)
+  }
+  if (value.kind === "round-rect") return positive(value.widthMm) && positive(value.heightMm)
+    && finite(value.cornerRadiusMm) && value.cornerRadiusMm >= 0
+    && value.cornerRadiusMm <= Math.min(value.widthMm, value.heightMm) / 2
+  if (value.kind === "polygon") return polygon(value.polygon)
+  return false
+}
+
 function error(diagnostics: RoutingDiagnostic[], code: string, message: string, path?: string) {
   diagnostics.push({ code, severity: "error", message, ...(path ? { path } : {}) })
 }
@@ -189,7 +202,8 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
   array(value.pads, diagnostics, "pads").forEach((item, index) => {
     const at = `pads[${index}]`
     if (!object(item) || typeof item.component !== "string" || typeof item.number !== "string" || !point(item.at)
-      || !finite(item.rotationDeg) || !Array.isArray(item.layers) || !item.layers.length) {
+      || !finite(item.rotationDeg) || !Array.isArray(item.layers) || !item.layers.length
+      || !padShape(item.shape)) {
       error(diagnostics, "ROUTING_PAD_INVALID", `${at} is invalid.`, at)
       return
     }
@@ -200,7 +214,16 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
     if (item.net !== undefined && !nets.has(String(item.net))) error(diagnostics, "ROUTING_UNKNOWN_NET", `${at} references ${item.net}.`, at)
     for (const layer of item.layers) if (!layers.has(String(layer))) error(diagnostics, "ROUTING_UNKNOWN_LAYER", `${at} references ${layer}.`, at)
   })
-  array(value.keepouts, diagnostics, "keepouts")
+  array(value.keepouts, diagnostics, "keepouts").forEach((item, index) => {
+    const at = `keepouts[${index}]`
+    const forbid = object(item) ? item.forbid : undefined
+    if (!object(item) || !Array.isArray(item.layers) || !item.layers.length
+      || !item.layers.every((layer) => typeof layer === "string" && layers.has(layer))
+      || !polygon(item.polygon) || !object(forbid)
+      || !["tracks", "vias", "zones"].every((field) => typeof forbid?.[field] === "boolean")) {
+      error(diagnostics, "ROUTING_KEEPOUT_INVALID", `${at} is invalid.`, at)
+    }
+  })
   if (!object(value.rules)) error(diagnostics, "ROUTING_RULES_REQUIRED", "rules are required.", "rules")
   else {
     ruleValues(value.rules.default, diagnostics, "rules.default")

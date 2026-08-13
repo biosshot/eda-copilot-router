@@ -39,8 +39,8 @@ const board = {
   outline: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }],
   cutouts: [],
   layers: [
-    { id: "F.Cu", name: "F.Cu", index: 0, side: "top" },
-    { id: "B.Cu", name: "B.Cu", index: 1, side: "bottom" },
+    { name: "F.Cu", index: 0, side: "top" },
+    { name: "B.Cu", index: 1, side: "bottom" },
   ],
   nets: [{ name: "VCC" }, { name: "USB_DP" }, { name: "USB_DM" }],
   components: [
@@ -95,7 +95,11 @@ let backendCalls = 0
 const backend = {
   id: "fixture",
   capabilities: {
-    supported: ["ordinary-routing", "vias", "zones", "differential-pairs", "preserve-fixed-copper"],
+    supported: [
+      "ordinary-routing", "vias", "zones", "differential-pairs",
+      "preserve-fixed-copper", "fixed-zone-obstacles",
+      "preconnected-pad-groups", "parallel-vias",
+    ],
     maxCopperLayers: 2,
   },
   async route(request) {
@@ -117,6 +121,54 @@ assert.equal(routed.operation, "all")
 assert.equal(routed.rules.applyRequested, true)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
+
+let polygonBackendRequest
+const polygonBackend = {
+  ...backend,
+  async route(request) {
+    polygonBackendRequest = request
+    return { status: "complete", copper: emptyCopper }
+  },
+}
+const polygonResult = await api.run({
+  board,
+  backend: polygonBackend,
+  dsl: `
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
+    runRouting()
+  `,
+})
+assert.equal(polygonResult.status, "complete")
+assert.equal(polygonResult.copper.zones.length, 1)
+assert.equal(polygonResult.copper.zones[0].net, "VCC")
+assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 1)
+assert.equal(polygonBackendRequest.program.polygons.length, 0)
+assert.equal(polygonBackendRequest.program.planes.length, 0)
+assert.deepEqual(polygonBackendRequest.connectivity.preconnectedPadGroups, [{
+  net: "VCC",
+  pads: [{ component: "U1", pad: "1" }, { component: "C1", pad: "1" }],
+}])
+
+const planeResult = await api.run({
+  board,
+  backend: polygonBackend,
+  dsl: `
+    plane({
+      net: "VCC",
+      layers: outerLayers(),
+      region: board(),
+      stitching: { gridMm: 5, maxVias: 8 }
+    })
+    runRouting()
+  `,
+})
+assert.equal(planeResult.status, "complete")
+assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 0)
+assert.equal(polygonBackendRequest.program.planes.length, 0)
+assert.equal(planeResult.copper.zones.length, 1)
+assert.deepEqual(planeResult.copper.zones[0].layers, ["F.Cu", "B.Cu"])
+assert.ok(planeResult.copper.vias.length > 0)
+assert.ok(planeResult.copper.vias.length <= 8)
 
 const weakOnlyRouting = await api.run({
   board,

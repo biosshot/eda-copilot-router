@@ -1,13 +1,12 @@
-// RawPcb is the format boundary shared with the EasyEDA client. Keep this
-// module type-only so the local router does not pull the EasyEDA runtime in.
+/** @deprecated Legacy aliases. New code must use the private PolygonScene. */
 export type {
-  RawPcb,
-  RawPcbArc,
-  RawPcbComponent,
-  RawPcbPad,
-  RawPcbPolygon,
-  RawPcbTrack,
-  RawPcbVia,
-} from "../../../easyeda-copilot/packages/shared/types/pcb/raw"
-
-export type { PcbLayerName, PcbPoint } from "../../../easyeda-copilot/packages/shared/types/pcb/shared"
+  PcbLayerName,
+  PcbPoint,
+  PolygonScene as RawPcb,
+  PolygonSceneArc as RawPcbArc,
+  PolygonSceneComponent as RawPcbComponent,
+  PolygonScenePad as RawPcbPad,
+  PolygonScenePolygon as RawPcbPolygon,
+  PolygonSceneTrack as RawPcbTrack,
+  PolygonSceneVia as RawPcbVia,
+} from "./scene.js"

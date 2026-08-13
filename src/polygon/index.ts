@@ -23,6 +23,8 @@ export { isOctilinearBoundary } from "./boundary-optimizer"
 export {
   MAX_COMPACT_BOARD_AREA_RATIO,
   planPolygons,
+  ringsFromScenePad,
+  ringsFromScenePolygon,
   ringsFromRawPad,
   ringsFromRawPolygon,
   validateFilledPolygonPlans,
@@ -33,10 +35,14 @@ export type {
   PolygonGeometryRules,
   PolygonPlannerOptions,
   PolygonPlannerResult,
+  PolygonProgramInput,
   ResolvedPolygonPad,
   ZoneOptimizationMetrics,
   ZonePlan,
 } from "./engine"
 export { PCB_POLYGON_DSL_SPEC, PCB_POLYGON_DSL_TS_DOC } from "./spec"
+export type { PolygonScene, PolygonScenePad, PolygonScenePolygon } from "./scene.js"
+export { routingBoardToPolygonScene } from "./routing-board-adapter.js"
+/** @deprecated Legacy aliases retained only for the existing file workflow. */
 export type { RawPcb, RawPcbPad, RawPcbPolygon } from "./raw-pcb"
 export { transformFootprintPoint } from "./kicad-adapter"

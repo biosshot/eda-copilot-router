@@ -3,12 +3,26 @@ import {
   optimizeCompactBoundaries,
   type CompactBoundaryOptimization,
 } from "./boundary-optimizer"
-import type { PolygonIntent, PolygonLayerSelector, PolygonProgram, PolygonTarget } from "./dsl"
-import type { PcbLayerName, PcbPoint, RawPcb, RawPcbPad, RawPcbPolygon } from "./raw-pcb"
+import type {
+  CopperTarget as PolygonTarget,
+  LayerSelector as PolygonLayerSelector,
+  PolygonIntent,
+} from "../intent/types.js"
+import type {
+  PcbLayerName,
+  PcbPoint,
+  PolygonScene,
+  PolygonScenePad,
+  PolygonScenePolygon,
+} from "./scene.js"
 
 export const MAX_COMPACT_BOARD_AREA_RATIO = 0.10
 
-export type ResolvedPolygonPad = Pick<RawPcbPad,
+export type PolygonProgramInput = Readonly<{
+  polygons: readonly PolygonIntent[]
+}>
+
+export type ResolvedPolygonPad = Pick<PolygonScenePad,
   "id" | "component" | "padNumber" | "net" | "x" | "y" | "layer">
 
 export type ZoneOptimizationMetrics = {
@@ -50,7 +64,7 @@ export type ZonePlan = {
 }
 
 export type PolygonPlannerResult = {
-  program: PolygonProgram
+  program: PolygonProgramInput
   plans: ZonePlan[]
   metrics: {
     elapsedMs: number
@@ -96,14 +110,16 @@ type LayerName = PcbLayerName
 
 const rawLayer = (value: string): LayerName => value as LayerName
 
-function resolveLayers(selector: PolygonLayerSelector) {
-  if (selector.kind === "outer") return [rawLayer("TOP"), rawLayer("BOTTOM")]
-  if (selector.kind === "top") return [rawLayer("TOP")]
-  if (selector.kind === "bottom") return [rawLayer("BOTTOM")]
+function resolveLayers(scene: PolygonScene, selector: PolygonLayerSelector) {
+  const top = rawLayer(scene.layers?.top ?? "TOP")
+  const bottom = rawLayer(scene.layers?.bottom ?? "BOTTOM")
+  if (selector.kind === "outer") return [top, bottom]
+  if (selector.kind === "top") return [top]
+  if (selector.kind === "bottom") return [bottom]
   return selector.names.map(rawLayer)
 }
 
-function padOnLayer(pad: RawPcbPad, layer: LayerName) {
+function padOnLayer(pad: PolygonScenePad, layer: LayerName) {
   return pad.layer === "MULTI" || pad.layer === layer
 }
 
@@ -173,11 +189,15 @@ function sourceRings(source: unknown): PcbPoint[][] {
   return rings
 }
 
-export function ringsFromRawPolygon(polygon: RawPcbPolygon) {
+export function ringsFromScenePolygon(polygon: PolygonScenePolygon) {
   return polygon.sources.flatMap((source) => sourceRings(source))
 }
 
-export function ringsFromRawPad(pad: RawPcbPad): PcbPoint[][] {
+/** @deprecated Use ringsFromScenePolygon in new code. */
+export const ringsFromRawPolygon = ringsFromScenePolygon
+
+export function ringsFromScenePad(pad: PolygonScenePad): PcbPoint[][] {
+  if (pad.rings?.length) return structuredClone(pad.rings)
   const shape = pad.shape as unknown[] | undefined
   if (!shape?.length) return []
   const type = String(shape[0]).toUpperCase()
@@ -202,6 +222,9 @@ export function ringsFromRawPad(pad: RawPcbPad): PcbPoint[][] {
   return [points]
 }
 
+/** @deprecated Use ringsFromScenePad in new code. */
+export const ringsFromRawPad = ringsFromScenePad
+
 function polygonArea(points: PcbPoint[]) {
   if (points.length < 3) return 0
   let area = 0
@@ -213,11 +236,11 @@ function polygonArea(points: PcbPoint[]) {
   return Math.abs(area) / 2
 }
 
-function padKey(pad: RawPcbPad) {
+function padKey(pad: PolygonScenePad) {
   return pad.id || `${pad.component ?? ""}:${pad.padNumber}:${pad.x}:${pad.y}:${pad.layer}`
 }
 
-function resolveTarget(pcb: RawPcb, intent: PolygonIntent, target: PolygonTarget) {
+function resolveTarget(pcb: PolygonScene, intent: PolygonIntent, target: PolygonTarget) {
   if (target.kind === "net") {
     const pads = pcb.pads.filter((pad) => pad.net === target.net)
     return pads.length ? { pads } : { pads, error: `net(${target.net}) has no pads` }
@@ -231,7 +254,7 @@ function resolveTarget(pcb: RawPcb, intent: PolygonIntent, target: PolygonTarget
   return { pads }
 }
 
-function resolvedPad(pad: RawPcbPad): ResolvedPolygonPad {
+function resolvedPad(pad: PolygonScenePad): ResolvedPolygonPad {
   const { id, component, padNumber, net, x, y, layer } = pad
   return { id, component, padNumber, net, x, y, layer }
 }
@@ -241,7 +264,7 @@ function skipped(
   layer: LayerName,
   boardAreaMm2: number,
   reason: string,
-  targetPads: RawPcbPad[] = [],
+  targetPads: PolygonScenePad[] = [],
   boundary?: PcbPoint[],
 ): ZonePlan {
   const boundaryAreaMm2 = boundary ? polygonArea(boundary) : 0
@@ -265,7 +288,7 @@ function failed(
   layer: LayerName,
   boardAreaMm2: number,
   reason: string,
-  targetPads: RawPcbPad[] = [],
+  targetPads: PolygonScenePad[] = [],
   boundary?: PcbPoint[],
 ): ZonePlan {
   return {
@@ -302,7 +325,7 @@ function optimizationMetrics(
   }
 }
 
-function padsConnectedAcrossBoundaries(requiredPads: RawPcbPad[], boundaries: CompactBoundaryOptimization[]) {
+function padsConnectedAcrossBoundaries(requiredPads: PolygonScenePad[], boundaries: CompactBoundaryOptimization[]) {
   if (!requiredPads.length) return true
   const parent = new Map<string, string>()
   const find = (key: string): string => {
@@ -333,7 +356,7 @@ function padsConnectedAcrossBoundaries(requiredPads: RawPcbPad[], boundaries: Co
 }
 
 function planIntent(
-  pcb: RawPcb,
+  pcb: PolygonScene,
   intent: PolygonIntent,
   layer: LayerName,
   boardAreaMm2: number,
@@ -343,7 +366,7 @@ function planIntent(
   const error = resolved.find((item) => item.error)?.error
   if (error) return [failed(intent, layer, boardAreaMm2, error)]
 
-  const unique = new Map<string, RawPcbPad>()
+  const unique = new Map<string, PolygonScenePad>()
   for (const pad of resolved.flatMap((item) => item.pads)) unique.set(padKey(pad), pad)
   const targetPads = [...unique.values()].filter((pad) => padOnLayer(pad, layer))
   const explicitPads = resolved
@@ -358,7 +381,7 @@ function planIntent(
     return [createDiagnostic(intent, layer, boardAreaMm2, "compact polygon needs at least two target pads", targetPads)]
   }
 
-  const usablePads = targetPads.filter((pad) => ringsFromRawPad(pad).some((ring) => ring.length >= 3))
+  const usablePads = targetPads.filter((pad) => ringsFromScenePad(pad).some((ring) => ring.length >= 3))
   const unusablePads = targetPads.filter((pad) => !usablePads.includes(pad))
   const unusableExplicitPads = unusablePads.filter((pad) => explicitPadKeys.has(padKey(pad)))
   if (unusableExplicitPads.length) {
@@ -366,7 +389,7 @@ function planIntent(
   }
   const optimized = optimizeCompactBoundaries(
     usablePads,
-    ringsFromRawPad,
+    ringsFromScenePad,
     pcb.pads.filter((pad) => padOnLayer(pad, layer)),
     {
       maxPadFreeGapWidths: intent.maxPadFreeGapWidths,
@@ -517,15 +540,15 @@ function coalesceSharedPadIntents(items: LayerIntent[]) {
 }
 
 export function planPolygons(
-  pcb: RawPcb,
-  program: PolygonProgram,
+  pcb: PolygonScene,
+  program: PolygonProgramInput,
   options: PolygonPlannerOptions = {},
 ): PolygonPlannerResult {
   const started = performance.now()
   const beforeHeap = process.memoryUsage().heapUsed
   const boardAreaMm2 = polygonArea(pcb.board?.polygon ?? [])
   const layerIntents = program.polygons.flatMap((intent, order) =>
-    resolveLayers(intent.layers).map((layer) => ({ intent, layer, order, sources: [intent] })))
+    resolveLayers(pcb, intent.layers).map((layer) => ({ intent, layer, order, sources: [intent] })))
   const plans = coalesceSharedPadIntents(layerIntents)
     .flatMap(({ intent, layer, sources }) => {
       const planned = planIntent(pcb, intent, layer, boardAreaMm2, options)
@@ -621,11 +644,11 @@ function ringSetsTouch(left: PcbPoint[][], right: PcbPoint[][]) {
   return left.some((leftRing) => right.some((rightRing) => ringsTouch(leftRing, rightRing)))
 }
 
-function resolvedPadLookupKey(pad: ResolvedPolygonPad | RawPcbPad) {
+function resolvedPadLookupKey(pad: ResolvedPolygonPad | PolygonScenePad) {
   return pad.id || `${pad.component ?? ""}:${pad.padNumber}:${pad.x}:${pad.y}:${pad.layer}`
 }
 
-export function validateFilledPolygonPlans(pcb: RawPcb, plans: ZonePlan[]): FilledPolygonValidationResult {
+export function validateFilledPolygonPlans(pcb: PolygonScene, plans: ZonePlan[]): FilledPolygonValidationResult {
   const validatedPlans = plans.map((plan) => ({ ...plan, warnings: [...plan.warnings] }))
   const diagnostics: FilledPolygonValidationDiagnostic[] = []
   for (let planIndex = 0; planIndex < validatedPlans.length; planIndex += 1) {
@@ -635,8 +658,8 @@ export function validateFilledPolygonPlans(pcb: RawPcb, plans: ZonePlan[]): Fill
     const polygons = pcb.polygons.filter((polygon) => polygon.net === plan.net
       && (polygon.layer === plan.layer || polygon.layer === "MULTI"))
     const entities = [
-      ...pads.map((pad) => ({ kind: "pad" as const, key: resolvedPadLookupKey(pad), rings: ringsFromRawPad(pad) })),
-      ...polygons.map((polygon, index) => ({ kind: "polygon" as const, key: `polygon:${index}`, rings: ringsFromRawPolygon(polygon) })),
+      ...pads.map((pad) => ({ kind: "pad" as const, key: resolvedPadLookupKey(pad), rings: ringsFromScenePad(pad) })),
+      ...polygons.map((polygon, index) => ({ kind: "polygon" as const, key: `polygon:${index}`, rings: ringsFromScenePolygon(polygon) })),
     ].filter((entity) => entity.rings.some((ring) => ring.length >= 3))
     const parent = entities.map((_, index) => index)
     const find = (value: number): number => parent[value] === value ? value : (parent[value] = find(parent[value]))

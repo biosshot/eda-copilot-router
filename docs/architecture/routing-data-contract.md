@@ -17,6 +17,11 @@ does not consume DSN, and polygon planning needs efficient typed geometry.
 Backend adapters may serialize `RoutingBoard` to DSN, temporary KiCad, or
 another engine-specific format.
 
+The compact-polygon implementation uses a private `PolygonScene` geometry view
+to keep Clipper algorithms independent of the full board contract. It is not an
+exchange format, is not exported by the package, and is constructed only at an
+adapter/call boundary.
+
 ## Units and coordinates
 
 All public routing geometry uses millimetres. The internal convention is X to

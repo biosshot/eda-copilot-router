@@ -38,12 +38,24 @@ The public package operation is `run(...)`. Inside the DSL,
 does and return no value themselves. `RoutingResult` is returned by `run(...)`,
 not by a DSL command.
 
+Before a trace backend runs, compact power polygons are planned inside the core
+and attached to a transient fixed-copper view. Backends also
+receive `preconnectedPadGroups`, so pads already connected by a compact polygon
+are not routed again. The returned `RoutingResult.copper` always contains the
+planned zones/vias even when an external engine returns only tracks and vias.
+Such a backend must declare and test both `preserve-fixed-copper` and
+`fixed-zone-obstacles`; retaining a zone object without routing around its
+occupied region is not sufficient.
+
+Board-wide planes and stitching vias are planned after trace routing, using the
+returned tracks/vias as obstacles. This keeps a GND plane from blocking the
+route search while retaining polygon-first ownership for compact power copper.
+
 External engines remain optional adapters. KRT currently consumes a temporary
 KiCad board, Freerouting consumes DSN/SES, and EasyEDA WASM consumes its own
 router input. Each adapter translates from the same `RoutingBoard` and returns
 the same `RoutingResult` copper model.
 
-Migration must preserve the current Powerbank regression before replacing the
-existing file-based workflow. Package exports and CLI are finalized only after
-the four contracts `RoutingBoard`, `RoutingCopper`, `RoutingRules`, and
-`RoutingResult` are implemented and exercised by the existing backends.
+Migration preserves the current Powerbank regression while the file-based
+backend wrappers move behind the public adapter contract. The npm package does
+not export native EDA structures or the private polygon geometry scene.

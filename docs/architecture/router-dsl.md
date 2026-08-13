@@ -1,6 +1,6 @@
 # Local router DSL
 
-Status: partially accepted; terminal commands accepted, DRC vocabulary pending
+Status: accepted and implemented
 Date: 2026-08-13
 
 ## Fixed decisions
@@ -44,7 +44,7 @@ DRC and electrical routing requirements belong in this same local router DSL,
 not in the component-placement DSL. They are independent top-level statements
 next to `polygon(...)` and `plane(...)`, not entries in a wrapper array.
 
-The rule vocabulary must cover at least:
+The implemented rule vocabulary covers:
 
 - an ordinary net rule: width, clearance, allowed layers, via geometry, and
   optional length/impedance requirements;
@@ -57,10 +57,21 @@ The rule vocabulary must cover at least:
 - manufacturing fallbacks such as 1 oz copper only when the input does not
   provide a stackup.
 
-Exact function names, argument order, and chaining/object style for these rule
-statements are intentionally not accepted yet. No implementation should choose
-them before a dedicated DSL review. This prevents the experimental
-`routing({ ... })` API from becoming an accidental contract.
+```js
+signalNet("CLK", { trackWidthMm: 0.2, clearanceMm: 0.2, maxLengthMm: 40 })
+powerNet("VBUS", { maxCurrentA: 2, maxTempRiseC: 16, maxTrackWidthMm: 4 })
+diffPair("usb", {
+  positive: "USB_DP",
+  negative: "USB_DM",
+  gapMm: 0.2,
+  maxSkewMm: 0.25,
+})
+matchedGroup("data", { nets: ["D0", "D1", "D2"], toleranceMm: 0.1 })
+fabrication({ fallbackCopperThicknessOz: 1, viaPlatingThicknessUm: 20 })
+```
+
+The object fields use explicit unit suffixes where values would otherwise be
+ambiguous. Backend paths, presets, and search knobs remain outside the DSL.
 
 Semantic and absolute requirements belong to the same rule statement and may
 be used together. For example, a power rule may provide current and temperature

@@ -4,9 +4,11 @@ import { compileRoutingRules } from "../intent/preflight.js"
 import type { RoutingPolicy, RoutingProgram } from "../intent/types.js"
 import type {
   RoutingBoard,
+  RoutingCopper,
   RoutingDiagnostic,
   RoutingResult,
 } from "./contracts.js"
+import { planRoutingCopper } from "./copper-planner.js"
 import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
 
 export type RunRequest = Readonly<{
@@ -35,6 +37,14 @@ function failed(
     diagnostics,
     metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
+  }
+}
+
+function mergeCopper(first: RoutingCopper, second: RoutingCopper): RoutingCopper {
+  return {
+    tracks: [...first.tracks, ...second.tracks],
+    vias: [...first.vias, ...second.vias],
+    zones: [...first.zones, ...second.zones],
   }
 }
 
@@ -90,10 +100,46 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
   }
+  let planned: ReturnType<typeof planRoutingCopper>
+  try {
+    planned = planRoutingCopper(request.board, program, compiled.effective, {
+      compact: true,
+      planes: false,
+    })
+  } catch (error) {
+    return {
+      status: "error", operation: program.operation,
+      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      diagnostics: [...compiled.diagnostics, exception(
+        "COPPER_PLANNING_EXCEPTION", "Polygon or plane planning threw an exception.",
+        error instanceof Error ? error.message : String(error),
+      )],
+      metrics: { elapsedMs: performance.now() - startedAt },
+      requiresNativeVerification: true,
+    }
+  }
+  const plannedValidation = validateRoutingCopper(planned.copper, request.board)
+  if (!plannedValidation.ok) return {
+    status: "error", operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    diagnostics: [...compiled.diagnostics, ...planned.diagnostics, ...plannedValidation.diagnostics],
+    metrics: { elapsedMs: performance.now() - startedAt },
+    requiresNativeVerification: true,
+  }
+  const backendBoard: RoutingBoard = {
+    ...request.board,
+    copper: {
+      fixed: mergeCopper(request.board.copper.fixed, planned.copper),
+      editable: request.board.copper.editable,
+    },
+  }
   const backendRequest = {
-    board: request.board,
-    program,
+    board: backendBoard,
+    // Polygon and plane statements are core-owned. External backends receive
+    // only electrical/special intent plus the already planned fixed copper.
+    program: { ...program, polygons: [], planes: [] },
     rules: compiled.effective,
+    connectivity: planned.connectivity,
     ...(request.policy ? { policy: request.policy } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
   }
@@ -115,9 +161,23 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   try {
     const backendResult = await request.backend.route(backendRequest)
-    const copperValidation = validateRoutingCopper(backendResult.copper, request.board)
+    const planeBoard: RoutingBoard = {
+      ...request.board,
+      copper: {
+        fixed: mergeCopper(request.board.copper.fixed, planned.copper),
+        editable: backendResult.copper,
+      },
+    }
+    const planes = planRoutingCopper(planeBoard, program, compiled.effective, {
+      compact: false,
+      planes: true,
+    })
+    const resultCopper = mergeCopper(mergeCopper(planned.copper, backendResult.copper), planes.copper)
+    const copperValidation = validateRoutingCopper(resultCopper, request.board)
     const diagnostics = [
       ...compiled.diagnostics,
+      ...planned.diagnostics,
+      ...planes.diagnostics,
       ...backendPreflight,
       ...(backendResult.diagnostics ?? []),
       ...copperValidation.diagnostics,
@@ -133,12 +193,17 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       status: diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
       operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
-      copper: backendResult.copper,
+      copper: resultCopper,
       diagnostics,
       metrics: {
         elapsedMs: performance.now() - startedAt,
         backend: request.backend.id,
         ...backendResult.metrics,
+        details: {
+          ...backendResult.metrics?.details,
+          copperPlanning: planned.metrics,
+          planePlanning: planes.metrics,
+        },
       },
       requiresNativeVerification: true,
     }

@@ -89,6 +89,12 @@ deterministic seeds, native coupled differential pairs, paired vias, skew
 limits, and matched-group tuning. A capability declaration is not trusted until
 the backend passes the corresponding conformance test.
 
+For polygon-first routing, preserving the zone record is not enough. The
+backend must also prove `fixed-zone-obstacles`: generated compact/plane zones
+must constrain its route search. `preconnected-pad-groups` tells the backend
+which terminals are already electrically joined by those zones, so it does not
+add redundant tracks between them.
+
 ## Special-net routing
 
 A differential pair is never intentionally routed as two independent ordinary
