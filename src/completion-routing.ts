@@ -11,7 +11,7 @@ import {
   type KrtProcessResult,
   type KrtStageSpec,
 } from "./backends/krt-adapter"
-import { clearRouting } from "../../kicad-copilot/src/pcb/router-adapter"
+import { clearRouting } from "./internal/legacy-kicad-wasm-adapter"
 import {
   appendFilledCopperProxy,
   removeFilledCopperProxy,

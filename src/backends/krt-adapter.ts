@@ -3,9 +3,13 @@ import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promis
 import { constants } from "node:fs"
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
-import { atom, findChild, type SExpression } from "../../../kicad-copilot/src/kicad/sexpr/ast"
-import { listChildren } from "../../../kicad-copilot/src/kicad/pcb-reader"
-import { parsePcbSource } from "../../../kicad-copilot/src/kicad/pcb-writer"
+import {
+  atom,
+  findChild,
+  listChildren,
+  parsePcbSource,
+  type SExpression,
+} from "../internal/kicad-sexpr.js"
 
 export type KrtDiagnosticSeverity = "info" | "warning" | "error"
 
@@ -76,6 +80,8 @@ export type KrtStageSpec = {
   debugMemory?: boolean
   /** Exact native filled copper was materialized as locked same-net tracks. */
   filledCopperProxy?: boolean
+  /** Abort the active KRT subprocess without throwing from the workflow. */
+  signal?: AbortSignal
 }
 
 export type KrtProcessStatus =
@@ -575,6 +581,7 @@ async function runCaptured(
   cwd: string,
   timeoutMs: number,
   environment: Record<string, string> = {},
+  abortSignal?: AbortSignal,
 ) : Promise<CapturedProcess> {
   const started = performance.now()
   return await new Promise((resolvePromise) => {
@@ -609,10 +616,13 @@ async function runCaptured(
     child.stderr?.on("data", (chunk: string) => { stderr += chunk })
     child.on("error", (error) => { spawnError = errorText(error) })
 
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const abort = () => child.kill("SIGKILL")
     const finish = (exitCode: number | null, signal: string | null) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      if (timer) clearTimeout(timer)
+      abortSignal?.removeEventListener("abort", abort)
       resolvePromise({
         exitCode,
         signal,
@@ -625,7 +635,14 @@ async function runCaptured(
     }
     child.on("close", (code, signal) => finish(code, signal))
 
-    const timer = setTimeout(() => {
+    if (abortSignal?.aborted) {
+      timedOut = false
+      abort()
+    } else {
+      abortSignal?.addEventListener("abort", abort, { once: true })
+    }
+
+    timer = setTimeout(() => {
       timedOut = true
       child.kill("SIGKILL")
     }, timeoutMs)
@@ -991,7 +1008,10 @@ function remainingArgs(
   spec: KrtStageSpec,
   nets: string[],
 ) {
-  const args = commonArgs(inputBoard, outputBoard, spec)
+  // The board sidecar already carries the fully materialized per-net rules.
+  // KRT treats --clearance as a global ceiling, so passing it here would
+  // silently flatten stricter classes.
+  const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
   args.push("--nets", ...nets)
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
   if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets)
@@ -1121,6 +1141,7 @@ async function executeStage(
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
       },
+      spec.signal,
     )
     result.exitCode = captured.exitCode
     result.signal = captured.signal
@@ -1141,6 +1162,11 @@ async function executeStage(
       "KRT_TIMEOUT",
       "error",
       `KRT ${stage} exceeded its ${spec.timeoutMs} ms timeout.`,
+    ))
+    if (spec.signal?.aborted) diagnostics.push(diagnostic(
+      "KRT_ABORTED",
+      "error",
+      `KRT ${stage} was cancelled.`,
     ))
     if (captured.exitCode !== 0) diagnostics.push(diagnostic(
       "KRT_NONZERO_EXIT",

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const source = resolve(root, "..", "kicad-copilot", "dist", "autorouter")
+const source = resolve(root, "assets", "legacy-easyeda-wasm")
 const target = join(root, "dist", "autorouter")
 
 await mkdir(target, { recursive: true })

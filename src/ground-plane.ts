@@ -12,7 +12,7 @@ import {
   listChildren,
   pcbNetNames,
 } from "../../kicad-copilot/src/kicad/pcb-reader"
-import { boardOutline } from "../../kicad-copilot/src/pcb/router-adapter"
+import { boardOutline } from "./internal/legacy-kicad-wasm-adapter"
 import {
   netClassFor,
   type PcbRoutingRules,

@@ -9,7 +9,7 @@ import {
   padNumber,
   pcbFootprints,
 } from "../../../kicad-copilot/src/kicad/pcb-reader"
-import { boardOutline } from "../../../kicad-copilot/src/pcb/router-adapter"
+import { boardOutline } from "../internal/legacy-kicad-wasm-adapter"
 import {
   atom,
   findChild,

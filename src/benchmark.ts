@@ -22,8 +22,8 @@ import {
   buildRouterInput,
   clearRouting,
   type RouterInput,
-} from "../../kicad-copilot/src/pcb/router-adapter"
-import type { RouterResult } from "../../kicad-copilot/src/pcb/router-runtime"
+  type RouterResult,
+} from "./internal/legacy-kicad-wasm-adapter"
 import {
   netClassFor,
   readPcbRoutingRules,

@@ -7,10 +7,10 @@ import { parsePcbSource, serializePcb } from "../../../kicad-copilot/src/kicad/p
 import {
   applyRouterResult,
   buildRouterInput,
+  type RouterResult,
   type RouterInput,
-} from "../../../kicad-copilot/src/pcb/router-adapter"
+} from "../internal/legacy-kicad-wasm-adapter"
 import type { PcbRoutingRules } from "../../../kicad-copilot/src/pcb/router-rules"
-import type { RouterResult } from "../../../kicad-copilot/src/pcb/router-runtime"
 import type { FilledCopperPadGroup } from "../filled-copper-proxy"
 
 type Diagnostic = {

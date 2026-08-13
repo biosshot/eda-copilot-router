@@ -24,7 +24,7 @@ import {
   findChild,
   type SExpression,
 } from "../../kicad-copilot/src/kicad/sexpr/ast"
-import { clearRouting } from "../../kicad-copilot/src/pcb/router-adapter"
+import { clearRouting } from "./internal/legacy-kicad-wasm-adapter"
 import {
   netClassFor,
   readPcbRoutingRules,
