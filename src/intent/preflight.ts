@@ -170,9 +170,11 @@ export function compileRoutingRules(
     for (const target of polygon.targets) {
       if (target.kind === "net") checkNet(target.net)
       else {
-        const pad = board.pads.find((item) => item.component === target.component && item.number === target.pad)
-        if (!pad) diagnostics.push(diagnostic("DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`))
-        else if (pad.net !== polygon.net) diagnostics.push(diagnostic("DSL_PAD_NET_MISMATCH", `Pad ${target.component}.${target.pad} is not on ${polygon.net}.`))
+        const pads = board.pads.filter((item) => item.component === target.component && item.number === target.pad)
+        if (!pads.length) diagnostics.push(diagnostic("DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`))
+        else if (pads.some((pad) => pad.net !== polygon.net)) diagnostics.push(diagnostic(
+          "DSL_PAD_NET_MISMATCH", `Physical pads for ${target.component}.${target.pad} are not all on ${polygon.net}.`,
+        ))
       }
     }
   }

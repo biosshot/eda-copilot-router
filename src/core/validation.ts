@@ -198,7 +198,7 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
     if (components.has(item.designator)) error(diagnostics, "ROUTING_COMPONENT_DUPLICATE", `Component ${item.designator} is duplicated.`)
     components.add(item.designator)
   })
-  const pads = new Set<string>()
+  const padIds = new Set<string>()
   array(value.pads, diagnostics, "pads").forEach((item, index) => {
     const at = `pads[${index}]`
     if (!object(item) || typeof item.component !== "string" || typeof item.number !== "string" || !point(item.at)
@@ -207,9 +207,10 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
       error(diagnostics, "ROUTING_PAD_INVALID", `${at} is invalid.`, at)
       return
     }
-    const key = `${item.component}:${item.number}`
-    if (pads.has(key)) error(diagnostics, "ROUTING_PAD_DUPLICATE", `Pad ${key} is duplicated.`)
-    pads.add(key)
+    if (typeof item.id === "string" && item.id) {
+      if (padIds.has(item.id)) error(diagnostics, "ROUTING_PAD_ID_DUPLICATE", `Pad id ${item.id} is duplicated.`)
+      padIds.add(item.id)
+    }
     if (!components.has(item.component)) error(diagnostics, "ROUTING_UNKNOWN_COMPONENT", `${at} references ${item.component}.`, at)
     if (item.net !== undefined && !nets.has(String(item.net))) error(diagnostics, "ROUTING_UNKNOWN_NET", `${at} references ${item.net}.`, at)
     for (const layer of item.layers) if (!layers.has(String(layer))) error(diagnostics, "ROUTING_UNKNOWN_LAYER", `${at} references ${layer}.`, at)
