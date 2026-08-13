@@ -12,14 +12,18 @@ planning, special-net routing, validation, or transaction handling.
 
 The public orchestration model uses three independent adapter boundaries:
 
-1. `BoardFormatAdapter` imports KiCad or EasyEDA data into the existing `RawPcb`
-   DTO plus routing context, and applies a validated `RoutePatch` to a temporary
-   native document.
-2. `RouterBackendAdapter` translates a neutral `RoutingProblem` for one routing
-   algorithm and returns an untrusted `RouteCandidate`. It never reads or writes
-   the source board directly.
-3. `NativeVerificationAdapter` runs the target EDA's native zone refill, DRC,
-   and connectivity checks before a result can be committed.
+1. A host/DSN adapter imports native data into the single internal
+   `RoutingBoard` and later applies `RoutingResult` without rebuilding unrelated
+   native objects.
+2. `RouterBackendAdapter` translates `RoutingBoard` for one routing algorithm
+   and returns untrusted router-owned copper. It never reads or writes the
+   source board directly.
+3. A native verification adapter runs the target EDA's zone refill, DRC, and
+   connectivity checks after the result has been applied.
+
+EasyEDA `RawPcb`, `BoardAssemble`, KiCad AST nodes, `PcbSnapshotV1`, and
+`PcbPatchV1` are not router-core contracts. DSN is a supported interchange and
+backend transport; it is not the core's in-memory model.
 
 Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
@@ -126,7 +130,7 @@ Conversely, successful stages never imply `valid: true`.
 
 The source board is immutable throughout routing:
 
-1. Import and hash an immutable snapshot.
+1. Import an immutable `RoutingBoard` and separate fixed from editable copper.
 2. Compile rules and complete capability negotiation.
 3. Plan and refill polygons on a temporary native board.
 4. Route all special nets in one backend invocation, protect their copper, and
@@ -135,7 +139,8 @@ The source board is immutable throughout routing:
 6. Evaluate bounded completion candidates only for native-open ordinary nets.
 7. Add requested plane/stitching copper and refill.
 8. Run the final native refill and complete validation.
-9. Commit atomically only when final validation passes every hard rule.
+9. Return `RoutingResult`; the host applies it transactionally and owns the
+   final native validation/commit decision.
 
 No failed result modifies the source document. Partial and invalid output may
 be retained only as an explicitly named diagnostic artifact together with its
