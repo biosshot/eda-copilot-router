@@ -213,7 +213,7 @@ assert.equal(Object.keys(wasmInput.components).length, board.pads.length)
 assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC"])
 assert.deepEqual(wasmRouted.copper.tracks[0].points, [{ x: 4, y: 5 }, { x: 8, y: 5 }])
 
-const wasmPolygonRejected = await api.run({
+const wasmPolygonRouted = await api.run({
   board,
   backend: wasmBackend,
   dsl: `
@@ -221,9 +221,10 @@ const wasmPolygonRejected = await api.run({
     runRouting()
   `,
 })
-assert.equal(wasmPolygonRejected.status, "error")
-assert.equal(wasmCalls, 1, "unsupported fixed-zone routing must fail before WASM execution")
-assert.ok(wasmPolygonRejected.diagnostics.some((item) => item.code === "CAPABILITY_MISMATCH"))
+assert.equal(wasmPolygonRouted.status, "complete")
+assert.equal(wasmCalls, 2)
+assert.ok(wasmInput.tracks.some((item) => String(item.id).startsWith("existing-zone-proxy-")))
+assert.ok(wasmPolygonRouted.copper.tracks.every((item) => !String(item.id).includes("zone-proxy")))
 
 const unsupportedBackend = {
   ...backend,

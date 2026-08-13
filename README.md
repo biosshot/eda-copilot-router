@@ -107,7 +107,7 @@ subtractions created serrated 0.002-0.07 mm edges. KiCad/EasyEDA performs exact
 clearance clipping during native refill, followed by the post-refill connectivity
 validator.
 The default maximum pad-free span is 4.5 widths of the narrower target pad;
-`.maxPadFreeGap(...)` overrides it per rule. Explicit `pad(...)` targets are
+`.maxPadFreeGapWidths(...)` overrides it per rule. Explicit `pad(...)` targets are
 mandatory: an impossible compact connection is reported as a plan error while
 the rest of the program continues. Only the standalone `plane({...})` macro
 permits a late board-scale outline. Its `components(...)` region syntax is

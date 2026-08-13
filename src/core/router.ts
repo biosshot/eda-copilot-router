@@ -159,8 +159,23 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
     requiresNativeVerification: true,
   }
+  let backendResult: Awaited<ReturnType<RouterBackendAdapter["route"]>>
   try {
-    const backendResult = await request.backend.route(backendRequest)
+    backendResult = await request.backend.route(backendRequest)
+  } catch (error) {
+    return {
+      status: "error", operation: program.operation,
+      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
+        "BACKEND_ROUTE_EXCEPTION", `${request.backend.id} threw an exception.`,
+        error instanceof Error ? error.message : String(error),
+      )],
+      metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+      requiresNativeVerification: true,
+    }
+  }
+
+  try {
     const planeBoard: RoutingBoard = {
       ...request.board,
       copper: {
@@ -190,7 +205,9 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       requiresNativeVerification: true,
     }
     return {
-      status: diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
+      status: backendResult.status === "error"
+        ? "error"
+        : diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
       operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
       copper: resultCopper,
@@ -211,8 +228,13 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     return {
       status: "error", operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
-      diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
-        "BACKEND_ROUTE_EXCEPTION", `${request.backend.id} threw an exception.`,
+      diagnostics: [
+        ...compiled.diagnostics,
+        ...planned.diagnostics,
+        ...backendPreflight,
+        ...(backendResult.diagnostics ?? []),
+        exception(
+        "PLANE_PLANNING_EXCEPTION", "Plane or stitching planning threw an exception.",
         error instanceof Error ? error.message : String(error),
       )],
       metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },

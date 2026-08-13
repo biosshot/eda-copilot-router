@@ -20,6 +20,7 @@ const result = await run({
     polygon("VBUS")
       .connect(pad("U1", 8), pad("Q1", 1))
       .on(topLayer())
+      .maxPadFreeGapWidths(4.5)
       .compact()
     runAll()
   `,
@@ -36,10 +37,11 @@ const backend = createEasyEdaWasmBackend({
 })
 ```
 
-The stock WASM input has no authoritative filled-zone obstacle model. For that
-reason this adapter deliberately rejects pre-existing/compact power zones. It
-never silently routes through them. Plane zones remain safe because the core
-creates them after routing.
+The stock WASM input has no native filled-zone obstacle primitive. The adapter
+therefore materializes fixed zones as a temporary same-net copper mesh while
+routing. That mesh is never returned or written to the EDA; native refill is
+still authoritative. Plane zones remain simpler because the core creates them
+after routing.
 
 `applyDrcRules()`, `runRouting()`, and `runAll()` are terminal DSL commands and
 return no values. Only `run(...)` returns `RoutingResult`.

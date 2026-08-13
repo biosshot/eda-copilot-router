@@ -3,6 +3,7 @@ import type {
   PointMm,
   RoutedTrack,
   RoutedVia,
+  RoutedZone,
   RoutingBoard,
   RoutingCopper,
   RoutingDiagnostic,
@@ -79,6 +80,8 @@ type LayerMap = Readonly<{
   top: string
   bottom: string
 }>
+
+type ProxyTrack = RoutedTrack & Readonly<{ id: string }>
 
 function diagnostic(
   code: string,
@@ -196,6 +199,109 @@ function valuesFor(board: RoutingBoard, net: string): RoutingRuleValues {
   return board.rules.nets.find((entry) => entry.net === net)?.values ?? board.rules.default
 }
 
+function ringIntervals(
+  ring: readonly PointMm[],
+  value: number,
+  horizontal: boolean,
+) {
+  const crossings: number[] = []
+  for (let index = 0; index < ring.length; index += 1) {
+    const left = ring[index]
+    const right = ring[(index + 1) % ring.length]
+    const from = horizontal ? left.y : left.x
+    const to = horizontal ? right.y : right.x
+    if (!((from <= value && to > value) || (to <= value && from > value))) continue
+    const ratio = (value - from) / (to - from)
+    crossings.push((horizontal ? left.x : left.y)
+      + ratio * ((horizontal ? right.x : right.y) - (horizontal ? left.x : left.y)))
+  }
+  crossings.sort((left, right) => left - right)
+  const intervals: Array<[number, number]> = []
+  for (let index = 0; index + 1 < crossings.length; index += 2) {
+    if (crossings[index + 1] - crossings[index] > 1e-6) {
+      intervals.push([crossings[index], crossings[index + 1]])
+    }
+  }
+  return intervals
+}
+
+function subtractIntervals(
+  source: readonly [number, number][],
+  removals: readonly [number, number][],
+) {
+  let output = [...source]
+  for (const [removeFrom, removeTo] of removals) {
+    output = output.flatMap(([from, to]) => {
+      if (removeTo <= from || removeFrom >= to) return [[from, to] as [number, number]]
+      return [
+        ...(removeFrom > from ? [[from, Math.min(removeFrom, to)] as [number, number]] : []),
+        ...(removeTo < to ? [[Math.max(removeTo, from), to] as [number, number]] : []),
+      ]
+    })
+  }
+  return output.filter(([from, to]) => to - from > 1e-6)
+}
+
+function polygonIntervals(zone: RoutedZone, value: number, horizontal: boolean) {
+  return subtractIntervals(
+    ringIntervals(zone.outline.outer, value, horizontal),
+    (zone.outline.holes ?? []).flatMap((hole) => ringIntervals(hole, value, horizontal)),
+  )
+}
+
+function gridValues(minimum: number, maximum: number, pitch: number) {
+  const output: number[] = []
+  const first = Math.ceil((minimum - 1e-9) / pitch) * pitch
+  for (let value = first; value <= maximum + 1e-9; value += pitch) {
+    output.push(Number(value.toFixed(6)))
+  }
+  return output
+}
+
+/**
+ * The stock worker understands existing tracks but does not expose a native
+ * filled-zone obstacle API. A temporary same-net mesh makes compact/fixed
+ * copper visible to the router. The mesh never enters RoutingResult.
+ */
+function zoneProxyTracks(board: RoutingBoard) {
+  const output: ProxyTrack[] = []
+  let nextId = 0
+  for (const zone of [...board.copper.fixed.zones, ...board.copper.editable.zones]) {
+    const rules = valuesFor(board, zone.net)
+    const widthMm = Math.max(0.05, Math.min(0.1, rules.minTrackWidthMm))
+    const pitchMm = Math.max(widthMm, Math.min(0.2, rules.clearanceMm))
+    const xs = zone.outline.outer.map((point) => point.x)
+    const ys = zone.outline.outer.map((point) => point.y)
+    for (const layer of zone.layers) {
+      const append = (points: readonly PointMm[]) => {
+        if (points.length < 2) return
+        output.push({
+          id: `existing-zone-proxy-${nextId++}`,
+          net: zone.net,
+          layer,
+          widthMm,
+          points,
+        })
+      }
+      const rings = [zone.outline.outer, ...(zone.outline.holes ?? [])]
+      for (const ring of rings) for (let index = 0; index < ring.length; index += 1) {
+        append([ring[index], ring[(index + 1) % ring.length]])
+      }
+      for (const y of gridValues(Math.min(...ys), Math.max(...ys), pitchMm)) {
+        for (const [from, to] of polygonIntervals(zone, y, true)) {
+          append([{ x: from, y }, { x: to, y }])
+        }
+      }
+      for (const x of gridValues(Math.min(...xs), Math.max(...xs), pitchMm)) {
+        for (const [from, to] of polygonIntervals(zone, x, false)) {
+          append([{ x, y: from }, { x, y: to }])
+        }
+      }
+    }
+  }
+  return output
+}
+
 function ruleTables(
   board: RoutingBoard,
   routeNets: readonly string[],
@@ -283,7 +389,11 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
       bbox: [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)],
     }
   }
-  const inputTracks = [...board.copper.fixed.tracks, ...board.copper.editable.tracks]
+  const inputTracks = [
+    ...board.copper.fixed.tracks,
+    ...board.copper.editable.tracks,
+    ...zoneProxyTracks(board),
+  ]
   const inputVias = [...board.copper.fixed.vias, ...board.copper.editable.vias]
   const routerOutline = closed(board.outline.map((point) => toRouter(point, transform)))
   const xs = routerOutline.map((point) => point[0])
@@ -309,7 +419,7 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
     footprints,
     constraintRegions: {},
     tracks: inputTracks.map((track, index) => ({
-      id: `existing-track-${index}`,
+      id: track.id?.startsWith("existing-zone-proxy-") ? track.id : `existing-track-${index}`,
       layer: layers.byName.get(track.layer), net: track.net,
       path: track.points.map((point) => toRouter(point, transform)), width: track.widthMm,
     })),
@@ -402,20 +512,19 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
   return {
     id: "easyeda-wasm",
     capabilities: {
-      // The stock WASM schema models existing tracks/vias, but not native
-      // filled-zone copper. Therefore fixed-zone-obstacles is intentionally
-      // absent and compact polygon programs fail before this backend runs.
-      supported: ["ordinary-routing", "vias", "preserve-fixed-copper"],
+      // Fixed zones are represented by a staging-only same-net track mesh.
+      // The worker sees obstacle/connectivity copper; the mesh is filtered
+      // from output and native EDA refill remains authoritative.
+      supported: [
+        "ordinary-routing", "vias", "preserve-fixed-copper",
+        "fixed-zone-obstacles", "preconnected-pad-groups",
+      ],
       maxCopperLayers: 32,
     },
     preflight(request) {
       const diagnostics: RoutingDiagnostic[] = []
       if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) diagnostics.push(diagnostic(
         "EASYEDA_WASM_TIMEOUT_INVALID", "error", "EasyEDA WASM timeout must be positive.",
-      ))
-      if (request.board.copper.fixed.zones.length || request.board.copper.editable.zones.length) diagnostics.push(diagnostic(
-        "EASYEDA_WASM_ZONE_OBSTACLE_UNSUPPORTED", "error",
-        "EasyEDA WASM cannot use native filled zones as routing obstacles.",
       ))
       const top = request.board.layers.find((layer) => layer.side === "top")?.name
       const bottom = request.board.layers.find((layer) => layer.side === "bottom")?.name

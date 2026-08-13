@@ -125,8 +125,8 @@ class PolygonBuilder {
     return this
   }
 
-  maxPadFreeGap(value: number) {
-    this.value.maxPadFreeGapWidths = positive(value, "maxPadFreeGap")
+  maxPadFreeGapWidths(value: number) {
+    this.value.maxPadFreeGapWidths = positive(value, "maxPadFreeGapWidths")
     return this
   }
 }
