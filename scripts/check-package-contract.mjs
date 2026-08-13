@@ -11,11 +11,14 @@ const api = await import(pathToFileURL(join(distRoot, "index.js")).href)
 const dsl = await import(pathToFileURL(join(distRoot, "intent", "index.js")).href)
 const schema = await import(pathToFileURL(join(distRoot, "schema.js")).href)
 await import(pathToFileURL(join(distRoot, "adapters", "contracts.js")).href)
+const easyEdaWasm = await import(pathToFileURL(join(distRoot, "backends", "easyeda-wasm.js")).href)
 
 assert.equal(typeof api.run, "function")
 assert.equal(typeof api.validateRoutingBoard, "function")
 assert.equal(typeof dsl.compileRoutingDsl, "function")
 assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
+assert.equal(typeof easyEdaWasm.createEasyEdaWasmBackend, "function")
+assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
 assert.equal(api.createPcbSnapshotV1, undefined)
 assert.equal(api.routePcb, undefined)
 assert.equal(api.captureLegacyRawPcbV1, undefined)
@@ -187,6 +190,40 @@ const weakAll = await api.run({
 assert.equal(weakAll.status, "complete")
 assert.equal(weakAll.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.1)
 assert.equal(backendCalls, 2)
+
+let wasmCalls = 0
+let wasmInput
+const wasmBackend = easyEdaWasm.createEasyEdaWasmBackend({
+  async engine(input) {
+    wasmCalls += 1
+    wasmInput = input
+    return {
+      progress: 1,
+      routabitity: 1,
+      traces: [{ id: "new", layer: 1, net: "VCC", width: 0.2, path: [[-6, 0], [-2, 0]] }],
+      vias: [],
+    }
+  },
+})
+const wasmRouted = await api.run({ board, dsl: "runRouting()", backend: wasmBackend })
+assert.equal(wasmRouted.status, "complete")
+assert.equal(wasmCalls, 1)
+assert.equal(wasmInput.boardOutline.bbox.length, 4)
+assert.equal(Object.keys(wasmInput.components).length, board.pads.length)
+assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC"])
+assert.deepEqual(wasmRouted.copper.tracks[0].points, [{ x: 4, y: 5 }, { x: 8, y: 5 }])
+
+const wasmPolygonRejected = await api.run({
+  board,
+  backend: wasmBackend,
+  dsl: `
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
+    runRouting()
+  `,
+})
+assert.equal(wasmPolygonRejected.status, "error")
+assert.equal(wasmCalls, 1, "unsupported fixed-zone routing must fail before WASM execution")
+assert.ok(wasmPolygonRejected.diagnostics.some((item) => item.code === "CAPABILITY_MISMATCH"))
 
 const unsupportedBackend = {
   ...backend,

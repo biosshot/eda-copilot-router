@@ -10,6 +10,7 @@ editable tracks, vias, and zones.
 
 ```js
 import { run } from "@easyeda-copilot/router"
+import { createEasyEdaWasmBackend } from "@easyeda-copilot/router/backends/easyeda-wasm"
 
 const result = await run({
   board,
@@ -24,6 +25,21 @@ const result = await run({
   `,
 })
 ```
+
+The EasyEDA WASM backend is still EDA-neutral: the host supplies the local
+engine function or explicit worker/WASM asset paths. The package never opens
+EasyEDA and does not download or bundle proprietary router assets.
+
+```js
+const backend = createEasyEdaWasmBackend({
+  engine: async (input, context) => localRouter(input, context),
+})
+```
+
+The stock WASM input has no authoritative filled-zone obstacle model. For that
+reason this adapter deliberately rejects pre-existing/compact power zones. It
+never silently routes through them. Plane zones remain safe because the core
+creates them after routing.
 
 `applyDrcRules()`, `runRouting()`, and `runAll()` are terminal DSL commands and
 return no values. Only `run(...)` returns `RoutingResult`.
