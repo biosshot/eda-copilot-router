@@ -408,6 +408,10 @@ async function runCandidate(
     COPILOT_ROUTER_KRT_HEURISTIC_WEIGHT: String(quality.heuristicWeight),
     COPILOT_ROUTER_KRT_MAX_ITERATIONS: String(quality.maxIterations),
     COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS: String(quality.maxProbeIterations),
+    // The outer portfolio already explores whole-board candidates. Nesting a
+    // second completion portfolio would multiply the run budget and obscure
+    // which whole-board strategy produced the result.
+    COPILOT_ROUTER_COMPLETION_MAX_RUNS: "0",
   }
   await writeFile(join(directory, "portfolio-candidate.json"), `${JSON.stringify(candidate, null, 2)}\n`)
   const processResult = await runChild(

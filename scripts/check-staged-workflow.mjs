@@ -107,6 +107,30 @@ assert.ok(proxySegments.every((segment) => segment.some((item) => Array.isArray(
   && item[0]?.value === "locked" && item[1]?.value === "yes")))
 assert.ok(proxySegments.every((segment) => segment.some((item) => Array.isArray(item)
   && item[0]?.value === "net" && item[1]?.value === "PWR")))
+const segmentPoint = (segment, head) => {
+  const item = segment.find((child) => Array.isArray(child) && child[0]?.value === head)
+  return { x: Number(item[1].value), y: Number(item[2].value) }
+}
+const samePoint = (left, right) => Math.hypot(left.x - right.x, left.y - right.y) < 1e-6
+const pointOnOpenSegment = (point, start, end) => {
+  const cross = (point.x - start.x) * (end.y - start.y) - (point.y - start.y) * (end.x - start.x)
+  return Math.abs(cross) < 1e-6
+    && point.x > Math.min(start.x, end.x) + 1e-6 && point.x < Math.max(start.x, end.x) - 1e-6
+      || Math.abs(cross) < 1e-6
+        && point.y > Math.min(start.y, end.y) + 1e-6 && point.y < Math.max(start.y, end.y) - 1e-6
+}
+for (const segment of proxySegments) {
+  for (const endpoint of [segmentPoint(segment, "start"), segmentPoint(segment, "end")]) {
+    for (const other of proxySegments) {
+      if (other === segment) continue
+      const start = segmentPoint(other, "start")
+      const end = segmentPoint(other, "end")
+      assert.equal(pointOnOpenSegment(endpoint, start, end), false,
+        "proxy mesh must be split at every T-junction before KRT cleanup")
+      if (samePoint(endpoint, start) || samePoint(endpoint, end)) continue
+    }
+  }
+}
 const proxyRemoval = removeFilledCopperProxy(proxyBoard, proxyManifest)
 assert.deepEqual(proxyRemoval, {
   expected: proxyManifest.segmentUuids.length,

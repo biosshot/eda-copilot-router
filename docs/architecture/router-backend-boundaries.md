@@ -25,8 +25,7 @@ Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
 delegates only supported ordinary nets to a backend.
 
-The first complete-cycle implementation uses one routing backend and four
-ordered stages:
+The complete-cycle implementation uses adapters and six ordered stages:
 
 1. Plan all requested power polygons, apply every ready outline, and run the
    native EDA refill.
@@ -35,7 +34,12 @@ ordered stages:
    copper and run native refill before the next backend invocation.
 3. Invoke the same backend once for all remaining non-GND nets, excluding the
    special nets from the ordinary pass.
-4. Run the final native refill and complete validation.
+4. Refill, derive the exact residual ordinary-net set, and run a bounded
+   completion portfolio. Candidates start from the same incumbent, preserve
+   prior copper/placement/zone outlines, and vary only search/order/rip-up
+   policy; they never weaken compiled geometry.
+5. Materialize requested plane/stitching intents and refill.
+6. Run the final native refill and complete validation.
 
 This staging is an orchestration policy, not a set of DSL route-job types. A
 future backend may replace KiCadRoutingTools without changing the electrical
@@ -127,8 +131,10 @@ The source board is immutable throughout routing:
 4. Route all special nets in one backend invocation, protect their copper, and
    run native refill on the resulting snapshot.
 5. Route all remaining non-GND nets in one backend invocation.
-6. Run the final native refill and complete validation.
-7. Commit atomically only when final validation passes every hard rule.
+6. Evaluate bounded completion candidates only for native-open ordinary nets.
+7. Add requested plane/stitching copper and refill.
+8. Run the final native refill and complete validation.
+9. Commit atomically only when final validation passes every hard rule.
 
 No failed result modifies the source document. Partial and invalid output may
 be retained only as an explicitly named diagnostic artifact together with its

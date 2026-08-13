@@ -128,15 +128,20 @@ target-pad copper groups and continues without crashing.
 
 ## Polygon-first KRT full-cycle MVP
 
-The first complete workflow keeps the placement fixed and runs exactly three
-authoring stages followed by one authoritative check:
+The complete workflow keeps the placement fixed and runs five authoring stages
+followed by one authoritative check:
 
 1. generate and natively refill every ready power polygon;
 2. run all declared differential pairs and equal-length groups in one logical
    KiCadRoutingTools special stage, protect their exact copper, and natively
    refill the polygons again;
 3. run every remaining non-GND net in one KiCadRoutingTools ordinary pass;
-4. refill again and run KiCad's final DRC/connectivity validation.
+4. refill, detect only the still-open ordinary nets, and run a bounded KRT
+   completion portfolio (max-quality first, then lower-cost/rescue and
+   singleton variants); every candidate starts from the same incumbent and
+   may not change placement, zone outlines, or already-complete nets;
+5. add the requested ground plane/stitching vias and refill;
+6. run KiCad's final DRC/connectivity validation.
 
 Runtime errors are persisted in the stage report and do not crash later stages
 when a usable board artifact remains. Polygon errors and KRT's own success
@@ -218,6 +223,7 @@ npm run build
 npm run test:workflow
 npm run test:scheduler
 npm run test:portfolio
+npm run test:completion
 npm run test:power
 npm run route:full
 npm run route:portfolio
@@ -239,6 +245,8 @@ is never modified. Useful overrides are:
   control search depth without weakening native geometry rules
 - `COPILOT_ROUTER_NET_SCHEDULING=diagnostic|ordered|batched|singleton`
   (`diagnostic` is the non-mutating default; the others are experimental completion profiles)
+- `COPILOT_ROUTER_COMPLETION_MAX_RUNS=0..5` controls the targeted post-remaining
+  portfolio (`5` by default; `0` disables it, including inside the outer whole-board portfolio)
 - `COPILOT_ROUTER_KICAD_CLI`
 - `COPILOT_ROUTER_FULL_RESULT`
 - `COPILOT_ROUTER_FULL_OUTPUT`

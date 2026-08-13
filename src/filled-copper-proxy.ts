@@ -226,6 +226,97 @@ function gridValues(minimum: number, maximum: number, pitch: number) {
   return values
 }
 
+function pointOnSegment(point: Point, start: Point, end: Point) {
+  const cross = (point.x - start.x) * (end.y - start.y)
+    - (point.y - start.y) * (end.x - start.x)
+  return Math.abs(cross) <= 2e-6
+    && point.x >= Math.min(start.x, end.x) - EPSILON
+    && point.x <= Math.max(start.x, end.x) + EPSILON
+    && point.y >= Math.min(start.y, end.y) - EPSILON
+    && point.y <= Math.max(start.y, end.y) + EPSILON
+}
+
+function lineIntersection(
+  left: { start: Point; end: Point },
+  right: { start: Point; end: Point },
+): Point | undefined {
+  const ax = left.end.x - left.start.x
+  const ay = left.end.y - left.start.y
+  const bx = right.end.x - right.start.x
+  const by = right.end.y - right.start.y
+  const denominator = ax * by - ay * bx
+  if (Math.abs(denominator) <= EPSILON) return undefined
+  const dx = right.start.x - left.start.x
+  const dy = right.start.y - left.start.y
+  const ta = (dx * by - dy * bx) / denominator
+  const tb = (dx * ay - dy * ax) / denominator
+  if (ta < -EPSILON || ta > 1 + EPSILON || tb < -EPSILON || tb > 1 + EPSILON) return undefined
+  return {
+    x: Math.round((left.start.x + ta * ax) * SCALE) / SCALE,
+    y: Math.round((left.start.y + ta * ay) * SCALE) / SCALE,
+  }
+}
+
+/**
+ * Split the mesh at every crossing and T-junction.
+ *
+ * KRT otherwise sees a scan line ending in the middle of the inset perimeter
+ * as two dangling tracks and its soft-joint cleanup adds a new 0.1 mm chord.
+ * Noding the staging mesh prevents those backend-derived proxy fragments at
+ * the source instead of trying to recognize and delete them afterwards.
+ */
+function nodeProxyLines(lines: Array<{ start: Point; end: Point }>) {
+  const splitPoints = lines.map((line) => [line.start, line.end])
+  for (let leftIndex = 0; leftIndex < lines.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < lines.length; rightIndex += 1) {
+      const left = lines[leftIndex]
+      const right = lines[rightIndex]
+      const crossing = lineIntersection(left, right)
+      if (crossing) {
+        splitPoints[leftIndex].push(crossing)
+        splitPoints[rightIndex].push(crossing)
+      }
+      // Collinear overlap and exact T endpoints need the same treatment.
+      for (const point of [right.start, right.end]) {
+        if (pointOnSegment(point, left.start, left.end)) splitPoints[leftIndex].push(point)
+      }
+      for (const point of [left.start, left.end]) {
+        if (pointOnSegment(point, right.start, right.end)) splitPoints[rightIndex].push(point)
+      }
+    }
+  }
+  const output: Array<{ start: Point; end: Point }> = []
+  const seen = new Set<string>()
+  for (const [index, line] of lines.entries()) {
+    const dx = line.end.x - line.start.x
+    const dy = line.end.y - line.start.y
+    const denominator = dx * dx + dy * dy
+    const points = splitPoints[index]
+      .map((point) => ({
+        x: Math.round(point.x * SCALE) / SCALE,
+        y: Math.round(point.y * SCALE) / SCALE,
+      }))
+      .sort((left, right) => (
+        ((left.x - line.start.x) * dx + (left.y - line.start.y) * dy) / denominator
+        - ((right.x - line.start.x) * dx + (right.y - line.start.y) * dy) / denominator
+      ))
+      .filter((point, pointIndex, values) => pointIndex === 0
+        || Math.hypot(point.x - values[pointIndex - 1].x, point.y - values[pointIndex - 1].y) > EPSILON)
+    for (let pointIndex = 0; pointIndex + 1 < points.length; pointIndex += 1) {
+      const start = points[pointIndex]
+      const end = points[pointIndex + 1]
+      if (Math.hypot(end.x - start.x, end.y - start.y) <= EPSILON) continue
+      const ends = [`${Math.round(start.x * SCALE)}:${Math.round(start.y * SCALE)}`,
+        `${Math.round(end.x * SCALE)}:${Math.round(end.y * SCALE)}`].sort()
+      const key = ends.join("|")
+      if (seen.has(key)) continue
+      seen.add(key)
+      output.push({ start, end })
+    }
+  }
+  return output
+}
+
 function proxyLines(ring: Point[], pitch: number) {
   const lines: Array<{ start: Point; end: Point }> = []
   // The inset outline makes the raster one electrically connected object.
@@ -245,7 +336,9 @@ function proxyLines(ring: Point[], pitch: number) {
       lines.push({ start: { x, y: from }, end: { x, y: to } })
     }
   }
-  return lines.filter((line) => Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y) > EPSILON)
+  return nodeProxyLines(lines.filter((line) => (
+    Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y) > EPSILON
+  )))
 }
 
 function segmentNode(

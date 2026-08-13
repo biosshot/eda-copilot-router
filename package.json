@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
     "test:baseline": "node dist/benchmark.js baseline",
     "test:block": "node dist/benchmark.js block-local-first",
     "test:hybrid": "node dist/benchmark.js skeleton-first-repair",
@@ -13,6 +13,7 @@
     "test:workflow": "node scripts/check-staged-workflow.mjs",
     "test:scheduler": "node scripts/check-net-scheduler.mjs",
     "test:portfolio": "node scripts/check-routing-portfolio.mjs",
+    "test:completion": "node scripts/check-completion-routing.mjs",
     "test:power": "node scripts/check-power-intent.mjs",
     "test:ground": "node scripts/check-ground-plane.mjs",
     "route:full": "node dist/staged-routing.js",

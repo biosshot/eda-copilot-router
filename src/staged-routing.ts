@@ -71,6 +71,9 @@ import {
   removeInvalidPlaneVias,
 } from "./ground-plane"
 import {
+  runKrtCompletionPortfolio,
+} from "./completion-routing"
+import {
   compilePowerIntent,
   parsePowerIntent,
   persistCompiledPowerRules,
@@ -78,8 +81,27 @@ import {
   withCompiledPowerRules,
   type CompiledPowerIntent,
   type PowerIntentInput,
-  type PowerRoutingValidation,
 } from "./power-intent"
+import {
+  deriveFinalValidation,
+  summarizeFinalDrc,
+  type FinalDrcSummary,
+  type FinalValidation,
+} from "./workflow-validation"
+import {
+  changedCopperGeometryNets,
+  copperGeometrySignatures,
+  zoneOutlineSignatures,
+} from "./workflow-board"
+
+export {
+  deriveFinalValidation,
+  summarizeFinalDrc,
+} from "./workflow-validation"
+export {
+  changedCopperGeometryNets,
+  copperGeometrySignatures,
+} from "./workflow-board"
 
 type JsonRecord = Record<string, unknown>
 
@@ -91,7 +113,7 @@ export type WorkflowDiagnostic = {
 }
 
 export type WorkflowStage = {
-  stage: "preflight" | "polygons" | "special" | "remaining" | "ground" | "final"
+  stage: "preflight" | "polygons" | "special" | "remaining" | "completion" | "ground" | "final"
   status: "ok" | "partial" | "error" | "skipped" | "skipped_due_to_dependency"
   inputBoard?: string
   outputBoard?: string
@@ -109,22 +131,6 @@ export type SpecialIntent = {
   meanderSpacingWidths: number
   powerNets: NonNullable<PowerIntentInput["powerNets"]>
   manufacturing: NonNullable<PowerIntentInput["manufacturing"]>
-}
-
-export type FinalDrcSummary = {
-  newErrorViolations: Array<{ key: string; type: string }>
-  missingNonGroundNets: string[]
-  missingNonGroundItems: number
-  missingRequiredGroundNets: string[]
-  missingRequiredGroundItems: number
-  totalUnconnectedItems: number
-}
-
-export type FinalValidation = FinalDrcSummary & {
-  completed: true
-  valid: boolean
-  powerValidation?: PowerRoutingValidation
-  powerViolationCount?: number
 }
 
 type ProcessResult = {
@@ -174,6 +180,7 @@ type WorkflowConfig = {
   krtOrdering: "inside_out" | "mps" | "original"
   netScheduling: "diagnostic" | "ordered" | "batched" | "singleton"
   krtNetRescue: boolean
+  completionRuns: number
   skipSpecial: boolean
 }
 
@@ -237,103 +244,6 @@ function incompleteKrtNets(result: KrtProcessResult, attemptedNets: readonly str
     for (const net of krtSummaryNetNames(summary[key])) incomplete.add(net)
   }
   return new Set(attemptedNets.filter((net) => incomplete.has(net)))
-}
-
-function extractNet(description: unknown) {
-  return String(description ?? "").match(/\[([^\]]+)\]/)?.[1] ?? ""
-}
-
-function errorViolationIdentity(report: unknown) {
-  const root = report && typeof report === "object" ? report as JsonRecord : {}
-  const violations = Array.isArray(root.violations) ? root.violations : []
-  return violations.flatMap((violation) => {
-    if (!violation || typeof violation !== "object") return []
-    const item = violation as JsonRecord
-    if (item.severity !== "error") return []
-    const type = typeof item.type === "string" ? item.type : "unknown"
-    const subjects = (Array.isArray(item.items) ? item.items : []).map((subject) => {
-      if (!subject || typeof subject !== "object") return String(subject)
-      const fields = subject as JsonRecord
-      if (typeof fields.uuid === "string") return fields.uuid
-      return JSON.stringify({ description: fields.description, pos: fields.pos })
-    }).sort()
-    return [{ key: `${type}:${subjects.join("|")}`, type }]
-  })
-}
-
-export function summarizeFinalDrc(
-  baseline: unknown,
-  final: unknown,
-  options: { requiredGroundNets?: readonly string[] } = {},
-): FinalDrcSummary {
-  const baselineKeys = new Set(errorViolationIdentity(baseline).map((item) => item.key))
-  const newErrorViolations = errorViolationIdentity(final)
-    .filter((item) => !baselineKeys.has(item.key))
-    .sort((left, right) => left.key.localeCompare(right.key))
-  const root = final && typeof final === "object" ? final as JsonRecord : {}
-  const unconnectedItems = Array.isArray(root.unconnected_items) ? root.unconnected_items : []
-  const missingNets = new Set<string>()
-  const missingGroundNets = new Set<string>()
-  const requiredGroundNets = new Map((options.requiredGroundNets ?? [])
-    .map((net) => [String(net).toUpperCase(), String(net)] as const))
-  let missingNonGroundItems = 0
-  let missingRequiredGroundItems = 0
-  for (const entry of unconnectedItems) {
-    if (!entry || typeof entry !== "object") continue
-    const items = Array.isArray((entry as JsonRecord).items) ? (entry as JsonRecord).items : []
-    const nets = new Set(items.map((item) => (
-      item && typeof item === "object" ? extractNet((item as JsonRecord).description) : ""
-    )).filter(Boolean))
-    const ground = [...nets].filter((net) => requiredGroundNets.has(net.toUpperCase()))
-    const nonGround = [...nets].filter((net) => !requiredGroundNets.has(net.toUpperCase()))
-    const zoneOnlySelfReference = ground.length > 0
-      && items.length > 0
-      && items.every((item) => item && typeof item === "object"
-        && String((item as JsonRecord).description ?? "").startsWith("Zone "))
-      && new Set(items.map((item) => (
-        item && typeof item === "object" ? String((item as JsonRecord).uuid ?? "") : ""
-      )).filter(Boolean)).size <= 1
-    if (ground.length && !zoneOnlySelfReference) {
-      missingRequiredGroundItems += 1
-      for (const net of ground) missingGroundNets.add(requiredGroundNets.get(net.toUpperCase()) ?? net)
-    }
-    if (nonGround.length) {
-      // GND remains advisory unless the current DSL explicitly requested it.
-      const ordinary = nonGround.filter((net) => net.toUpperCase() !== "GND")
-      if (!ordinary.length) continue
-      missingNonGroundItems += 1
-      for (const net of ordinary) missingNets.add(net)
-    }
-  }
-  return {
-    newErrorViolations,
-    missingNonGroundNets: [...missingNets].sort(),
-    missingNonGroundItems,
-    missingRequiredGroundNets: [...missingGroundNets].sort(),
-    missingRequiredGroundItems,
-    totalUnconnectedItems: unconnectedItems.length,
-  }
-}
-
-export function deriveFinalValidation(
-  baseline: unknown,
-  final: unknown,
-  powerValidation?: PowerRoutingValidation,
-  options: { requiredGroundNets?: readonly string[] } = {},
-): FinalValidation {
-  const summary = summarizeFinalDrc(baseline, final, options)
-  return {
-    completed: true,
-    valid: summary.newErrorViolations.length === 0
-      && summary.missingNonGroundItems === 0
-      && summary.missingRequiredGroundItems === 0
-      && (powerValidation?.valid ?? true),
-    ...summary,
-    ...(powerValidation ? {
-      powerValidation,
-      powerViolationCount: powerValidation.violations.length,
-    } : {}),
-  }
 }
 
 function boardStem(path: string) {
@@ -408,50 +318,6 @@ function copperCounts(root: SExpression[]) {
       vias: byNet("via"),
     },
   }
-}
-
-function canonicalCopperNode(value: SExpression): unknown {
-  if (!Array.isArray(value)) return { value: value.value, quoted: value.quoted }
-  const head = atom(value[0]) ?? ""
-  // Backend custody guards compare electrical geometry, not staging metadata.
-  // The DSN bridge locks pre-existing copper so Freerouting exports it as
-  // SYSTEM_FIXED; that adds `(locked yes)` without changing its geometry.
-  if (head === "uuid" || head === "tstamp" || head === "locked") return undefined
-  return value
-    .map(canonicalCopperNode)
-    .filter((item) => item !== undefined)
-}
-
-/** Exact geometry multiset for a net, ignoring only object identity fields. */
-export function copperGeometrySignatures(root: SExpression[], netName: string) {
-  return (["segment", "arc", "via"] as const).flatMap((head) => (
-    listChildren(root, head)
-      .filter((item) => nodeNetName(root, item) === netName)
-      .map((item) => `${head}:${JSON.stringify(canonicalCopperNode(item))}`)
-  )).sort()
-}
-
-export function changedCopperGeometryNets(
-  before: SExpression[],
-  after: SExpression[],
-  netNames: readonly string[],
-) {
-  return [...new Set(netNames)].filter((net) => !sameStrings(
-    copperGeometrySignatures(before, net),
-    copperGeometrySignatures(after, net),
-  ))
-}
-
-function zoneOutlineSignatures(root: SExpression[]) {
-  return listChildren(root, "zone").map((zone) => {
-    const clone = structuredClone(zone)
-    for (let index = clone.length - 1; index >= 0; index -= 1) {
-      if (Array.isArray(clone[index]) && atom((clone[index] as SExpression[])[0]) === "filled_polygon") {
-        clone.splice(index, 1)
-      }
-    }
-    return JSON.stringify(clone)
-  }).sort()
 }
 
 function sameStrings(left: string[], right: string[]) {
@@ -587,6 +453,78 @@ async function writeFabOverrides(
   ].join("\n"))
 }
 
+async function buildKrtRemainingSpec(
+  config: WorkflowConfig,
+  routingRules: PcbRoutingRules,
+  powerIntent: CompiledPowerIntent | undefined,
+  specialIntent: SpecialIntent,
+  nets: readonly string[],
+  fabPath: string,
+): Promise<KrtStageSpec> {
+  const netRules = nets.map((net) => classRule(routingRules, net))
+  const values = {
+    trackWidth: Math.max(routingRules.minimumTrackWidth, 0.001),
+    clearance: Math.max(
+      routingRules.minimumClearance,
+      ...netRules.map((rule) => rule.clearance),
+    ),
+    viaSize: Math.max(
+      routingRules.minimumViaDiameter,
+      ...[...(powerIntent?.nets ?? [])
+        .filter((item) => item.status === "ready")
+        .map((item) => item.viaDiameterMm), 0.001],
+    ),
+    viaDrill: Math.max(
+      routingRules.minimumViaDrill,
+      ...[...(powerIntent?.nets ?? [])
+        .filter((item) => item.status === "ready")
+        .map((item) => item.viaDrillMm), 0.001],
+    ),
+    holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
+    boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
+  }
+  await writeFabOverrides(fabPath, values)
+  const compiledPowerByNet = new Map((powerIntent?.nets ?? [])
+    .filter((item) => item.status === "ready")
+    .map((item) => [item.net, item]))
+  return {
+    pythonPath: config.pythonPath,
+    krtDirectory: config.krtDirectory,
+    timeoutMs: config.timeoutMs,
+    layers: ["F.Cu", "B.Cu"],
+    rules: {
+      ...values,
+      gridStep: 0.05,
+      holeToHoleClearance: values.holeToHole,
+      boardEdgeClearance: values.boardEdge,
+      routingClearanceMargin: 1,
+    },
+    fabOverridesPath: fabPath,
+    diffPairs: config.skipSpecial ? [] : specialIntent.diffPairs,
+    matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
+    remainingNets: [...nets],
+    powerNets: nets.flatMap((net) => {
+      const power = compiledPowerByNet.get(net)
+      return power ? [{ net, width: power.requiredTrackWidthMm }] : []
+    }),
+    ordering: config.krtOrdering,
+    preserveNetOrder: false,
+    enableNetRescue: config.krtNetRescue,
+    enableTerminalEscalation: false,
+    maxIterations: config.krtMaxIterations,
+    maxProbeIterations: config.krtMaxProbeIterations,
+    maxRipup: config.krtMaxRipup,
+    heuristicWeight: config.krtHeuristicWeight,
+    viaCost: config.krtViaCost,
+    viaProximityCost: config.krtViaProximityCost,
+    turnCost: config.krtTurnCost,
+    directionPreferenceCost: config.krtDirectionPreferenceCost,
+    collectStats: true,
+    debugMemory: true,
+    filledCopperProxy: true,
+  }
+}
+
 function krtStageStatus(result: KrtProcessResult): WorkflowStage["status"] {
   if (result.status === "skipped") return "skipped"
   if (result.status !== "completed") return "error"
@@ -664,6 +602,7 @@ function configFromEnvironment(): WorkflowConfig {
     krtOrdering: readKrtOrdering(process.env.COPILOT_ROUTER_KRT_ORDERING),
     netScheduling: readNetScheduling(process.env.COPILOT_ROUTER_NET_SCHEDULING),
     krtNetRescue: process.env.COPILOT_ROUTER_KRT_NET_RESCUE === "1",
+    completionRuns: Number(process.env.COPILOT_ROUTER_COMPLETION_MAX_RUNS ?? 5),
     skipSpecial: process.env.COPILOT_ROUTER_SKIP_SPECIAL === "1",
   }
 }
@@ -681,6 +620,7 @@ async function main() {
   let planeIntents: PlaneIntent[] = []
   let specialIntent: SpecialIntent | undefined
   let compiledPowerIntent: CompiledPowerIntent | undefined
+  let sourcePlacementRoot: SExpression[] | undefined
   let preflightBlocked = false
 
   try {
@@ -693,10 +633,10 @@ async function main() {
       ["KRT route_diff", join(config.krtDirectory, "py_router", "route_diff.py")],
       ["KiCad CLI", config.kicadCli],
     ]
-    if (config.remainingBackend === "krt") requiredPaths.push([
+    if (config.remainingBackend === "krt" || config.completionRuns > 0) requiredPaths.push([
       "KRT route", join(config.krtDirectory, "py_router", "route.py"),
     ])
-    else if (config.remainingBackend === "freerouting") requiredPaths.push(
+    if (config.remainingBackend === "freerouting") requiredPaths.push(
       ["Freerouting JAR", config.freeroutingJar],
       ["KiCad Python", config.kicadPythonPath],
       ["Freerouting KiCad bridge", config.freeroutingBridge],
@@ -709,6 +649,14 @@ async function main() {
     }
     if (!Number.isFinite(config.timeoutMs) || config.timeoutMs <= 0) {
       preflightDiagnostics.push(diagnostic("PREFLIGHT_INVALID_TIMEOUT", "error", "Workflow timeout must be positive."))
+    }
+    if (!Number.isInteger(config.completionRuns) || config.completionRuns < 0 || config.completionRuns > 5) {
+      preflightDiagnostics.push(diagnostic(
+        "PREFLIGHT_INVALID_COMPLETION_RUNS",
+        "error",
+        "Completion portfolio size must be an integer from 0 to 5.",
+        { value: config.completionRuns },
+      ))
     }
     const krtQualityValues = [
       ["via cost", config.krtViaCost, false],
@@ -772,6 +720,7 @@ async function main() {
       }
       const sourceDocument = await readPcb(config.sourceBoard)
       const sourceRoot = parsePcbSource(sourceDocument.source)
+      sourcePlacementRoot = structuredClone(sourceRoot)
       const sourceRules = await readPcbRoutingRules(config.rulesBoard)
       compiledPowerIntent = compilePowerIntent(
         specialIntent,
@@ -1221,36 +1170,6 @@ async function main() {
       const remainingOutput = resolve(config.resultDirectory, "03-remaining.kicad_pcb")
       const proxyInput = resolve(config.resultDirectory, "03-remaining-proxy-input.kicad_pcb")
       const proxyOutput = resolve(config.resultDirectory, "03-remaining-proxy-output.kicad_pcb")
-      const remainingRules = scheduledRemainingNets.map((net) => classRule(routingRules!, net))
-      const values = {
-        // route.py reads each netclass when --track-width is omitted. This is
-        // only the hard fabrication floor. Stock KRT still has a few fallback
-        // paths that use its Default width; final native DRC records those as
-        // errors instead of the adapter weakening or globally widening rules.
-        trackWidth: Math.max(routingRules.minimumTrackWidth, 0.001),
-        clearance: Math.max(
-          routingRules.minimumClearance,
-          ...remainingRules.map((rule) => rule.clearance),
-        ),
-        // Start from the smallest globally legal manufacturing geometry.
-        // Per-power current capacity is expressed as a required parallel-via
-        // count and verified after routing; it is never hidden by an oversized
-        // global via that penalizes every signal net.
-        viaSize: Math.max(
-          routingRules.minimumViaDiameter,
-          ...[...(compiledPowerIntent?.nets ?? [])
-            .filter((item) => item.status === "ready")
-            .map((item) => item.viaDiameterMm), 0.001],
-        ),
-        viaDrill: Math.max(
-          routingRules.minimumViaDrill,
-          ...[...(compiledPowerIntent?.nets ?? [])
-            .filter((item) => item.status === "ready")
-            .map((item) => item.viaDrillMm), 0.001],
-        ),
-        holeToHole: await nativeHoleToHoleRule(config.rulesBoard),
-        boardEdge: Math.max(0.001, routingRules.copperEdgeClearance),
-      }
       const before = remainingBoardRoot
       const zonesBefore = zoneOutlineSignatures(before)
       const proxyRoot = structuredClone(before)
@@ -1286,13 +1205,6 @@ async function main() {
         "One or more filled copper components were too narrow to model safely for the remaining router.",
         emptyComponents,
       ))
-      const compiledPowerByNet = new Map((compiledPowerIntent?.nets ?? [])
-        .filter((item) => item.status === "ready")
-        .map((item) => [item.net, item]))
-      const powerNets = scheduledRemainingNets.flatMap((net) => {
-        const power = compiledPowerByNet.get(net)
-        return power ? [{ net, width: power.requiredTrackWidthMm }] : []
-      })
       let result: KrtProcessResult | FreeroutingProcessResult | EasyEdaWasmProcessResult
       if (config.remainingBackend === "freerouting") {
         const freeroutingSpec: FreeroutingStageSpec = {
@@ -1337,44 +1249,18 @@ async function main() {
         )
       } else {
         const fabPath = resolve(config.resultDirectory, "03-remaining-fab.txt")
-        await writeFabOverrides(fabPath, values)
-        const krtSpec: KrtStageSpec = {
-          pythonPath: config.pythonPath,
-          krtDirectory: config.krtDirectory,
-          timeoutMs: config.timeoutMs,
-          layers: ["F.Cu", "B.Cu"],
-          rules: {
-            ...values,
-            gridStep: 0.05,
-            holeToHoleClearance: values.holeToHole,
-            boardEdgeClearance: values.boardEdge,
-            routingClearanceMargin: 1,
-          },
-          fabOverridesPath: fabPath,
-          diffPairs: config.skipSpecial ? [] : specialIntent.diffPairs,
-          matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
-          remainingNets: scheduledRemainingNets,
-          powerNets,
-          ordering: config.netScheduling === "ordered" || config.netScheduling === "batched"
-            ? "original"
-            : config.krtOrdering,
-          preserveNetOrder: config.netScheduling === "ordered" || config.netScheduling === "batched",
-          enableNetRescue: config.krtNetRescue,
-          // The hard fab override equals the native floor, so KRT has no legal
-          // smaller track/via rung. Keep terminal geometry escalation disabled;
-          // an impossible route must remain an explicit error, not weakened DRC.
-          enableTerminalEscalation: false,
-          maxIterations: config.krtMaxIterations,
-          maxProbeIterations: config.krtMaxProbeIterations,
-          maxRipup: config.krtMaxRipup,
-          heuristicWeight: config.krtHeuristicWeight,
-          viaCost: config.krtViaCost,
-          viaProximityCost: config.krtViaProximityCost,
-          turnCost: config.krtTurnCost,
-          directionPreferenceCost: config.krtDirectionPreferenceCost,
-          collectStats: true,
-          debugMemory: true,
-          filledCopperProxy: true,
+        const krtSpec = await buildKrtRemainingSpec(
+          config,
+          routingRules,
+          compiledPowerIntent,
+          specialIntent,
+          scheduledRemainingNets,
+          fabPath,
+        )
+        const powerNets = krtSpec.powerNets ?? []
+        if (config.netScheduling === "ordered" || config.netScheduling === "batched") {
+          krtSpec.ordering = "original"
+          krtSpec.preserveNetOrder = true
         }
         const priorityNets = netSchedule.tiers
           .find((tier) => tier.tier === "escape_critical")?.nets ?? []
@@ -1596,9 +1482,156 @@ async function main() {
       stages.push({ stage: "remaining", status: "skipped_due_to_dependency", diagnostics: [] })
     }
 
+    if (latestBoard && routingRules && specialIntent && baselineReport && sourcePlacementRoot) {
+      const completionInput = latestBoard
+      const completionBase = resolve(config.resultDirectory, "04-completion-base.kicad_pcb")
+      const completionOutput = resolve(config.resultDirectory, "04-completion.kicad_pcb")
+      const completionStarted = performance.now()
+      try {
+        await copyFile(completionInput, completionBase)
+        await copySidecars(completionInput, completionBase)
+        const baseValidation = await runNativeDrc(
+          completionBase,
+          resolve(config.resultDirectory, "04-completion-base-drc.json"),
+          config,
+          true,
+        )
+        const baseCompleted = baseValidation.process.exitCode === 0
+          && !baseValidation.process.error
+          && !baseValidation.process.timedOut
+          && Boolean(baseValidation.report)
+        if (!baseCompleted || !baseValidation.report) {
+          latestBoard = completionBase
+          stages.push({
+            stage: "completion",
+            status: "error",
+            inputBoard: completionInput,
+            outputBoard: completionBase,
+            diagnostics: [diagnostic(
+              "COMPLETION_BASE_VALIDATION_FAILED",
+              "error",
+              "KiCad did not produce a readable refilled board before completion routing.",
+              baseValidation.process,
+            )],
+            metrics: { elapsedMs: performance.now() - completionStarted },
+          })
+        } else {
+          const residual = summarizeFinalDrc(baselineReport, baseValidation.report).missingNonGroundNets
+          const specialMembers = new Set(config.skipSpecial ? [] : [
+            ...specialIntent.diffPairs.flatMap((pair) => [pair.positive, pair.negative]),
+            ...specialIntent.matchedGroups.flat(),
+          ])
+          const routableResidual = residual.filter((net) => !specialMembers.has(net))
+          const completionRoot = parsePcbSource((await readPcb(completionBase)).source)
+          const completionSchedule = scheduleNets(
+            kicadToRawPcb(completionRoot, { includeZones: true }),
+            routingRules,
+            {
+              nets: routableResidual,
+              excludedNets: [...pcbNetNames(completionRoot)].filter((net) => !routableResidual.includes(net)),
+              layers: ["TOP", "BOTTOM"],
+            },
+          )
+          const orderedResidual = [
+            ...completionSchedule.orderedNets,
+            ...routableResidual.filter((net) => !completionSchedule.orderedNets.includes(net)),
+          ]
+          const fabPath = resolve(config.resultDirectory, "04-completion-fab.txt")
+          const krtSpec = await buildKrtRemainingSpec(
+            config,
+            routingRules,
+            compiledPowerIntent,
+            specialIntent,
+            orderedResidual,
+            fabPath,
+          )
+          const result = await runKrtCompletionPortfolio({
+            inputBoard: completionBase,
+            outputBoard: completionOutput,
+            resultDirectory: resolve(config.resultDirectory, "04-completion-candidates"),
+            residualNets: orderedResidual,
+            baselineDrc: baselineReport,
+            inputDrc: baseValidation.report,
+            sourcePlacementBoard: config.sourceBoard,
+            krtSpec,
+            maximumRuns: config.completionRuns,
+            proxyWidthMm: 0.1,
+            proxyPitchMm: Math.max(0.2, routingRules.minimumClearance),
+            runNativeValidation: async (boardPath, reportPath) => {
+              const native = await runNativeDrc(boardPath, reportPath, config, true)
+              return {
+                completed: native.process.exitCode === 0
+                  && !native.process.error
+                  && !native.process.timedOut
+                  && Boolean(native.report),
+                report: native.report,
+                elapsedMs: native.process.elapsedMs,
+              }
+            },
+          })
+          latestBoard = result.outputBoard
+          const selected = result.candidates.find((candidate) => (
+            candidate.index === result.selectedCandidateIndex
+          ))!
+          const diagnostics = result.diagnostics.map((item) => ({ ...item }))
+          const specialResidual = residual.filter((net) => specialMembers.has(net))
+          if (specialResidual.length) diagnostics.push(diagnostic(
+            "COMPLETION_SPECIAL_NET_OPEN",
+            "warning",
+            "Special-net residuals stay owned by the atomic special stage and are not routed single-ended.",
+            specialResidual,
+          ))
+          if (config.completionRuns > 0 && selected.metrics.missingNonGroundNets.length) diagnostics.push(diagnostic(
+            "COMPLETION_NETS_REMAIN_OPEN",
+            "warning",
+            `${selected.metrics.missingNonGroundNets.length} non-GND net(s) remain after the completion portfolio.`,
+            selected.metrics.missingNonGroundNets,
+          ))
+          stages.push({
+            stage: "completion",
+            status: config.completionRuns === 0
+              ? "skipped"
+              : diagnostics.some((item) => item.severity === "error")
+              ? "error"
+              : selected.metrics.missingNonGroundNets.length ? "partial" : "ok",
+            inputBoard: completionInput,
+            outputBoard: latestBoard,
+            diagnostics,
+            metrics: {
+              elapsedMs: result.elapsedMs,
+              requestedRuns: config.completionRuns,
+              completedRuns: result.completedRuns,
+              stoppedEarly: result.stoppedEarly,
+              attemptedNets: result.attemptedNets,
+              netSchedule: completionSchedule,
+              selectedCandidateIndex: result.selectedCandidateIndex,
+              selectedMetrics: selected.metrics,
+            },
+            details: result,
+          })
+        }
+      } catch (error) {
+        latestBoard = completionInput
+        stages.push({
+          stage: "completion",
+          status: "error",
+          inputBoard: completionInput,
+          outputBoard: completionInput,
+          diagnostics: [diagnostic("COMPLETION_STAGE_FAILED", "error", errorText(error))],
+          metrics: { elapsedMs: performance.now() - completionStarted },
+        })
+      }
+    } else {
+      stages.push({
+        stage: "completion",
+        status: config.completionRuns > 0 ? "skipped_due_to_dependency" : "skipped",
+        diagnostics: [],
+      })
+    }
+
     if (latestBoard && routingRules && planeIntents.length) {
       const groundInput = latestBoard
-      const groundOutput = resolve(config.resultDirectory, "04-ground.kicad_pcb")
+      const groundOutput = resolve(config.resultDirectory, "05-ground.kicad_pcb")
       const groundStarted = performance.now()
       try {
         await copyFile(groundInput, groundOutput)
@@ -1611,12 +1644,12 @@ async function main() {
         await writeFile(groundOutput, serializePcb(root))
         let refill = await runNativeDrc(
           groundOutput,
-          resolve(config.resultDirectory, "04-ground-drc.json"),
+          resolve(config.resultDirectory, "05-ground-drc.json"),
           config,
           true,
         )
         await writeFile(
-          resolve(config.resultDirectory, "04-ground-manifest.json"),
+          resolve(config.resultDirectory, "05-ground-manifest.json"),
           `${JSON.stringify(manifest, null, 2)}\n`,
         )
         let cleanup = { expected: manifest.generatedViaUuids.length, removed: 0, removedUuids: [] as string[] }
@@ -1628,14 +1661,14 @@ async function main() {
             await writeFile(groundOutput, serializePcb(refilledRoot))
             refill = await runNativeDrc(
               groundOutput,
-              resolve(config.resultDirectory, "04-ground-cleaned-drc.json"),
+              resolve(config.resultDirectory, "05-ground-cleaned-drc.json"),
               config,
               true,
             )
           }
         }
         await writeFile(
-          resolve(config.resultDirectory, "04-ground-cleanup.json"),
+          resolve(config.resultDirectory, "05-ground-cleanup.json"),
           `${JSON.stringify(cleanup, null, 2)}\n`,
         )
         latestBoard = groundOutput
@@ -1777,7 +1810,7 @@ async function main() {
     const currentSourceHash = sourceHash && await exists(config.sourceBoard) ? await sha256(config.sourceBoard) : ""
     const sourceUnchanged = Boolean(sourceHash) && sourceHash === currentSourceHash
     const report = {
-      workflow: `power-polygons-krt-special-${config.remainingBackend}-remaining`,
+      workflow: `power-polygons-krt-special-${config.remainingBackend}-remaining-krt-completion-ground`,
       remainingBackend: config.remainingBackend,
       krtQuality: {
         viaCost: config.krtViaCost,
@@ -1793,6 +1826,7 @@ async function main() {
         netRescue: config.krtNetRescue,
       },
       skipSpecial: config.skipSpecial,
+      completionRuns: config.completionRuns,
       sourceBoard: config.sourceBoard,
       rulesBoard: config.rulesBoard,
       polygonDsl: config.polygonDsl,
