@@ -1,6 +1,6 @@
 # Local router DSL
 
-Status: partially accepted; DRC function signatures pending
+Status: partially accepted; terminal commands accepted, DRC vocabulary pending
 Date: 2026-08-13
 
 ## Fixed decisions
@@ -62,11 +62,51 @@ statements are intentionally not accepted yet. No implementation should choose
 them before a dedicated DSL review. This prevents the experimental
 `routing({ ... })` API from becoming an accidental contract.
 
+Semantic and absolute requirements belong to the same rule statement and may
+be used together. For example, a power rule may provide current and temperature
+rise so the compiler derives a minimum width, while also providing an absolute
+minimum or maximum width. A differential-pair rule may provide impedance and
+also explicit width or gap. The compiler uses the intersection of compatible
+requirements and reports a DSL conflict when no legal value exists.
+
+## Terminal commands
+
+Every DSL program ends with exactly one of these commands:
+
+```js
+applyDrcRules()
+runRouting()
+runAll()
+```
+
+These are DSL commands, not package API calls. They record the requested
+operation in the interpreter and return no value. Only the outer package
+`run(...)` call returns `RoutingResult`.
+
+- `applyDrcRules()` compiles the DSL rule statements and requests that the host
+  persist the effective DRC fields. It does not execute polygon or routing
+  backends.
+- `runRouting()` executes all requested polygon, plane, special-net, and
+  ordinary routing work without requesting a native DRC update.
+- `runAll()` is the single-command form of applying effective DRC rules first
+  and then running the complete routing workflow.
+
+Multiple terminal commands and a program with no terminal command are DSL
+errors. `runAll()` is semantically equivalent to the two operations, but a DSL
+program does not spell it as two command calls.
+
+All rule statements are compiled for all three operations. With
+`runRouting()`, effective DSL rules may equal or tighten the source rules, but
+they may not require copper that violates a weaker source constraint. Such a
+program fails preflight with `DRC_APPLY_REQUIRED`; the caller must select
+`runAll()` (or run a separate `applyDrcRules()` program) instead.
+
 ## Separation from runtime policy
 
 Backend choice, executable paths, quality profiles, candidate limits, timeout,
 iteration counts, rip-up limits, costs, and meander search preferences are not
-board DSL. They are runtime options supplied to the route call or CLI.
+board DSL. They are runtime options supplied to the outer `run(...)` call or
+CLI.
 
 ```text
 local router DSL = copper intent + electrical/routing rules
@@ -77,6 +117,8 @@ routing policy   = how aggressively backends search
 
 Source rules arrive through `RoutingBoard.rules`. A DSL rule replaces only the
 fields and scopes it explicitly assigns. Unspecified values inherit the source
-rule. Overrides may be stricter or weaker and every difference is emitted as a
-DRC change. The complete precedence decision is in
+rule. Semantic requirements are compiled to geometry; explicit absolute values
+then constrain the same effective rule set. Overrides may be stricter or weaker
+when the selected terminal operation applies DRC. Every difference is reported
+in `RoutingResult.rules.overriddenFields`. The complete precedence decision is in
 [`drc-rule-precedence.md`](./drc-rule-precedence.md).

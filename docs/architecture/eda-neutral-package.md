@@ -10,7 +10,7 @@ router data contracts.
 ```mermaid
 flowchart LR
   A["EasyEDA / KiCad / DSN"] -->|host conversion or DSN parser| B["RoutingBoard"]
-  B --> C["local router DSL"]
+  B --> C["local router DSL + terminal command"]
   C --> D["polygon engine + routing backends"]
   D --> E["RoutingResult"]
   E -->|host apply + refill + DRC| F["EasyEDA / KiCad"]
@@ -32,6 +32,11 @@ shape is [`router-dsl.md`](./router-dsl.md). DRC precedence is defined in
 The core never needs a live editor session. A host may construct
 `RoutingBoard` directly or provide DSN. Native zone refill, native DRC, and
 transactional application happen at the host boundary after routing.
+
+The public package operation is `run(...)`. Inside the DSL,
+`applyDrcRules()`, `runRouting()`, and `runAll()` only select what that operation
+does and return no value themselves. `RoutingResult` is returned by `run(...)`,
+not by a DSL command.
 
 External engines remain optional adapters. KRT currently consumes a temporary
 KiCad board, Freerouting consumes DSN/SES, and EasyEDA WASM consumes its own

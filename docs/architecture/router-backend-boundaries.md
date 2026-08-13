@@ -58,11 +58,14 @@ their source values. A DSL value may therefore be either stricter or weaker
 than the value imported from DSN; a difference between DSN and DSL is not a
 rule conflict.
 
-The rule compiler records every effective value that differs from the source
-as a DRC change in the routing result. The target EDA adapter applies those DRC
-changes before applying copper and running native refill/validation. Invalid
-DSL values, contradictory assignments inside the DSL itself, unknown targets,
-and lossless-translation failures remain errors; only DSN-versus-DSL value
+The rule compiler records every effective value that differs from the source in
+`RoutingResult.rules.overriddenFields`. When the terminal DSL command is
+`applyDrcRules()` or `runAll()`, the target EDA adapter applies those overrides
+before copper and native refill/validation. `runRouting()` does not persist DRC;
+preflight therefore rejects an effective DSL rule that would make its output
+illegal under unchanged source DRC. Invalid DSL values, contradictory semantic
+and absolute requirements inside the DSL, unknown targets, and
+lossless-translation failures remain errors; only source-versus-DSL value
 differences are resolved by DSL precedence.
 
 Power-current intent is compiled in the core, not in an LLM or backend. Each

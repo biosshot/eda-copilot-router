@@ -55,8 +55,13 @@ interface RoutingCopper {
 
 interface RoutingResult {
   status: "complete" | "partial" | "error"
-  copper: RoutingCopper
-  drcChanges: DrcChange[]
+  operation: "apply-drc" | "route" | "all"
+  rules: {
+    effective: RoutingRules
+    applyRequested: boolean
+    overriddenFields: RoutingRuleOverride[]
+  }
+  copper?: RoutingCopper
   diagnostics: Diagnostic[]
   metrics: RoutingMetrics
 }
@@ -85,6 +90,10 @@ that editable/router-owned copper, not an append-only list and not a full PCB.
 This lets completion and blocker repair reroute earlier generated copper without
 requiring a general-purpose PCB patch format.
 
+`RoutingResult.copper` is present only when the DSL selected `runRouting()` or
+`runAll()`. An `applyDrcRules()`-only operation does not execute polygon or
+routing backends and therefore does not produce replacement copper.
+
 The host applies a result transactionally by replacing only router-owned copper
 and preserving native objects outside that ownership. If a host wants existing
 native routes to become editable, it deliberately places them in the editable
@@ -93,13 +102,21 @@ input set instead of the fixed set.
 ## Rules
 
 `RoutingRules` contains normalized source rules imported from DSN or supplied
-by a native adapter. The local router DSL overrides explicitly assigned fields.
-Backends receive compiled effective rules. Differences are returned in
-`RoutingResult.drcChanges` so the host can persist them before native refill and
-DRC. See [`drc-rule-precedence.md`](./drc-rule-precedence.md).
+by a native adapter. The local router DSL may express semantic electrical
+requirements, absolute geometry values, or both. The compiler derives geometry
+from semantic requirements, combines it with compatible absolute constraints,
+and produces one effective rule set for every backend.
+
+The result always reports the effective rules and which fields differ from the
+source. `rules.applyRequested` is true only for `applyDrcRules()` and
+`runAll()`. It tells the host to persist those effective fields; the DSL command
+itself does not return or directly mutate an EDA document. See
+[`drc-rule-precedence.md`](./drc-rule-precedence.md).
 
 ## Validation ownership
 
-The core reports routing completion and portable geometry diagnostics. Final
-native validity belongs to the host after it applies `drcChanges`, replaces the
-router-owned copper, refills zones, and runs native DRC/connectivity checks.
+The core reports rule compilation, routing completion, and portable geometry
+diagnostics. Final native validity belongs to the host. Depending on the
+selected operation, the host first persists requested effective rules, then
+replaces router-owned copper when present, refills zones, and runs native
+DRC/connectivity checks.
