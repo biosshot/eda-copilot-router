@@ -42,8 +42,12 @@ It does not contain executable paths, backend names, timeouts, costs, or
 meander search parameters. Those belong to runtime configuration or
 `RoutingPolicy`.
 
-Native DRC is the default. Intent constraints may tighten native rules but must
-not silently weaken them. An empty rule intersection is a preflight conflict.
+Source DRC is the default. Router DSL rules override the source/DSN values only
+for explicitly assigned fields and scopes; all other fields remain inherited.
+Overrides may tighten or weaken the source rule. Every resulting difference is
+returned as a DRC change for the target adapter to persist before native refill
+and validation. Conflicting source and DSL values are therefore not a preflight
+error; invalid or internally contradictory DSL remains an error.
 
 ### `PcbPatchV1`
 

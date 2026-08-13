@@ -47,17 +47,19 @@ intent or the stage contract.
 
 ## Rule ownership and preflight
 
-Native board DRC and net classes are the default rule source. DSL rules may add
-semantic constraints or tighten native constraints; they must not silently
-weaken them. Preferred/default values are not hard constraints.
+Source DRC and net classes (from DSN or another input adapter) provide defaults.
+Router DSL rules have higher priority and replace the source values for the
+fields and scopes they explicitly set. Unspecified fields continue to inherit
+their source values. A DSL value may therefore be either stricter or weaker
+than the value imported from DSN; a difference between DSN and DSL is not a
+rule conflict.
 
-All hard constraints are combined by intersection:
-
-- width ranges are intersected;
-- the greatest minimum clearance is used;
-- allowed-layer and allowed-via sets are intersected;
-- differential-pair width, gap, skew, via, and maximum-uncoupled-length
-  constraints are intersected.
+The rule compiler records every effective value that differs from the source
+as a DRC change in the routing result. The target EDA adapter applies those DRC
+changes before applying copper and running native refill/validation. Invalid
+DSL values, contradictory assignments inside the DSL itself, unknown targets,
+and lossless-translation failures remain errors; only DSN-versus-DSL value
+differences are resolved by DSL precedence.
 
 Power-current intent is compiled in the core, not in an LLM or backend. Each
 declared power net supplies exactly one of `maxCurrentA` or `minTrackWidthMm`.
@@ -68,11 +70,10 @@ geometry starts from the smallest legal DRC/fabrication size; required parallel
 barrel-copper capacity is calculated and checked after routing. These compiled
 per-net constraints are shared by every remaining backend and final validation.
 
-An empty intersection is `RULE_CONFLICT`. A backend translation that cannot
-prove exact preservation of a required rule is `LOSSY_RULE_TRANSLATION`. Either
-condition rejects the complete run before any routing begins. Preflight should
-report all discovered diagnostics, but must not call the backend after a hard
-failure.
+A backend translation that cannot prove exact preservation of an effective
+rule is `LOSSY_RULE_TRANSLATION`. It rejects the complete run before routing.
+Preflight should report all discovered diagnostics, but must not call the
+backend after a hard failure.
 
 Each backend exposes granular, test-backed capabilities. Important capabilities
 include selected-net routing, immutable existing copper, hard keepouts,
