@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/index.ts",
+    "src/cli.ts",
+    "src/schema.ts",
+    "src/core/**/*.ts",
+    "src/intent/**/*.ts",
+    "src/adapters/contracts.ts",
+    "src/adapters/legacy-raw.ts"
+  ]
+}

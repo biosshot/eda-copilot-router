@@ -1,4 +1,14 @@
-# Fixed-placement staged autorouter benchmark
+# @easyeda-copilot/router
+
+The repository now exposes an EDA-neutral npm package with a versioned PCB
+snapshot, routing-intent DSL, patch API, and small JSON CLI. See
+[`README-package.md`](README-package.md) and the
+[`EDA-neutral architecture`](docs/architecture/eda-neutral-package.md).
+
+The mature fixed-placement workflow remains available below as a legacy
+benchmark while its KiCad/EasyEDA boundaries are migrated behind the package.
+
+## Fixed-placement staged autorouter benchmark
 
 The backend-independent routing architecture and its fail-fast invariants are
 recorded in [`docs/architecture/router-backend-boundaries.md`](docs/architecture/router-backend-boundaries.md).

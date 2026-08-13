@@ -1,9 +1,56 @@
 {
-  "name": "copilot-router-benchmark",
-  "private": true,
+  "name": "@easyeda-copilot/router",
+  "version": "0.1.0",
+  "description": "EDA-neutral PCB polygon and autorouting orchestration",
   "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./dsl": {
+      "types": "./dist/intent/index.d.ts",
+      "import": "./dist/intent/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./adapters/contracts": {
+      "types": "./dist/adapters/contracts.d.ts",
+      "import": "./dist/adapters/contracts.js"
+    },
+    "./adapters/legacy-raw": {
+      "types": "./dist/adapters/legacy-raw.d.ts",
+      "import": "./dist/adapters/legacy-raw.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "copilot-router": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "README-package.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "build": "node ../kicad-copilot/node_modules/tsup/dist/cli-default.js src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist --clean && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "build": "npm run build:public && npm run build:legacy && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
+    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/adapters/legacy-raw.ts src/cli.ts --format esm --platform node --target node20 --out-dir dist --dts --clean --tsconfig tsconfig.public.json",
+    "build:package": "npm run build:public",
+    "build:legacy": "tsup src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist",
     "test:baseline": "node dist/benchmark.js baseline",
     "test:block": "node dist/benchmark.js block-local-first",
     "test:hybrid": "node dist/benchmark.js skeleton-first-repair",
@@ -20,9 +67,14 @@
     "route:portfolio": "node dist/portfolio-routing.js",
     "route:full:freerouting": "node scripts/run-staged-freerouting.mjs",
     "route:full:easyeda": "node scripts/run-staged-easyeda.mjs",
-    "test": "node scripts/run-all.mjs && node scripts/check-polygon-dsl.mjs && node scripts/check-staged-workflow.mjs && node scripts/check-power-intent.mjs && node scripts/check-ground-plane.mjs"
+    "test:package": "node scripts/check-package-contract.mjs",
+    "test": "node scripts/run-all.mjs && node scripts/check-polygon-dsl.mjs && node scripts/check-staged-workflow.mjs && node scripts/check-power-intent.mjs && node scripts/check-ground-plane.mjs && node scripts/check-package-contract.mjs",
+    "prepack": "npm run build:package"
   },
-  "dependencies": {
-    "clipper-lib": "^6.4.2"
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "clipper-lib": "^6.4.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   }
 }
