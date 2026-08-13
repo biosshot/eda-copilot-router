@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import {
+  atomicSpecialGroupsForBlockers,
+  buildBlockerRepairPlans,
   buildCompletionProfiles,
   compareCompletionCandidates,
 } from "../dist/completion-routing.js"
@@ -18,6 +20,46 @@ assert.deepEqual(buildCompletionProfiles(5).map((profile) => profile.name), [
 assert.equal(buildCompletionProfiles(99).length, 5)
 assert.equal(buildCompletionProfiles(0).length, 0)
 assert.equal(buildCompletionProfiles(5)[0].enableTerminalEscalation, undefined)
+
+const blockerPlans = buildBlockerRepairPlans([
+  {
+    blockers: [
+      {
+        net: "TARGET",
+        stage: "phase3",
+        blocked_by: [
+          { net: "DIRECT", blocked_count: 5, near_target_cells: 2 },
+          { net: "GND", blocked_count: 999, near_target_cells: 99 },
+          { net: "ZONE", blocked_count: 100 },
+        ],
+      },
+      {
+        net: "TARGET",
+        stage: "preexisting",
+        blocked_by: [{ net: "BOX", preexisting: true }, { net: "DIRECT", preexisting: true }],
+      },
+    ],
+  },
+], ["TARGET"], ["TARGET", "DIRECT", "BOX", "ZONE", "GND"], ["GND", "ZONE"], 1)
+assert.deepEqual(blockerPlans[0].blockers, ["DIRECT"],
+  "direct endpoint evidence must outrank the coarse pre-existing box hint")
+assert.deepEqual(blockerPlans[0].hardBlockers, ["GND", "ZONE"])
+assert.ok(blockerPlans[0].blockerScores.DIRECT > blockerPlans[0].blockerScores.BOX)
+
+const atomicGroups = atomicSpecialGroupsForBlockers([
+  "USB_A1_DM",
+  "BUS_B",
+], {
+  diffPairs: [
+    { positive: "USB_A1_DP", negative: "USB_A1_DM" },
+    { positive: "USB_A2_DP", negative: "USB_A2_DM" },
+  ],
+  matchedGroups: [{ nets: ["BUS_A", "BUS_B", "BUS_C"] }],
+})
+assert.deepEqual(atomicGroups, [
+  { kind: "diff-pair", nets: ["USB_A1_DP", "USB_A1_DM"] },
+  { kind: "matched-group", nets: ["BUS_A", "BUS_B", "BUS_C"] },
+], "one blocked member must move its whole special group")
 
 function candidate(index, overrides = {}) {
   return {

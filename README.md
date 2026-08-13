@@ -246,7 +246,14 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_NET_SCHEDULING=diagnostic|ordered|batched|singleton`
   (`diagnostic` is the non-mutating default; the others are experimental completion profiles)
 - `COPILOT_ROUTER_COMPLETION_MAX_RUNS=0..5` controls the targeted post-remaining
-  portfolio (`5` by default; `0` disables it, including inside the outer whole-board portfolio)
+  attempts (`5` by default; `0` disables them). When the KRT remaining pass
+  reports structured blockers, each attempt routes one open target and permits
+  surgical rip-up of a closure of at most eight blocker nets. Ordinary blockers
+  may be moved by KRT directly. A reported differential-pair or matched-group
+  blocker is removed and rerouted only as one complete atomic group; GND,
+  zones and locked copper remain immutable. Every candidate is rolled back
+  unless native refill closes the target, restores every special constraint,
+  strictly improves connectivity, preserves other nets and adds no DRC error.
 - `COPILOT_ROUTER_KICAD_CLI`
 - `COPILOT_ROUTER_FULL_RESULT`
 - `COPILOT_ROUTER_FULL_OUTPUT`

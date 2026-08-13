@@ -53,6 +53,8 @@ export type KrtStageSpec = {
   diffPairs: readonly KrtDiffPair[]
   matchedGroups: readonly KrtMatchedGroup[]
   remainingNets: readonly string[]
+  /** Exact pre-existing nets KRT may rip only when they block remainingNets. */
+  ripExistingNets?: readonly string[]
   powerNets?: readonly { net: string; width: number }[]
   ordering?: "inside_out" | "mps" | "original"
   /** Disable KRT's secondary bare-ball repartition when testing an external exact order. */
@@ -476,6 +478,7 @@ function addRemainingSummaryDiagnostics(
   summary: Record<string, unknown>,
   rules: KrtNumericRules,
   diagnostics: KrtDiagnostic[],
+  authorizedRipNets: readonly string[] = [],
 ) {
   const failed = stringArray(summary.failed_single)
   const open = stringArray(summary.open_single)
@@ -512,11 +515,31 @@ function addRemainingSummaryDiagnostics(
     "KRT_PAD_PAIRS_OPEN", "error", "KRT's final pad-pair report contains open nets.", padPairsOpen,
   ))
   if (summary.preexisting_rips && Object.keys(summary.preexisting_rips as object).length) {
-    diagnostics.push(diagnostic(
+    const outcomes = summary.preexisting_rips as Record<string, unknown>
+    const authorized = new Set(authorizedRipNets)
+    const unauthorized = Object.fromEntries(Object.entries(outcomes)
+      .filter(([net]) => !authorized.has(net)))
+    const casualties = Object.fromEntries(Object.entries(outcomes)
+      .filter(([, outcome]) => /NOT RECOVERED|PARTIAL|still open/i.test(String(outcome))))
+    if (Object.keys(unauthorized).length) diagnostics.push(diagnostic(
       "KRT_PREEXISTING_COPPER_RIPPED",
       "error",
-      "KRT reported a rip of pre-existing copper despite immutable-input policy.",
-      summary.preexisting_rips,
+      "KRT ripped pre-existing copper outside the explicit blocker-repair allowlist.",
+      unauthorized,
+    ))
+    if (Object.keys(casualties).length) diagnostics.push(diagnostic(
+      "KRT_RIP_VICTIM_INCOMPLETE",
+      "error",
+      "KRT did not fully recover every explicitly authorized blocker net.",
+      casualties,
+    ))
+    const safe = Object.fromEntries(Object.entries(outcomes)
+      .filter(([net]) => authorized.has(net) && !(net in casualties)))
+    if (Object.keys(safe).length) diagnostics.push(diagnostic(
+      "KRT_AUTHORIZED_BLOCKER_RIP",
+      "info",
+      "KRT rerouted or restored explicitly authorized blocker copper.",
+      safe,
     ))
   }
   if (summary.terminal_escalations && Object.keys(summary.terminal_escalations as object).length) {
@@ -863,6 +886,17 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
     "The remaining pass must explicitly exclude GND and every special net.",
     forbidden,
   ))
+  const ripExistingNets = unique(spec.ripExistingNets ?? [])
+  validateExactNetNames(ripExistingNets, "ripExistingNets", diagnostics)
+  const invalidRipNets = ripExistingNets.filter((net) => (
+    net.toUpperCase() === "GND" || specialNets.has(net) || nets.includes(net)
+  ))
+  if (invalidRipNets.length) diagnostics.push(diagnostic(
+    "KRT_RIP_SCOPE_CONFLICT",
+    "error",
+    "Blocker repair may rip only exact, non-GND, non-special nets outside remainingNets.",
+    invalidRipNets,
+  ))
   const routed = new Set(nets)
   const powerNames = unique((spec.powerNets ?? []).map((item) => item.net))
   validateExactNetNames(powerNames, "powerNets", diagnostics)
@@ -959,6 +993,8 @@ function remainingArgs(
 ) {
   const args = commonArgs(inputBoard, outputBoard, spec)
   args.push("--nets", ...nets)
+  const ripExistingNets = unique(spec.ripExistingNets ?? [])
+  if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets)
   if (spec.collectStats) args.push("--stats")
   if (spec.powerNets?.length) {
     args.push("--power-nets", ...spec.powerNets.map((item) => item.net))
@@ -1129,7 +1165,12 @@ async function executeStage(
     else if (summaryKind === "special") addSpecialSummaryDiagnostics(
       result.jsonSummary, spec.rules, diagnostics,
     )
-    else addRemainingSummaryDiagnostics(result.jsonSummary, spec.rules, diagnostics)
+    else addRemainingSummaryDiagnostics(
+      result.jsonSummary,
+      spec.rules,
+      diagnostics,
+      spec.ripExistingNets,
+    )
 
     if (!(await exists(normalizedOutput))) diagnostics.push(diagnostic(
       "KRT_OUTPUT_MISSING",

@@ -621,6 +621,7 @@ async function main() {
   let specialIntent: SpecialIntent | undefined
   let compiledPowerIntent: CompiledPowerIntent | undefined
   let sourcePlacementRoot: SExpression[] | undefined
+  let remainingKrtSummary: Record<string, unknown> | undefined
   let preflightBlocked = false
 
   try {
@@ -1401,6 +1402,7 @@ async function main() {
       await writeFile(remainingOutput, serializePcb(after))
       await copySidecars(backendBoard, remainingOutput)
       const afterBoard = remainingOutput
+      if (result.backend === "krt") remainingKrtSummary = result.jsonSummary
       const diagnostics: WorkflowDiagnostic[] = [
         ...proxyDiagnostics,
         ...result.diagnostics.map((item) => ({ ...item })),
@@ -1555,6 +1557,8 @@ async function main() {
             sourcePlacementBoard: config.sourceBoard,
             krtSpec,
             maximumRuns: config.completionRuns,
+            blockerSummary: remainingKrtSummary,
+            maximumBlockers: 8,
             proxyWidthMm: 0.1,
             proxyPitchMm: Math.max(0.2, routingRules.minimumClearance),
             runNativeValidation: async (boardPath, reportPath) => {
