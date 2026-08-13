@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)))
-const distRoot = resolve(process.env.COPILOT_ROUTER_PACKAGE_DIST ?? join(root, "dist"))
+const distRoot = resolve(process.env.COPILOT_ROUTER_PACKAGE_DIST ?? join(root, "package-dist"))
 const api = await import(pathToFileURL(join(distRoot, "index.js")).href)
 const dsl = await import(pathToFileURL(join(distRoot, "intent", "index.js")).href)
 const schema = await import(pathToFileURL(join(distRoot, "schema.js")).href)
@@ -89,6 +89,7 @@ assert.equal(applyResult.operation, "apply-drc")
 assert.equal(applyResult.rules.applyRequested, true)
 assert.equal(applyResult.copper, undefined)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.6)
+assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.via.minParallelCount, 2)
 
 let backendCalls = 0
 const backend = {

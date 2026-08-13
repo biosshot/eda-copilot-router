@@ -207,11 +207,16 @@ export function compileRoutingRules(
     const explicit = applyAbsolute(base, { ...power, minTrackWidthMm: requiredWidth }, board)
     const requiredArea = requiredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
     const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
+    const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
     byNet.set(power.net, {
       ...explicit,
       preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, requiredWidth),
+      via: {
+        ...explicit.via,
+        minParallelCount: requiredParallelVias,
+      },
     })
-    if (!Number.isFinite(requiredArea / barrelArea)) diagnostics.push(diagnostic("DSL_VIA_CONFLICT", `${power.net} has invalid via current geometry.`))
+    if (!Number.isFinite(requiredParallelVias)) diagnostics.push(diagnostic("DSL_VIA_CONFLICT", `${power.net} has invalid via current geometry.`))
   }
   for (const pair of program.differentialPairs) {
     required.add("differential-pairs")

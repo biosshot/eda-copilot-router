@@ -1,12 +1,13 @@
 # @easyeda-copilot/router
 
-The repository now exposes an EDA-neutral npm package with a versioned PCB
-snapshot, routing-intent DSL, patch API, and small JSON CLI. See
+The repository now exposes an EDA-neutral npm package with one `RoutingBoard`
+model, a local statement DSL, `RoutingResult`, and a small JSON CLI. See
 [`README-package.md`](README-package.md) and the
 [`EDA-neutral architecture`](docs/architecture/eda-neutral-package.md).
 
 The mature fixed-placement workflow remains available below as a legacy
-benchmark while its KiCad/EasyEDA boundaries are migrated behind the package.
+benchmark while KiCad and EasyEDA adopt the package contracts in their own
+host-side converters.
 
 ## Fixed-placement staged autorouter benchmark
 
@@ -48,8 +49,9 @@ Environment overrides:
 
 ## Local native-zone planner MVP
 
-The planner is local to this package and consumes the existing universal
-`RawPcb` contract. KiCad and EasyEDA are backend adapters; their native zone
+The mature planner currently consumes the legacy `RawPcb` geometry view.
+`RawPcb` is not the public router contract; its migration target is the package
+`RoutingBoard`. KiCad and EasyEDA are host adapters; their native zone
 fillers remain responsible for exact pad avoidance, DRC clearance, thermal
 spokes, clipping, and island removal.
 

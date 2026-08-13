@@ -108,6 +108,8 @@ export type ViaRules = Readonly<{
   preferredDiameterMm: Millimeters
   minDrillMm: Millimeters
   preferredDrillMm: Millimeters
+  /** Minimum number of equivalent vias at one layer transition. */
+  minParallelCount?: number
 }>
 
 export type DifferentialRules = Readonly<{

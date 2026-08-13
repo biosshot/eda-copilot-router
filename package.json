@@ -4,36 +4,36 @@
   "description": "EDA-neutral PCB polygon and autorouting orchestration",
   "type": "module",
   "license": "MIT",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./package-dist/index.js",
+  "types": "./package-dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./package-dist/index.d.ts",
+      "import": "./package-dist/index.js"
     },
     "./dsl": {
-      "types": "./dist/intent/index.d.ts",
-      "import": "./dist/intent/index.js"
+      "types": "./package-dist/intent/index.d.ts",
+      "import": "./package-dist/intent/index.js"
     },
     "./schema": {
-      "types": "./dist/schema.d.ts",
-      "import": "./dist/schema.js"
+      "types": "./package-dist/schema.d.ts",
+      "import": "./package-dist/schema.js"
     },
     "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js"
+      "types": "./package-dist/core/index.d.ts",
+      "import": "./package-dist/core/index.js"
     },
     "./adapters/contracts": {
-      "types": "./dist/adapters/contracts.d.ts",
-      "import": "./dist/adapters/contracts.js"
+      "types": "./package-dist/adapters/contracts.d.ts",
+      "import": "./package-dist/adapters/contracts.js"
     },
     "./package.json": "./package.json"
   },
   "bin": {
-    "copilot-router": "./dist/cli.js"
+    "copilot-router": "./package-dist/cli.js"
   },
   "files": [
-    "dist",
+    "package-dist",
     "docs",
     "README.md",
     "README-package.md",
@@ -44,7 +44,7 @@
   },
   "scripts": {
     "build": "npm run build:public && npm run build:legacy && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
-    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/cli.ts --format esm --platform node --target node20 --out-dir dist --dts --clean --tsconfig tsconfig.public.json",
+    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/cli.ts --format esm --platform node --target node20 --out-dir package-dist --dts --clean --tsconfig tsconfig.public.json",
     "build:package": "npm run build:public",
     "build:legacy": "tsup src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist",
     "test:baseline": "node dist/benchmark.js baseline",
@@ -64,6 +64,7 @@
     "route:full:freerouting": "node scripts/run-staged-freerouting.mjs",
     "route:full:easyeda": "node scripts/run-staged-easyeda.mjs",
     "test:package": "node scripts/check-package-contract.mjs",
+    "test:powerbank:regression": "node scripts/check-powerbank-refactor-regression.mjs",
     "test": "node scripts/run-all.mjs && node scripts/check-polygon-dsl.mjs && node scripts/check-staged-workflow.mjs && node scripts/check-power-intent.mjs && node scripts/check-ground-plane.mjs && node scripts/check-package-contract.mjs",
     "prepack": "npm run build:package"
   },

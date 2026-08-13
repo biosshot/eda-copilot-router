@@ -1,6 +1,7 @@
 node_modules
 results
 dist
+package-dist
 .tmp
 artifacts
 tools
