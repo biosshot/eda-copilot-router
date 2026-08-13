@@ -53,6 +53,8 @@ const board = {
   pads: [
     { component: "U1", number: "1", net: "VCC", at: { x: 4, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
     { component: "C1", number: "1", net: "VCC", at: { x: 8, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
+    { component: "U1", number: "2", net: "USB_DP", at: { x: 4, y: 6 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 0.5, heightMm: 0.5 } },
+    { component: "U1", number: "3", net: "USB_DM", at: { x: 4, y: 7 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 0.5, heightMm: 0.5 } },
   ],
   keepouts: [],
   stackup: {
@@ -79,6 +81,19 @@ if (commandResult !== undefined) throw new Error("terminal command returned a va
 assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
 assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
+assert.equal(dsl.validateRoutingProgram({
+  polygons: [], planes: [], signalNets: [], powerNets: [], differentialPairs: [], matchedGroups: [],
+  operation: "route", backend: "easyeda-wasm",
+}).valid, false, "backend-specific fields must not enter the routing DSL")
+
+const specialProgram = dsl.compileRoutingDsl(`
+  diffPair("usb", { positive: "USB_DP", negative: "USB_DM", gapMm: 0.25 })
+  runAll()
+`)
+const specialRules = dsl.compileRoutingRules(board, specialProgram)
+assert.deepEqual(specialRules.effective.differentialPairs, [{
+  id: "usb", positive: "USB_DP", negative: "USB_DM",
+}])
 
 const applyResult = await api.run({
   board,
@@ -210,8 +225,17 @@ assert.equal(wasmRouted.status, "complete")
 assert.equal(wasmCalls, 1)
 assert.equal(wasmInput.boardOutline.bbox.length, 4)
 assert.equal(Object.keys(wasmInput.components).length, board.pads.length)
-assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC"])
+assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC", "USB_DP", "USB_DM"])
 assert.deepEqual(wasmRouted.copper.tracks[0].points, [{ x: 4, y: 5 }, { x: 8, y: 5 }])
+
+await api.run({
+  board,
+  backend: wasmBackend,
+  dsl: `diffPair("usb", { positive: "USB_DP", negative: "USB_DM", gapMm: 0.25 }); runAll()`,
+})
+assert.deepEqual(wasmInput.classes.differentialPairClasses.usb, ["USB_DP", "USB_DM"])
+assert.equal(wasmInput.nets.find((item) => item.net === "USB_DP").differentialPair, "usb")
+assert.equal(wasmInput.rules.differentialPairs.usb[0].clearance[0], 0.25)
 
 const wasmPolygonRouted = await api.run({
   board,
@@ -222,7 +246,7 @@ const wasmPolygonRouted = await api.run({
   `,
 })
 assert.equal(wasmPolygonRouted.status, "complete")
-assert.equal(wasmCalls, 2)
+assert.equal(wasmCalls, 3)
 assert.ok(wasmInput.tracks.some((item) => String(item.id).startsWith("existing-zone-proxy-")))
 assert.ok(wasmPolygonRouted.copper.tracks.every((item) => !String(item.id).includes("zone-proxy")))
 

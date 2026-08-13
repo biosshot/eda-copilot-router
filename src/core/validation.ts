@@ -238,6 +238,44 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
         ruleValues(item.values, diagnostics, `rules.nets[${index}].values`)
       }
     })
+    const specialIds = new Set<string>()
+    if (value.rules.differentialPairs !== undefined) array(
+      value.rules.differentialPairs,
+      diagnostics,
+      "rules.differentialPairs",
+    ).forEach((item, index) => {
+      const at = `rules.differentialPairs[${index}]`
+      if (!object(item) || typeof item.id !== "string" || !item.id.trim()
+        || typeof item.positive !== "string" || typeof item.negative !== "string"
+        || item.positive === item.negative) {
+        error(diagnostics, "ROUTING_DIFF_PAIR_INVALID", `${at} is invalid.`, at)
+        return
+      }
+      if (specialIds.has(item.id)) error(diagnostics, "ROUTING_RULE_DUPLICATE", `Special rule id ${item.id} is duplicated.`, at)
+      specialIds.add(item.id)
+      if (!nets.has(item.positive) || !nets.has(item.negative)) error(
+        diagnostics,
+        "ROUTING_UNKNOWN_NET",
+        `${at} references an unknown net.`,
+        at,
+      )
+    })
+    if (value.rules.matchedGroups !== undefined) array(
+      value.rules.matchedGroups,
+      diagnostics,
+      "rules.matchedGroups",
+    ).forEach((item, index) => {
+      const at = `rules.matchedGroups[${index}]`
+      if (!object(item) || typeof item.id !== "string" || !item.id.trim()
+        || !Array.isArray(item.nets) || item.nets.length < 2
+        || !item.nets.every((net) => typeof net === "string" && nets.has(net))
+        || !positive(item.toleranceMm)) {
+        error(diagnostics, "ROUTING_MATCHED_GROUP_INVALID", `${at} is invalid.`, at)
+        return
+      }
+      if (specialIds.has(item.id)) error(diagnostics, "ROUTING_RULE_DUPLICATE", `Special rule id ${item.id} is duplicated.`, at)
+      specialIds.add(item.id)
+    })
   }
   if (!object(value.copper)) error(diagnostics, "ROUTING_COPPER_REQUIRED", "copper is required.", "copper")
   else {

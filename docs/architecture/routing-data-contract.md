@@ -112,6 +112,11 @@ requirements, absolute geometry values, or both. The compiler derives geometry
 from semantic requirements, combines it with compatible absolute constraints,
 and produces one effective rule set for every backend.
 
+Pair/group topology is explicit in the same object: `differentialPairs`
+contains stable pair ids plus positive/negative net names, while
+`matchedGroups` contains member nets and tolerance. Width and gap fields alone
+are never used to guess pair membership from net names.
+
 The result always reports the effective rules and which fields differ from the
 source. `rules.applyRequested` is true only for `applyDrcRules()` and
 `runAll()`. It tells the host to persist those effective fields; the DSL command

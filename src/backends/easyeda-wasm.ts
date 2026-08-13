@@ -364,6 +364,30 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
   const routeNets = board.nets.map((net) => net.name).filter((net) => padNets.has(net) && net.toUpperCase() !== "GND")
   const tables = ruleTables(board, routeNets, routeLayerIds)
   const classByNet = new Map(tables.classes.map((item) => [item.net, item.id]))
+  const differentialPairs = (board.rules.differentialPairs ?? []).filter((pair) => (
+    routeNets.includes(pair.positive) && routeNets.includes(pair.negative)
+  ))
+  const pairByNet = new Map(differentialPairs.flatMap((pair) => [
+    [pair.positive, pair.id] as const,
+    [pair.negative, pair.id] as const,
+  ]))
+  const differentialPairRules = Object.fromEntries(differentialPairs.map((pair) => {
+    const values = valuesFor(board, pair.positive)
+    const differential = values.differential
+    return [pair.id, [{
+      layers: routeLayerIds,
+      lengthTolerance: differential?.maxSkewMm ?? 0.254,
+      width: [
+        values.minTrackWidthMm,
+        differential?.trackWidthMm ?? values.preferredTrackWidthMm,
+        differential?.trackWidthMm ?? values.preferredTrackWidthMm,
+      ],
+      clearance: [
+        differential?.gapMm ?? values.clearanceMm,
+        differential?.gapMm ?? values.clearanceMm,
+      ],
+    }]]
+  }))
   const components: Record<string, unknown> = {}
   const footprints: Record<string, unknown> = {}
   for (const [index, pad] of board.pads.entries()) {
@@ -402,17 +426,27 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
     boardOutline: { bbox: [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)], path: routerOutline },
     layers: { route: routeLayerIds, notRoute: layers.allIds.filter((id) => !routeLayerIds.includes(id)) },
     routingCorner: "45",
-    rules: tables.rules,
+    rules: {
+      ...tables.rules,
+      differentialPairs: {
+        ...(tables.rules.differentialPairs as Readonly<Record<string, unknown>>),
+        ...differentialPairRules,
+      },
+    },
     classes: {
       netClasses: Object.fromEntries(tables.classes.map((item) => [item.id, [item.net]])),
-      differentialPairClasses: {},
+      differentialPairClasses: Object.fromEntries(differentialPairs.map((pair) => [
+        pair.id, [pair.positive, pair.negative],
+      ])),
       netClearancesClasses: Object.fromEntries(tables.classes.map((item) => [item.id, [item.net]])),
     },
     nets: routeNets.map((net) => {
       const id = classByNet.get(net)!
       return {
         net, routing: true, safeClearance: id, trackWidth: id,
-        viaSize: `via_${id}`, differentialPair: `diff_${id}`, trackLength: "netLength",
+        viaSize: `via_${id}`,
+        differentialPair: pairByNet.get(net) ?? `diff_${id}`,
+        trackLength: "netLength",
       }
     }),
     components,
@@ -516,7 +550,7 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
       // The worker sees obstacle/connectivity copper; the mesh is filtered
       // from output and native EDA refill remains authoritative.
       supported: [
-        "ordinary-routing", "vias", "preserve-fixed-copper",
+        "ordinary-routing", "vias", "differential-pairs", "preserve-fixed-copper",
         "fixed-zone-obstacles", "preconnected-pad-groups",
       ],
       maxCopperLayers: 32,

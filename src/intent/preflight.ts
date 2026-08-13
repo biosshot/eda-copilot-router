@@ -145,7 +145,14 @@ export function compileRoutingRules(
   program: RoutingProgram,
   backendCapabilities?: RouterBackendCapabilities,
 ): CompiledRoutingRules {
-  const diagnostics = [...validateRoutingProgram(program).diagnostics]
+  const validation = validateRoutingProgram(program)
+  const diagnostics = [...validation.diagnostics]
+  if (!validation.valid) return {
+    effective: board.rules,
+    overriddenFields: [],
+    diagnostics,
+    requiredCapabilities: [],
+  }
   const knownNets = new Set(board.nets.map((net) => net.name))
   const knownLayers = new Set(board.layers.map((layer) => layer.name))
   const byNet = new Map(board.nets.map((net) => [net.name, valuesForNet(board.rules, net.name)]))
@@ -230,6 +237,13 @@ export function compileRoutingRules(
     byNet.set(pair.positive, pairRules(positiveBase, pair, board))
     byNet.set(pair.negative, pairRules(negativeBase, pair, board))
   }
+  const differentialPairs = [...(board.rules.differentialPairs ?? [])]
+  for (const pair of program.differentialPairs) {
+    const replacement = { id: pair.id, positive: pair.positive, negative: pair.negative }
+    const index = differentialPairs.findIndex((item) => item.id === pair.id)
+    if (index >= 0) differentialPairs[index] = replacement
+    else differentialPairs.push(replacement)
+  }
   const matchedGroups = [...(board.rules.matchedGroups ?? [])]
   for (const group of program.matchedGroups) {
     required.add("matched-length")
@@ -250,6 +264,7 @@ export function compileRoutingRules(
   const effective: RoutingRules = {
     default: board.rules.default,
     nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),
+    ...(differentialPairs.length ? { differentialPairs } : {}),
     ...(matchedGroups.length ? { matchedGroups } : {}),
   }
   const overriddenFields = effective.nets.flatMap(({ net, values }) => changed(

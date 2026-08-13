@@ -139,10 +139,17 @@ export type MatchedLengthRule = Readonly<{
   toleranceMm: Millimeters
 }>
 
+export type DifferentialPairRule = Readonly<{
+  id: string
+  positive: string
+  negative: string
+}>
+
 export type RoutingRules = Readonly<{
   default: RoutingRuleValues
   /** Each entry is already fully materialized; absent nets inherit default. */
   nets: readonly Readonly<{ net: string; values: RoutingRuleValues }>[]
+  differentialPairs?: readonly DifferentialPairRule[]
   matchedGroups?: readonly MatchedLengthRule[]
 }>
 
