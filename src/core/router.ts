@@ -1,203 +1,157 @@
+import type { RouterBackendAdapter } from "../adapters/contracts.js"
+import { compileRoutingDsl } from "../intent/builder.js"
+import { compileRoutingRules } from "../intent/preflight.js"
+import type { RoutingPolicy, RoutingProgram } from "../intent/types.js"
 import type {
-  BackendRouteRequest,
-  RouterBackendAdapter,
-  RouterCapability,
-} from "../adapters/contracts.js"
-import {
-  applyPcbPatchV1,
-  type CoreStatus,
-  type PcbPatchV1,
-  type PcbSnapshotV1,
-  type RoutingDiagnostic,
+  RoutingBoard,
+  RoutingDiagnostic,
+  RoutingResult,
 } from "./contracts.js"
-import { validatePcbPatchForSnapshotV1, validatePcbSnapshotV1 } from "./validation.js"
-import { isRoutingIntentV2, preflightRoutingIntent } from "../intent/index.js"
+import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
 
-export type RoutePcbRequest<TIntent = unknown> = Readonly<{
-  snapshot: PcbSnapshotV1
-  intent: TIntent
-  backend: RouterBackendAdapter<TIntent>
-  /** full routes implicit ordinary nets; declared-only runs only explicit intent. */
-  scope?: "full" | "declared-only"
-  requiredCapabilities?: readonly RouterCapability[]
-  /** Search/quality policy remains serializable and backend-neutral. */
-  policy?: unknown
+export type RunRequest = Readonly<{
+  board: RoutingBoard
+  /** Local statement-oriented JavaScript DSL source or an already compiled program. */
+  dsl: string | RoutingProgram
+  backend?: RouterBackendAdapter
+  policy?: RoutingPolicy
   signal?: AbortSignal
 }>
 
-export type RoutePcbResult = Readonly<{
-  patch: PcbPatchV1
-  outputSnapshot?: PcbSnapshotV1
-  backend: Readonly<{ id: string; version: string }>
-}>
+function exception(code: string, message: string, details?: unknown): RoutingDiagnostic {
+  return { code, severity: "error", message, ...(details === undefined ? {} : { details }) }
+}
 
-function patch(
-  baseSnapshotHash: string,
-  coreStatus: CoreStatus,
+function failed(
+  operation: RoutingResult["operation"],
+  board: RoutingBoard,
   diagnostics: readonly RoutingDiagnostic[],
-  operations: PcbPatchV1["operations"] = [],
-): PcbPatchV1 {
+  startedAt: number,
+): RoutingResult {
   return {
-    schema: "pcb-patch",
-    version: 1,
-    baseSnapshotHash,
-    operations,
+    status: "error",
+    operation,
+    rules: { effective: board.rules, applyRequested: operation !== "route", overriddenFields: [] },
     diagnostics,
-    coreStatus,
+    metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
   }
 }
 
-function errorDiagnostic(code: string, message: string, details?: unknown): RoutingDiagnostic {
-  return { code, severity: "error", message, ...(details === undefined ? {} : { details }) }
-}
-
 /**
- * Run a fully injected backend against an immutable snapshot. All failures are
- * captured as an error patch; the core never opens, writes, refills, or checks
- * an EDA document.
+ * Compile rules and optionally route without opening an EDA. DSL terminal
+ * commands return no value; this outer operation is the only result boundary.
  */
-export async function routePcb<TIntent = unknown>(
-  request: RoutePcbRequest<TIntent>,
-): Promise<RoutePcbResult> {
-  const backend = { id: request.backend.id, version: request.backend.version }
-  const snapshotValidation = validatePcbSnapshotV1(request.snapshot)
-  if (!snapshotValidation.ok) {
-    return {
-      backend,
-      patch: patch(request.snapshot?.contentHash ?? "invalid", "error", snapshotValidation.diagnostics),
-    }
-  }
+export async function run(request: RunRequest): Promise<RoutingResult> {
+  const startedAt = performance.now()
+  const boardValidation = validateRoutingBoard(request.board)
+  if (!boardValidation.ok) return failed("route", request.board, boardValidation.diagnostics, startedAt)
 
-  if (request.signal?.aborted) {
-    return {
-      backend,
-      patch: patch(request.snapshot.contentHash, "error", [
-        errorDiagnostic("ROUTING_ABORTED", "Routing was aborted before backend execution."),
-      ]),
-    }
+  let program: RoutingProgram
+  try {
+    program = typeof request.dsl === "string" ? compileRoutingDsl(request.dsl) : structuredClone(request.dsl)
+  } catch (error) {
+    return failed("route", request.board, [exception(
+      "DSL_COMPILE_ERROR", "Routing DSL could not be compiled.", error instanceof Error ? error.message : String(error),
+    )], startedAt)
   }
-
-  const supported = new Set(request.backend.capabilities.supported)
-  const portablePreflight = isRoutingIntentV2(request.intent)
-    ? preflightRoutingIntent(request.snapshot, request.intent, {
-        backendCapabilities: request.backend.capabilities,
-        routeUnqualifiedNets: (request.scope ?? "full") === "full",
-      })
-    : undefined
-  if (portablePreflight && !portablePreflight.valid) {
-    return {
-      backend,
-      patch: patch(request.snapshot.contentHash, "error", portablePreflight.diagnostics),
-    }
+  const compiled = compileRoutingRules(request.board, program, request.backend?.capabilities)
+  const errors = compiled.diagnostics.filter((item) => item.severity === "error")
+  const applyRequested = program.operation !== "route"
+  if (errors.length) return {
+    status: "error",
+    operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    diagnostics: compiled.diagnostics,
+    metrics: { elapsedMs: performance.now() - startedAt },
+    requiresNativeVerification: true,
   }
-  const missing = [...new Set([
-    ...(request.requiredCapabilities ?? []),
-    ...(portablePreflight?.requiredCapabilities ?? []),
-  ])]
-    .filter((capability) => !supported.has(capability))
-  const layerLimit = request.backend.capabilities.maxCopperLayers
-  const capabilityDiagnostics: RoutingDiagnostic[] = []
-  if (missing.length) capabilityDiagnostics.push(errorDiagnostic(
-    "UNSUPPORTED_CONSTRAINT",
-    `Backend ${request.backend.id} lacks required capabilities.`,
-    { missing },
-  ))
-  if (layerLimit !== undefined && request.snapshot.rawPcb.layers.length > layerLimit) {
-    capabilityDiagnostics.push(errorDiagnostic(
-      "UNSUPPORTED_LAYER_COUNT",
-      `Backend ${request.backend.id} supports at most ${layerLimit} copper layers.`,
-      { actual: request.snapshot.rawPcb.layers.length },
-    ))
+  if (program.operation === "apply-drc") return {
+    status: "complete",
+    operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested: true, overriddenFields: compiled.overriddenFields },
+    diagnostics: compiled.diagnostics,
+    metrics: { elapsedMs: performance.now() - startedAt },
+    requiresNativeVerification: true,
   }
-  if (capabilityDiagnostics.length) {
-    return { backend, patch: patch(request.snapshot.contentHash, "error", capabilityDiagnostics) }
+  if (!request.backend) return {
+    status: "error",
+    operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    diagnostics: [...compiled.diagnostics, exception("BACKEND_REQUIRED", "Routing operation requires a backend.")],
+    metrics: { elapsedMs: performance.now() - startedAt },
+    requiresNativeVerification: true,
   }
-
-  const backendRequest: BackendRouteRequest<TIntent> = {
-    snapshot: request.snapshot,
-    intent: request.intent,
-    scope: request.scope ?? "full",
-    ...(request.policy === undefined ? {} : { policy: request.policy }),
+  if (request.signal?.aborted) return {
+    status: "error",
+    operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    diagnostics: [...compiled.diagnostics, exception("ROUTING_ABORTED", "Routing was aborted before backend execution.")],
+    metrics: { elapsedMs: performance.now() - startedAt },
+    requiresNativeVerification: true,
+  }
+  const backendRequest = {
+    board: request.board,
+    program,
+    rules: compiled.effective,
+    ...(request.policy ? { policy: request.policy } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
   }
-
-  let preflightDiagnostics: readonly RoutingDiagnostic[] = []
+  let backendPreflight: readonly RoutingDiagnostic[] = []
   try {
-    preflightDiagnostics = (await request.backend.preflight?.(backendRequest))?.diagnostics ?? []
+    backendPreflight = await request.backend.preflight?.(backendRequest) ?? []
   } catch (error) {
-    preflightDiagnostics = [errorDiagnostic(
-      "BACKEND_PREFLIGHT_EXCEPTION",
-      `Backend ${request.backend.id} preflight threw an exception.`,
+    backendPreflight = [exception(
+      "BACKEND_PREFLIGHT_EXCEPTION", `${request.backend.id} preflight threw an exception.`,
       error instanceof Error ? error.message : String(error),
     )]
   }
-  if (preflightDiagnostics.some((item) => item.severity === "error")) {
-    return { backend, patch: patch(request.snapshot.contentHash, "error", preflightDiagnostics) }
+  if (backendPreflight.some((item) => item.severity === "error")) return {
+    status: "error", operation: program.operation,
+    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    diagnostics: [...compiled.diagnostics, ...backendPreflight],
+    metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+    requiresNativeVerification: true,
   }
-
   try {
     const backendResult = await request.backend.route(backendRequest)
-    const diagnostics = [...preflightDiagnostics, ...(backendResult.diagnostics ?? [])]
-    const reportedStatus = backendResult.coreStatus
-      ?? (diagnostics.some((item) => item.severity === "error") ? "partial" : "complete")
-    const candidate = patch(
-      request.snapshot.contentHash,
-      reportedStatus,
+    const copperValidation = validateRoutingCopper(backendResult.copper, request.board)
+    const diagnostics = [
+      ...compiled.diagnostics,
+      ...backendPreflight,
+      ...(backendResult.diagnostics ?? []),
+      ...copperValidation.diagnostics,
+    ]
+    if (!copperValidation.ok) return {
+      status: "error", operation: program.operation,
+      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
       diagnostics,
-      backendResult.operations,
-    )
-    const patchValidation = validatePcbPatchForSnapshotV1(request.snapshot, candidate)
-    if (!patchValidation.ok) {
-      return {
-        backend,
-        patch: patch(request.snapshot.contentHash, "error", [
-          ...diagnostics,
-          ...patchValidation.diagnostics,
-        ]),
-      }
+      metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+      requiresNativeVerification: true,
     }
-    try {
-      const outputSnapshot = applyPcbPatchV1(request.snapshot, candidate)
-      const outputValidation = validatePcbSnapshotV1(outputSnapshot)
-      if (!outputValidation.ok) {
-        return {
-          backend,
-          patch: patch(request.snapshot.contentHash, "error", [
-            ...diagnostics,
-            ...outputValidation.diagnostics,
-          ]),
-        }
-      }
-      return {
-        backend,
-        patch: candidate,
-        outputSnapshot,
-      }
-    } catch (error) {
-      return {
-        backend,
-        patch: patch(request.snapshot.contentHash, "error", [
-          ...diagnostics,
-          errorDiagnostic(
-            "BACKEND_PATCH_REJECTED",
-            "Backend returned a patch that cannot be applied atomically.",
-            error instanceof Error ? error.message : String(error),
-          ),
-        ]),
-      }
+    return {
+      status: diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
+      operation: program.operation,
+      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      copper: backendResult.copper,
+      diagnostics,
+      metrics: {
+        elapsedMs: performance.now() - startedAt,
+        backend: request.backend.id,
+        ...backendResult.metrics,
+      },
+      requiresNativeVerification: true,
     }
   } catch (error) {
     return {
-      backend,
-      patch: patch(request.snapshot.contentHash, "error", [
-        ...preflightDiagnostics,
-        errorDiagnostic(
-          "BACKEND_ROUTE_EXCEPTION",
-          `Backend ${request.backend.id} threw an exception; it was captured.`,
-          error instanceof Error ? error.message : String(error),
-        ),
-      ]),
+      status: "error", operation: program.operation,
+      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
+        "BACKEND_ROUTE_EXCEPTION", `${request.backend.id} threw an exception.`,
+        error instanceof Error ? error.message : String(error),
+      )],
+      metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+      requiresNativeVerification: true,
     }
   }
 }

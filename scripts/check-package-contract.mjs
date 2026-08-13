@@ -12,167 +12,165 @@ const dsl = await import(pathToFileURL(join(distRoot, "intent", "index.js")).hre
 const schema = await import(pathToFileURL(join(distRoot, "schema.js")).href)
 await import(pathToFileURL(join(distRoot, "adapters", "contracts.js")).href)
 
-assert.equal(typeof api.createPcbSnapshotV1, "function")
-assert.equal(typeof api.routePcb, "function")
-assert.equal(typeof api.validatePcbSnapshotV1, "function")
-assert.equal(typeof api.captureLegacyRawPcbV1, "function")
-assert.equal(typeof dsl.routing, "function")
-assert.equal(typeof schema.ROUTING_INTENT_V2_JSON_SCHEMA, "object")
+assert.equal(typeof api.run, "function")
+assert.equal(typeof api.validateRoutingBoard, "function")
+assert.equal(typeof dsl.compileRoutingDsl, "function")
+assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
+assert.equal(api.createPcbSnapshotV1, undefined)
+assert.equal(api.routePcb, undefined)
+assert.equal(api.captureLegacyRawPcbV1, undefined)
 
-const intent = dsl.routing({
-  copper: [
-    dsl.polygon("vcc-local", "VCC")
-      .connect(dsl.pad("U1", 1), dsl.pad("C1", 1))
-      .on(dsl.topLayer()),
-  ],
-})
-assert.deepEqual(JSON.parse(JSON.stringify(intent)), intent, "DSL output must be plain JSON data")
-
-const ruleRange = { minMm: 0.1, preferredMm: 0.2, maxMm: 10 }
 const ruleValues = {
   clearanceMm: 0.2,
-  edgeClearanceMm: 0.25,
-  trackWidth: ruleRange,
+  edgeClearanceMm: 0.5,
+  minTrackWidthMm: 0.2,
+  preferredTrackWidthMm: 0.2,
   via: {
-    diameterMm: { minMm: 0.4, preferredMm: 0.6, maxMm: 2 },
-    drillMm: { minMm: 0.2, preferredMm: 0.3, maxMm: 1 },
+    minDiameterMm: 0.5,
+    preferredDiameterMm: 0.6,
+    minDrillMm: 0.3,
+    preferredDrillMm: 0.3,
   },
+  differential: { trackWidthMm: 0.2, gapMm: 0.2, maxSkewMm: 0.25 },
 }
-const rawPcb = {
-  schema: "raw-pcb",
-  version: 1,
-  coordinates: api.RAW_PCB_V1_COORDINATES,
-  source: { eda: "test", adapter: "package-contract", documentId: "fixture" },
-  board: {
-    outline: [
-      { x: 0, y: 0 }, { x: 20, y: 0 },
-      { x: 20, y: 10 }, { x: 0, y: 10 },
-    ],
-    cutouts: [],
-  },
+
+const emptyCopper = { tracks: [], vias: [], zones: [] }
+const board = {
+  outline: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }],
+  cutouts: [],
   layers: [
-    { id: "F.Cu", name: "F.Cu", index: 0, side: "top", role: "mixed" },
-    { id: "B.Cu", name: "B.Cu", index: 1, side: "bottom", role: "mixed" },
+    { id: "F.Cu", name: "F.Cu", index: 0, side: "top" },
+    { id: "B.Cu", name: "B.Cu", index: 1, side: "bottom" },
   ],
-  stackup: {
-    copperThicknessOzFallback: 1,
-    layers: [
-      { kind: "copper", layerId: "F.Cu", thicknessMm: 0.035 },
-      { kind: "dielectric", id: "core", thicknessMm: 1.53 },
-      { kind: "copper", layerId: "B.Cu", thicknessMm: 0.035 },
-    ],
-  },
-  nets: [{ id: "VCC", name: "VCC" }],
+  nets: [{ name: "VCC" }, { name: "USB_DP" }, { name: "USB_DM" }],
   components: [
-    { id: "U1", designator: "U1", at: { x: 4, y: 5 }, rotationDeg: 0, side: "top" },
-    { id: "C1", designator: "C1", at: { x: 8, y: 5 }, rotationDeg: 0, side: "top" },
+    { designator: "U1", at: { x: 4, y: 5 }, rotationDeg: 0, side: "top" },
+    { designator: "C1", at: { x: 8, y: 5 }, rotationDeg: 0, side: "top" },
   ],
   pads: [
-    {
-      id: "U1:1", componentId: "U1", number: "1", netId: "VCC",
-      at: { x: 4, y: 5 }, rotationDeg: 0, layers: ["F.Cu"],
-      shape: { kind: "rect", widthMm: 1, heightMm: 1 },
-    },
-    {
-      id: "C1:1", componentId: "C1", number: "1", netId: "VCC",
-      at: { x: 8, y: 5 }, rotationDeg: 0, layers: ["F.Cu"],
-      shape: { kind: "rect", widthMm: 1, heightMm: 1 },
-    },
+    { component: "U1", number: "1", net: "VCC", at: { x: 4, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
+    { component: "C1", number: "1", net: "VCC", at: { x: 8, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
   ],
-  copper: { tracks: [], arcs: [], vias: [], zones: [] },
   keepouts: [],
-  rules: { global: ruleValues, byNet: [{ netId: "VCC", values: ruleValues }] },
+  stackup: {
+    fallbackCopperThicknessOz: 1,
+    layers: [
+      { kind: "copper", layer: "F.Cu", thicknessMm: 0.03479 },
+      { kind: "dielectric", thicknessMm: 1.53, relativePermittivity: 4.2 },
+      { kind: "copper", layer: "B.Cu", thicknessMm: 0.03479 },
+    ],
+  },
+  rules: {
+    default: ruleValues,
+    nets: ["VCC", "USB_DP", "USB_DM"].map((net) => ({ net, values: ruleValues })),
+  },
+  copper: { fixed: emptyCopper, editable: emptyCopper },
 }
-const snapshot = api.createPcbSnapshotV1(rawPcb)
-assert.equal(api.validatePcbSnapshotV1(snapshot).ok, true)
-assert.equal(dsl.validateRoutingIntent(intent).valid, true)
-assert.equal(dsl.validateRoutingIntent({ ...intent, backend: "krt" }).valid, false)
-assert.deepEqual(dsl.plane("gnd-plane", "VCC").on(dsl.outerLayers()).build().stitching, { enabled: false })
-assert.throws(() => dsl.polygon("bad", "VCC").connect(dsl.pad("U1", 1)).build(), /requires.*on/i)
-assert.throws(() => dsl.powerNet("VCC").build(), /requires exactly one/i)
 
-const malformedBackend = {
-  id: "malformed-test",
-  version: "1",
-  capabilities: { supported: ["ordinary-routing", "zones", "preserve-existing-copper"] },
-  async route() {
-    return { operations: [{ op: "add", item: { kind: "track", id: "broken" } }] }
+assert.equal(api.validateRoutingBoard(board).ok, true)
+
+const allDsl = `
+const commandResult = runAll()
+if (commandResult !== undefined) throw new Error("terminal command returned a value")
+`
+assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
+assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
+assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
+
+const applyResult = await api.run({
+  board,
+  dsl: `
+    powerNet("VCC", { maxCurrentA: 2, maxTempRiseC: 16 })
+    applyDrcRules()
+  `,
+})
+assert.equal(applyResult.status, "complete")
+assert.equal(applyResult.operation, "apply-drc")
+assert.equal(applyResult.rules.applyRequested, true)
+assert.equal(applyResult.copper, undefined)
+assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.6)
+
+let backendCalls = 0
+const backend = {
+  id: "fixture",
+  capabilities: {
+    supported: ["ordinary-routing", "vias", "zones", "differential-pairs", "preserve-fixed-copper"],
+    maxCopperLayers: 2,
+  },
+  async route(request) {
+    backendCalls += 1
+    assert.equal(request.program.operation, "all")
+    return {
+      status: "complete",
+      copper: {
+        tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }],
+        vias: [], zones: [],
+      },
+      metrics: { routedNetCount: 1, viaCount: 0 },
+    }
   },
 }
-const malformed = await api.routePcb({ snapshot, intent, backend: malformedBackend })
-assert.equal(malformed.patch.coreStatus, "error")
-assert.equal(malformed.outputSnapshot, undefined)
+const routed = await api.run({ board, dsl: "runAll()", backend })
+assert.equal(routed.status, "complete")
+assert.equal(routed.operation, "all")
+assert.equal(routed.rules.applyRequested, true)
+assert.equal(routed.copper.tracks.length, 1)
+assert.equal(backendCalls, 1)
 
-const lockedSnapshot = api.createPcbSnapshotV1({
-  ...rawPcb,
-  copper: {
-    ...rawPcb.copper,
-    tracks: [{
-      kind: "track", id: "locked-track", netId: "VCC", layerId: "F.Cu",
-      start: { x: 4, y: 5 }, end: { x: 5, y: 5 }, widthMm: 0.2, locked: true,
-    }],
+const weakOnlyRouting = await api.run({
+  board,
+  dsl: `signalNet("VCC", { trackWidthMm: 0.1 }); runRouting()`,
+  backend,
+})
+assert.equal(weakOnlyRouting.status, "error")
+assert.ok(weakOnlyRouting.diagnostics.some((item) => item.code === "DRC_APPLY_REQUIRED"))
+assert.equal(backendCalls, 1, "preflight must reject before backend")
+
+const weakAll = await api.run({
+  board,
+  dsl: `signalNet("VCC", { trackWidthMm: 0.1 }); runAll()`,
+  backend,
+})
+assert.equal(weakAll.status, "complete")
+assert.equal(weakAll.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.1)
+assert.equal(backendCalls, 2)
+
+const unsupportedBackend = {
+  ...backend,
+  capabilities: { supported: ["ordinary-routing", "preserve-fixed-copper"], maxCopperLayers: 2 },
+}
+const unsupported = await api.run({
+  board,
+  dsl: `diffPair("usb", { positive: "USB_DP", negative: "USB_DM" }); runRouting()`,
+  backend: unsupportedBackend,
+})
+assert.equal(unsupported.status, "error")
+assert.ok(unsupported.diagnostics.some((item) => item.code === "CAPABILITY_MISMATCH"))
+
+const malformed = await api.run({
+  board,
+  dsl: "runRouting()",
+  backend: {
+    ...backend,
+    async route() { return { status: "complete", copper: { tracks: [{ net: "VCC" }], vias: [], zones: [] } } },
   },
 })
-assert.throws(() => api.applyPcbPatchV1(lockedSnapshot, {
-  schema: "pcb-patch", version: 1, baseSnapshotHash: lockedSnapshot.contentHash,
-  operations: [{ op: "remove", id: "locked-track", kind: "track" }],
-  diagnostics: [], coreStatus: "complete", requiresNativeVerification: true,
-}), /LOCKED_COPPER/)
+assert.equal(malformed.status, "error")
+assert.ok(malformed.diagnostics.some((item) => item.code === "ROUTING_TRACK_INVALID"))
 
-const diffIntent = dsl.routing({ special: [dsl.diffPair("usb", "VCC", "OTHER")] })
-const unsupported = await api.routePcb({
-  snapshot: api.createPcbSnapshotV1({
-    ...rawPcb,
-    nets: [...rawPcb.nets, { id: "OTHER", name: "OTHER" }],
-    rules: {
-      global: { ...ruleValues, diffPair: { gapMm: ruleRange } },
-      byNet: [
-        { netId: "VCC", values: { ...ruleValues, diffPair: { gapMm: ruleRange } } },
-        { netId: "OTHER", values: { ...ruleValues, diffPair: { gapMm: ruleRange } } },
-      ],
-    },
-  }),
-  intent: diffIntent,
-  backend: malformedBackend,
-  scope: "declared-only",
-})
-assert.equal(unsupported.patch.coreStatus, "error")
-assert.ok(unsupported.patch.diagnostics.some((item) => item.code === "UNSUPPORTED_CONSTRAINT"))
-
-const legacy = api.captureLegacyRawPcbV1({
-  board: { polygon: rawPcb.board.outline },
-  components: rawPcb.components.map((component) => ({
-    designator: component.designator, x: component.at.x, y: component.at.y,
-    rotate: component.rotationDeg, layer: component.side === "top" ? "TOP" : "BOTTOM",
-  })),
-  pads: rawPcb.pads.map((padItem) => ({
-    id: padItem.id, component: rawPcb.components.find((component) => component.id === padItem.componentId)?.designator,
-    x: padItem.at.x, y: padItem.at.y, net: padItem.netId ?? "", padNumber: padItem.number,
-    layer: "TOP", shape: ["RECT", 1, 1], rotation: 0,
-  })),
-}, {
-  source: { eda: "test", adapter: "legacy-contract" },
-  rules: rawPcb.rules,
-  holesArePlated: true,
-})
-assert.ok(legacy.snapshot)
-
-const doctor = spawnSync(process.execPath, [join(distRoot, "cli.js"), "doctor"], {
-  cwd: root,
-  encoding: "utf8",
-})
+const doctor = spawnSync(process.execPath, [join(distRoot, "cli.js"), "doctor"], { cwd: root, encoding: "utf8" })
 assert.equal(doctor.status, 0, doctor.stderr)
 assert.equal(JSON.parse(doctor.stdout).edaAccess, "none")
 
 const temporary = await mkdtemp(join(tmpdir(), "copilot-router-package-"))
 try {
-  const snapshotPath = join(temporary, "snapshot.json")
-  const intentPath = join(temporary, "intent.json")
-  await writeFile(snapshotPath, JSON.stringify(snapshot), "utf8")
-  await writeFile(intentPath, JSON.stringify(intent), "utf8")
+  const boardPath = join(temporary, "board.json")
+  const dslPath = join(temporary, "routing.dsl.js")
+  await writeFile(boardPath, JSON.stringify(board), "utf8")
+  await writeFile(dslPath, "powerNet('VCC', { maxCurrentA: 2 }); applyDrcRules()", "utf8")
   const validate = spawnSync(
     process.execPath,
-    [join(distRoot, "cli.js"), "validate", snapshotPath, "--intent", intentPath],
+    [join(distRoot, "cli.js"), "validate", boardPath, "--dsl", dslPath],
     { cwd: root, encoding: "utf8" },
   )
   assert.equal(validate.status, 0, validate.stderr || validate.stdout)

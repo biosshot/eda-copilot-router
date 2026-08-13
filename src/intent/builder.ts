@@ -1,446 +1,329 @@
+import { Script, createContext } from "node:vm"
 import type {
-  BoardRegion,
-  CompactPolygonIntent,
-  ComponentsRegion,
-  CopperIntent,
   CopperTarget,
   DifferentialPairIntent,
-  ImpedanceConstraint,
   LayerSelector,
   ManufacturingIntent,
   MatchedGroupIntent,
-  NamedLayerSelector,
-  NetIntent,
-  NetPadsSelector,
-  OuterLayerSelector,
-  OuterLayersSelector,
-  PadSelector,
+  PadTarget,
   PlaneIntent,
+  PlaneStitchingIntent,
+  PolygonIntent,
   PowerNetIntent,
   RegionSelector,
-  RoutingIntentV2,
-  SignalConstraintIntent,
-  SpecialRoutingIntent,
-  StitchingEnabled,
-  ViaConstraint,
-} from "./types.js";
-import { assertRoutingIntent } from "./validation.js";
+  RoutingProgram,
+  SignalNetIntent,
+} from "./types.js"
 
-export interface IntentBuilder<T> {
-  build(): T;
+function nonEmpty(value: unknown, label: string) {
+  if ((typeof value !== "string" && typeof value !== "number") || !String(value).trim()) {
+    throw new TypeError(`${label} must be a non-empty string or number`)
+  }
+  return String(value).trim()
 }
 
-type Buildable<T> = T | IntentBuilder<T>;
+function positive(value: unknown, label: string) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) throw new RangeError(`${label} must be > 0`)
+  return number
+}
 
-const materialize = <T>(value: Buildable<T>): T =>
-  typeof value === "object" && value !== null && "build" in value &&
-    typeof (value as IntentBuilder<T>).build === "function"
-    ? (value as IntentBuilder<T>).build()
-    : value as T;
+function nonNegative(value: unknown, label: string) {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number < 0) throw new RangeError(`${label} must be >= 0`)
+  return number
+}
 
-const nonEmpty = (value: string, label: string): string => {
-  const normalized = String(value).trim();
-  if (normalized.length === 0) throw new TypeError(`${label} must be a non-empty string`);
-  return normalized;
-};
+function integer(value: unknown, label: string, minimum = 0) {
+  const number = Number(value)
+  if (!Number.isInteger(number) || number < minimum) {
+    throw new RangeError(`${label} must be an integer >= ${minimum}`)
+  }
+  return number
+}
 
-const positive = (value: number, label: string): number => {
-  if (!Number.isFinite(value) || value <= 0) throw new RangeError(`${label} must be greater than zero`);
-  return value;
-};
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object`)
+  }
+  return value as Record<string, unknown>
+}
 
-const nonNegative = (value: number, label: string): number => {
-  if (!Number.isFinite(value) || value < 0) throw new RangeError(`${label} must be zero or greater`);
-  return value;
-};
+function optionalPositive(source: Record<string, unknown>, key: string) {
+  return source[key] === undefined ? {} : { [key]: positive(source[key], key) }
+}
 
-const positiveInteger = (value: number, label: string): number => {
-  if (!Number.isInteger(value) || value <= 0) throw new RangeError(`${label} must be a positive integer`);
-  return value;
-};
+function cloneLayer(value: unknown, label: string): LayerSelector {
+  const selector = object(value, label)
+  if (selector.kind === "outer" || selector.kind === "top" || selector.kind === "bottom") {
+    return { kind: selector.kind }
+  }
+  if (selector.kind === "named" && Array.isArray(selector.names) && selector.names.length) {
+    return { kind: "named", names: selector.names.map((item, index) => nonEmpty(item, `${label}.names[${index}]`)) }
+  }
+  throw new TypeError(`${label} must be topLayer(), bottomLayer(), outerLayers(), or layers(...)`)
+}
 
-export const pad = (component: string, padNumber: string | number): PadSelector => ({
-  kind: "pad",
-  component: nonEmpty(component, "component"),
-  pad: nonEmpty(String(padNumber), "pad"),
-});
+function optionalLayer(source: Record<string, unknown>, key: string) {
+  return source[key] === undefined ? {} : { [key]: cloneLayer(source[key], key) }
+}
 
-export const netPads = (net: string): NetPadsSelector => ({
-  kind: "net-pads",
-  net: nonEmpty(net, "net"),
-});
+function optionalVia(source: Record<string, unknown>) {
+  if (source.via === undefined) return {}
+  const via = object(source.via, "via")
+  return {
+    via: {
+      ...optionalPositive(via, "diameterMm"),
+      ...optionalPositive(via, "drillMm"),
+    },
+  }
+}
 
-export const board = (): BoardRegion => ({ kind: "board" });
+function optionalImpedance(source: Record<string, unknown>) {
+  if (source.impedanceOhm === undefined && source.impedance === undefined) return {}
+  const raw = source.impedance === undefined
+    ? { targetOhm: source.impedanceOhm, tolerancePercent: source.impedanceTolerancePercent }
+    : object(source.impedance, "impedance")
+  return {
+    impedance: {
+      targetOhm: positive(raw.targetOhm, "impedance.targetOhm"),
+      ...optionalPositive(raw, "tolerancePercent"),
+    },
+  }
+}
 
-export const components = (...references: string[]): ComponentsRegion => ({
-  kind: "components",
-  components: references.map((reference) => nonEmpty(reference, "component")),
-});
+function assertKnownKeys(source: Record<string, unknown>, allowed: readonly string[], label: string) {
+  const unknown = Object.keys(source).filter((key) => !allowed.includes(key))
+  if (unknown.length) throw new TypeError(`${label} has unknown field(s): ${unknown.join(", ")}`)
+}
 
-export const layer = (name: string): NamedLayerSelector => ({
-  kind: "layer",
-  layer: nonEmpty(name, "layer"),
-});
+type MutablePolygonIntent = {
+  -readonly [Key in keyof PolygonIntent]: PolygonIntent[Key]
+}
 
-export const topLayer = (): OuterLayerSelector => ({ kind: "outer-layer", side: "top" });
-export const bottomLayer = (): OuterLayerSelector => ({ kind: "outer-layer", side: "bottom" });
-export const outerLayers = (): OuterLayersSelector => ({ kind: "outer-layers" });
+class PolygonBuilder {
+  constructor(private readonly value: MutablePolygonIntent) {}
 
-export class CompactPolygonBuilder implements IntentBuilder<CompactPolygonIntent> {
-  private readonly value: Partial<CompactPolygonIntent> & Pick<CompactPolygonIntent, "kind" | "id" | "net">;
-
-  constructor(id: string, net: string, value?: CompactPolygonBuilder["value"]) {
-    this.value = value ?? {
-      kind: "compact-polygon",
-      id: nonEmpty(id, "polygon id"),
-      net: nonEmpty(net, "net"),
-      connect: [],
-    };
+  connect(...targets: CopperTarget[]) {
+    if (!targets.length) throw new TypeError("polygon.connect(...) requires at least one target")
+    this.value.targets = [...this.value.targets, ...targets.map((target) => structuredClone(target))]
+    return this
   }
 
-  private with(patch: Partial<CompactPolygonIntent>): CompactPolygonBuilder {
-    return new CompactPolygonBuilder(this.value.id, this.value.net, { ...this.value, ...patch });
+  on(layers: LayerSelector) {
+    this.value.layers = cloneLayer(layers, "polygon layers")
+    return this
   }
 
-  connect(...targets: CopperTarget[]): CompactPolygonBuilder {
-    return this.with({ connect: targets.map((target) => ({ ...target })) });
+  compact() {
+    this.value.mode = "compact"
+    return this
   }
 
-  on(layers: LayerSelector): CompactPolygonBuilder {
-    return this.with({ layers: { ...layers } });
+  priority(value: number) {
+    this.value.priority = integer(value, "polygon priority")
+    return this
   }
 
-  priority(value: number): CompactPolygonBuilder {
-    return this.with({ priority: nonNegative(value, "priority") });
+  maxPadFreeGap(value: number) {
+    this.value.maxPadFreeGapWidths = positive(value, "maxPadFreeGap")
+    return this
   }
+}
 
-  maxPadFreeGapWidths(value: number): CompactPolygonBuilder {
-    return this.with({ maxPadFreeGapWidths: positive(value, "maxPadFreeGapWidths") });
-  }
+class RoutingDslBuilder {
+  private readonly polygons: MutablePolygonIntent[] = []
+  private readonly planes: PlaneIntent[] = []
+  private readonly signalNets: SignalNetIntent[] = []
+  private readonly powerNets: PowerNetIntent[] = []
+  private readonly differentialPairs: DifferentialPairIntent[] = []
+  private readonly matchedGroups: MatchedGroupIntent[] = []
+  private manufacturingIntent: ManufacturingIntent | undefined
+  private operation: RoutingProgram["operation"] | undefined
 
-  build(): CompactPolygonIntent {
-    if (!this.value.layers || !this.value.connect?.length) {
-      throw new TypeError("compact polygon requires .connect(...) and .on(...)");
+  sandbox() {
+    return {
+      polygon: (net: string) => this.polygon(net),
+      plane: (options: unknown) => this.plane(options),
+      powerNet: (net: string, options: unknown = {}) => this.powerNet(net, options),
+      signalNet: (net: string, options: unknown = {}) => this.signalNet(net, options),
+      diffPair: (id: string, options: unknown) => this.diffPair(id, options),
+      matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
+      fabrication: (options: unknown) => this.fabrication(options),
+      pad: (component: string, number: string | number): PadTarget => ({
+        kind: "pad", component: nonEmpty(component, "pad component"), pad: nonEmpty(number, "pad number"),
+      }),
+      net: (name: string) => ({ kind: "net" as const, net: nonEmpty(name, "net") }),
+      board: (): RegionSelector => ({ kind: "board" }),
+      components: (...designators: string[]): RegionSelector => ({
+        kind: "components",
+        designators: designators.map((item, index) => nonEmpty(item, `components[${index}]`)),
+      }),
+      outerLayers: (): LayerSelector => ({ kind: "outer" }),
+      topLayer: (): LayerSelector => ({ kind: "top" }),
+      bottomLayer: (): LayerSelector => ({ kind: "bottom" }),
+      layers: (...names: string[]): LayerSelector => ({
+        kind: "named",
+        names: names.map((item, index) => nonEmpty(item, `layers[${index}]`)),
+      }),
+      applyDrcRules: () => this.terminal("apply-drc"),
+      runRouting: () => this.terminal("route"),
+      runAll: () => this.terminal("all"),
     }
-    return { ...this.value } as CompactPolygonIntent;
-  }
-}
-
-export const polygon = (id: string, net: string): CompactPolygonBuilder =>
-  new CompactPolygonBuilder(id, net);
-
-export interface StitchingOptions {
-  readonly gridMm?: number;
-  readonly maxVisibleViaDistanceMm?: number;
-  readonly via?: StitchingEnabled["via"];
-  readonly viaInPad?: boolean;
-  readonly maxVias?: number;
-}
-
-export class PlaneBuilder implements IntentBuilder<PlaneIntent> {
-  private readonly value: Partial<PlaneIntent> & Pick<PlaneIntent, "kind" | "id" | "net">;
-
-  constructor(id: string, net: string, value?: PlaneBuilder["value"]) {
-    this.value = value ?? {
-      kind: "plane",
-      id: nonEmpty(id, "plane id"),
-      net: nonEmpty(net, "net"),
-      region: board(),
-      stitching: { enabled: false },
-    };
   }
 
-  private with(patch: Partial<PlaneIntent>): PlaneBuilder {
-    return new PlaneBuilder(this.value.id, this.value.net, { ...this.value, ...patch });
-  }
-
-  on(layers: LayerSelector): PlaneBuilder {
-    return this.with({ layers: { ...layers } });
-  }
-
-  region(region: RegionSelector): PlaneBuilder {
-    return this.with({
-      region: region.kind === "components"
-        ? { ...region, components: [...region.components] }
-        : { ...region },
-    });
-  }
-
-  paddingMm(valueMm: number): PlaneBuilder {
-    return this.with({ paddingMm: nonNegative(valueMm, "paddingMm") });
-  }
-
-  priority(value: number): PlaneBuilder {
-    return this.with({ priority: nonNegative(value, "priority") });
-  }
-
-  stitch(options: StitchingOptions = {}): PlaneBuilder {
-    return this.with({
-      stitching: {
-        enabled: true,
-        ...(options.gridMm === undefined ? {} : { gridMm: positive(options.gridMm, "gridMm") }),
-        ...(options.maxVisibleViaDistanceMm === undefined
-          ? {}
-          : { maxVisibleViaDistanceMm: positive(options.maxVisibleViaDistanceMm, "maxVisibleViaDistanceMm") }),
-        ...(options.via === undefined
-          ? {}
-          : {
-              via: typeof options.via === "string"
-                ? options.via
-                : { ...options.via },
-            }),
-        ...(options.viaInPad === undefined ? {} : { viaInPad: Boolean(options.viaInPad) }),
-        ...(options.maxVias === undefined ? {} : { maxVias: positiveInteger(options.maxVias, "maxVias") }),
-      },
-    });
-  }
-
-  build(): PlaneIntent {
-    if (!this.value.layers) throw new TypeError("plane requires .on(...)");
-    return { ...this.value } as PlaneIntent;
-  }
-}
-
-export const plane = (id: string, net: string): PlaneBuilder => new PlaneBuilder(id, net);
-
-interface MutablePowerNet {
-  readonly kind: "power-net";
-  readonly net: string;
-  readonly maxCurrentA?: number;
-  readonly minTrackWidthMm?: number;
-  readonly maxTempRiseC?: number;
-  readonly maxTrackWidthMm?: number;
-  readonly via?: ViaConstraint;
-}
-
-export class PowerNetBuilder implements IntentBuilder<PowerNetIntent> {
-  private readonly value: MutablePowerNet;
-
-  constructor(net: string, value?: MutablePowerNet) {
-    this.value = value ?? { kind: "power-net", net: nonEmpty(net, "net") };
-  }
-
-  private with(patch: Partial<MutablePowerNet>): PowerNetBuilder {
-    return new PowerNetBuilder(this.value.net, { ...this.value, ...patch });
-  }
-
-  maxCurrent(valueA: number): PowerNetBuilder {
-    const { minTrackWidthMm: _removed, ...rest } = this.value;
-    return new PowerNetBuilder(this.value.net, { ...rest, maxCurrentA: positive(valueA, "maxCurrentA") });
-  }
-
-  minimumTrackWidth(valueMm: number): PowerNetBuilder {
-    const { maxCurrentA: _removed, ...rest } = this.value;
-    return new PowerNetBuilder(this.value.net, { ...rest, minTrackWidthMm: positive(valueMm, "minTrackWidthMm") });
-  }
-
-  minTrackWidth(valueMm: number): PowerNetBuilder {
-    return this.minimumTrackWidth(valueMm);
-  }
-
-  maxTempRise(valueC: number): PowerNetBuilder {
-    return this.with({ maxTempRiseC: positive(valueC, "maxTempRiseC") });
-  }
-
-  maxTrackWidth(valueMm: number): PowerNetBuilder {
-    if (positive(valueMm, "maxTrackWidthMm") > 10) {
-      throw new RangeError("maxTrackWidthMm must not exceed 10 mm");
+  program(): RoutingProgram {
+    if (!this.operation) throw new TypeError("routing DSL requires exactly one terminal command")
+    for (const [index, polygon] of this.polygons.entries()) {
+      if (!polygon.targets.length) throw new TypeError(`polygon ${index + 1} (${polygon.net}) has no targets`)
+      for (const target of polygon.targets) {
+        if (target.kind === "net" && target.net !== polygon.net) {
+          throw new TypeError(`polygon ${polygon.net} cannot connect net(${target.net})`)
+        }
+      }
     }
-    return this.with({ maxTrackWidthMm: valueMm });
+    return structuredClone({
+      polygons: [...this.polygons].sort((a, b) => b.priority - a.priority),
+      planes: [...this.planes].sort((a, b) => b.priority - a.priority),
+      signalNets: this.signalNets,
+      powerNets: this.powerNets,
+      differentialPairs: this.differentialPairs,
+      matchedGroups: this.matchedGroups,
+      ...(this.manufacturingIntent ? { manufacturing: this.manufacturingIntent } : {}),
+      operation: this.operation,
+    })
   }
 
-  via(value: ViaConstraint): PowerNetBuilder {
-    return this.with({ via: { ...value } });
+  private terminal(operation: RoutingProgram["operation"]): undefined {
+    if (this.operation) throw new TypeError("routing DSL accepts exactly one terminal command")
+    this.operation = operation
+    return undefined
   }
 
-  build(): PowerNetIntent {
-    if ((this.value.maxCurrentA === undefined) === (this.value.minTrackWidthMm === undefined)) {
-      throw new TypeError("power net requires exactly one of .maxCurrent(...) or .minimumTrackWidth(...)");
+  private polygon(net: string) {
+    const value: MutablePolygonIntent = {
+      kind: "polygon", net: nonEmpty(net, "polygon net"), targets: [], layers: { kind: "top" },
+      mode: "compact", priority: 0, maxPadFreeGapWidths: 4.5,
     }
-    return { ...this.value } as PowerNetIntent;
+    this.polygons.push(value)
+    return new PolygonBuilder(value)
+  }
+
+  private plane(input: unknown): undefined {
+    const source = object(input, "plane")
+    assertKnownKeys(source, ["net", "layers", "region", "paddingMm", "priority", "stitching"], "plane")
+    const region = source.region === undefined ? { kind: "board" as const } : structuredClone(source.region) as RegionSelector
+    if (region.kind !== "board" && (region.kind !== "components" || !region.designators?.length)) {
+      throw new TypeError("plane.region must be board() or non-empty components(...)")
+    }
+    let stitching: PlaneStitchingIntent = false
+    if (source.stitching !== undefined && source.stitching !== false) {
+      const value = source.stitching === true ? {} : object(source.stitching, "plane.stitching")
+      const via = value.via === undefined || value.via === "drc-min"
+        ? "drc-min" as const
+        : {
+            diameterMm: positive(object(value.via, "plane.stitching.via").diameterMm, "diameterMm"),
+            drillMm: positive(object(value.via, "plane.stitching.via").drillMm, "drillMm"),
+          }
+      stitching = {
+        gridMm: value.gridMm === undefined ? 5 : positive(value.gridMm, "gridMm"),
+        maxPadViaDistanceMm: value.maxPadViaDistanceMm === undefined
+          ? 10 : positive(value.maxPadViaDistanceMm, "maxPadViaDistanceMm"),
+        via,
+        viaInPad: value.viaInPad === undefined ? true : Boolean(value.viaInPad),
+        maxVias: value.maxVias === undefined ? 500 : integer(value.maxVias, "maxVias", 1),
+      }
+    }
+    const paddingMm = source.paddingMm === undefined ? 0 : nonNegative(source.paddingMm, "paddingMm")
+    if (region.kind === "board" && paddingMm > 0) throw new TypeError("plane padding is reserved for components(...)")
+    this.planes.push({
+      kind: "plane", net: nonEmpty(source.net, "plane net"),
+      layers: source.layers === undefined ? { kind: "outer" } : cloneLayer(source.layers, "plane.layers"),
+      region, paddingMm,
+      priority: source.priority === undefined ? 0 : integer(source.priority, "plane.priority"),
+      stitching,
+    })
+    return undefined
+  }
+
+  private powerNet(net: string, input: unknown): undefined {
+    const source = object(input, "powerNet options")
+    assertKnownKeys(source, ["maxCurrentA", "maxTempRiseC", "minTrackWidthMm", "maxTrackWidthMm", "clearanceMm", "allowedLayers", "via"], "powerNet")
+    if (source.maxCurrentA === undefined && source.minTrackWidthMm === undefined) {
+      throw new TypeError("powerNet requires maxCurrentA or minTrackWidthMm")
+    }
+    const maxTrackWidthMm = source.maxTrackWidthMm === undefined ? undefined : positive(source.maxTrackWidthMm, "maxTrackWidthMm")
+    if (maxTrackWidthMm !== undefined && maxTrackWidthMm > 10) throw new RangeError("maxTrackWidthMm must not exceed 10 mm")
+    this.powerNets.push({
+      kind: "power-net", net: nonEmpty(net, "power net"),
+      ...optionalPositive(source, "maxCurrentA"), ...optionalPositive(source, "maxTempRiseC"),
+      ...optionalPositive(source, "minTrackWidthMm"),
+      ...(maxTrackWidthMm === undefined ? {} : { maxTrackWidthMm }),
+      ...optionalPositive(source, "clearanceMm"),
+      ...optionalLayer(source, "allowedLayers"), ...optionalVia(source),
+    })
+    return undefined
+  }
+
+  private signalNet(net: string, input: unknown): undefined {
+    const source = object(input, "signalNet options")
+    assertKnownKeys(source, ["trackWidthMm", "minTrackWidthMm", "clearanceMm", "maxLengthMm", "allowedLayers", "via", "impedance", "impedanceOhm", "impedanceTolerancePercent"], "signalNet")
+    this.signalNets.push({
+      kind: "signal-net", net: nonEmpty(net, "signal net"),
+      ...optionalPositive(source, "trackWidthMm"), ...optionalPositive(source, "minTrackWidthMm"),
+      ...optionalPositive(source, "clearanceMm"), ...optionalPositive(source, "maxLengthMm"),
+      ...optionalLayer(source, "allowedLayers"), ...optionalVia(source), ...optionalImpedance(source),
+    })
+    return undefined
+  }
+
+  private diffPair(id: string, input: unknown): undefined {
+    const source = object(input, "diffPair options")
+    assertKnownKeys(source, ["positive", "negative", "trackWidthMm", "gapMm", "maxSkewMm", "maxUncoupledLengthMm", "clearanceMm", "allowedLayers", "via", "impedance", "impedanceOhm", "impedanceTolerancePercent"], "diffPair")
+    this.differentialPairs.push({
+      kind: "differential-pair", id: nonEmpty(id, "diff pair id"),
+      positive: nonEmpty(source.positive, "diffPair.positive"),
+      negative: nonEmpty(source.negative, "diffPair.negative"),
+      ...optionalPositive(source, "trackWidthMm"), ...optionalPositive(source, "gapMm"),
+      ...optionalPositive(source, "maxSkewMm"), ...optionalPositive(source, "maxUncoupledLengthMm"),
+      ...optionalPositive(source, "clearanceMm"), ...optionalLayer(source, "allowedLayers"),
+      ...optionalVia(source), ...optionalImpedance(source),
+    })
+    return undefined
+  }
+
+  private matchedGroup(id: string, input: unknown): undefined {
+    const source = object(input, "matchedGroup options")
+    assertKnownKeys(source, ["nets", "toleranceMm"], "matchedGroup")
+    if (!Array.isArray(source.nets) || source.nets.length < 2) throw new TypeError("matchedGroup.nets needs at least two nets")
+    this.matchedGroups.push({
+      kind: "matched-group", id: nonEmpty(id, "matched group id"),
+      nets: source.nets.map((item, index) => nonEmpty(item, `matchedGroup.nets[${index}]`)),
+      ...optionalPositive(source, "toleranceMm"),
+    })
+    return undefined
+  }
+
+  private fabrication(input: unknown): undefined {
+    if (this.manufacturingIntent) throw new TypeError("fabrication(...) may be declared only once")
+    const source = object(input, "fabrication")
+    assertKnownKeys(source, ["fallbackCopperThicknessOz", "viaPlatingThicknessUm", "maxTrackWidthMm"], "fabrication")
+    const maxTrackWidthMm = source.maxTrackWidthMm === undefined ? undefined : positive(source.maxTrackWidthMm, "maxTrackWidthMm")
+    if (maxTrackWidthMm !== undefined && maxTrackWidthMm > 10) throw new RangeError("maxTrackWidthMm must not exceed 10 mm")
+    this.manufacturingIntent = {
+      ...optionalPositive(source, "fallbackCopperThicknessOz"),
+      ...optionalPositive(source, "viaPlatingThicknessUm"),
+      ...(maxTrackWidthMm === undefined ? {} : { maxTrackWidthMm }),
+    }
+    return undefined
   }
 }
 
-export const powerNet = (net: string): PowerNetBuilder => new PowerNetBuilder(net);
-
-export class SignalNetBuilder implements IntentBuilder<SignalConstraintIntent> {
-  private readonly value: SignalConstraintIntent;
-
-  constructor(net: string, value?: SignalConstraintIntent) {
-    this.value = value ?? { kind: "signal-net", net: nonEmpty(net, "net") };
-  }
-
-  private with(patch: Partial<SignalConstraintIntent>): SignalNetBuilder {
-    return new SignalNetBuilder(this.value.net, { ...this.value, ...patch });
-  }
-
-  trackWidth(valueMm: number): SignalNetBuilder {
-    return this.with({ trackWidthMm: positive(valueMm, "trackWidthMm") });
-  }
-
-  clearance(valueMm: number): SignalNetBuilder {
-    return this.with({ clearanceMm: positive(valueMm, "clearanceMm") });
-  }
-
-  maxLength(valueMm: number): SignalNetBuilder {
-    return this.with({ maxLengthMm: positive(valueMm, "maxLengthMm") });
-  }
-
-  on(layers: LayerSelector): SignalNetBuilder {
-    return this.with({ allowedLayers: { ...layers } });
-  }
-
-  via(value: ViaConstraint): SignalNetBuilder {
-    return this.with({ via: { ...value } });
-  }
-
-  impedance(targetOhm: number, tolerancePercent?: number): SignalNetBuilder {
-    return this.with({
-      impedance: {
-        targetOhm: positive(targetOhm, "targetOhm"),
-        ...(tolerancePercent === undefined
-          ? {}
-          : { tolerancePercent: positive(tolerancePercent, "tolerancePercent") }),
-      },
-    });
-  }
-
-  build(): SignalConstraintIntent {
-    return { ...this.value };
-  }
-}
-
-export const signalNet = (net: string): SignalNetBuilder => new SignalNetBuilder(net);
-
-export class DifferentialPairBuilder implements IntentBuilder<DifferentialPairIntent> {
-  private readonly value: DifferentialPairIntent;
-
-  constructor(id: string, positiveNet: string, negativeNet: string, value?: DifferentialPairIntent) {
-    this.value = value ?? {
-      kind: "differential-pair",
-      id: nonEmpty(id, "differential pair id"),
-      positiveNet: nonEmpty(positiveNet, "positive net"),
-      negativeNet: nonEmpty(negativeNet, "negative net"),
-    };
-  }
-
-  private with(patch: Partial<DifferentialPairIntent>): DifferentialPairBuilder {
-    return new DifferentialPairBuilder(
-      this.value.id,
-      this.value.positiveNet,
-      this.value.negativeNet,
-      { ...this.value, ...patch },
-    );
-  }
-
-  trackWidth(valueMm: number): DifferentialPairBuilder {
-    return this.with({ trackWidthMm: positive(valueMm, "trackWidthMm") });
-  }
-
-  gap(valueMm: number): DifferentialPairBuilder {
-    return this.with({ gapMm: positive(valueMm, "gapMm") });
-  }
-
-  maxSkew(valueMm: number): DifferentialPairBuilder {
-    return this.with({ maxSkewMm: positive(valueMm, "maxSkewMm") });
-  }
-
-  maxUncoupledLength(valueMm: number): DifferentialPairBuilder {
-    return this.with({ maxUncoupledLengthMm: positive(valueMm, "maxUncoupledLengthMm") });
-  }
-
-  on(layers: LayerSelector): DifferentialPairBuilder {
-    return this.with({ allowedLayers: { ...layers } });
-  }
-
-  impedance(targetOhm: number, tolerancePercent?: number): DifferentialPairBuilder {
-    const value: ImpedanceConstraint = {
-      targetOhm: positive(targetOhm, "targetOhm"),
-      ...(tolerancePercent === undefined
-        ? {}
-        : { tolerancePercent: positive(tolerancePercent, "tolerancePercent") }),
-    };
-    return this.with({ impedance: value });
-  }
-
-  build(): DifferentialPairIntent {
-    return { ...this.value };
-  }
-}
-
-export const diffPair = (id: string, positiveNet: string, negativeNet: string): DifferentialPairBuilder =>
-  new DifferentialPairBuilder(id, positiveNet, negativeNet);
-
-interface MutableMatchedGroup {
-  readonly kind: "matched-group";
-  readonly id: string;
-  readonly members: readonly MatchedGroupIntent["members"][number][];
-  readonly toleranceMm?: number;
-}
-
-export class MatchedGroupBuilder implements IntentBuilder<MatchedGroupIntent> {
-  private readonly value: MutableMatchedGroup;
-
-  constructor(id: string, value?: MutableMatchedGroup) {
-    this.value = value ?? { kind: "matched-group", id: nonEmpty(id, "matched group id"), members: [] };
-  }
-
-  private with(patch: Partial<MutableMatchedGroup>): MatchedGroupBuilder {
-    return new MatchedGroupBuilder(this.value.id, { ...this.value, ...patch });
-  }
-
-  nets(...nets: string[]): MatchedGroupBuilder {
-    return this.with({
-      members: [
-        ...this.value.members,
-        ...nets.map((net) => ({ kind: "net" as const, net: nonEmpty(net, "net") })),
-      ],
-    });
-  }
-
-  differentialPairs(...ids: string[]): MatchedGroupBuilder {
-    return this.with({
-      members: [
-        ...this.value.members,
-        ...ids.map((id) => ({ kind: "differential-pair" as const, id: nonEmpty(id, "differential pair id") })),
-      ],
-    });
-  }
-
-  members(...members: MatchedGroupIntent["members"]): MatchedGroupBuilder {
-    return this.with({ members: members.map((member) => ({ ...member })) });
-  }
-
-  toleranceMm(valueMm: number): MatchedGroupBuilder {
-    return this.with({ toleranceMm: positive(valueMm, "toleranceMm") });
-  }
-
-  build(): MatchedGroupIntent {
-    if (this.value.members.length < 2) throw new TypeError("matched group requires at least two members");
-    return { ...this.value } as MatchedGroupIntent;
-  }
-}
-
-export const matchedGroup = (id: string): MatchedGroupBuilder => new MatchedGroupBuilder(id);
-
-export const fabrication = (intent: ManufacturingIntent): ManufacturingIntent => ({ ...intent });
-
-export interface RoutingBuilderInput {
-  readonly copper?: readonly Buildable<CopperIntent>[];
-  readonly nets?: readonly Buildable<NetIntent>[];
-  readonly special?: readonly Buildable<SpecialRoutingIntent>[];
-  readonly manufacturing?: ManufacturingIntent;
-}
-
-/** Materializes builders into a validated, plain JSON-compatible AST. */
-export function routing(input: RoutingBuilderInput = {}): RoutingIntentV2 {
-  const intent: RoutingIntentV2 = {
-    version: 2,
-    copper: (input.copper ?? []).map((item) => materialize(item)),
-    nets: (input.nets ?? []).map((item) => materialize(item)),
-    special: (input.special ?? []).map((item) => materialize(item)),
-    ...(input.manufacturing === undefined ? {} : { manufacturing: { ...input.manufacturing } }),
-  };
-  assertRoutingIntent(intent);
-  return intent;
+/** Evaluate the local statement DSL and return its serializable program. */
+export function compileRoutingDsl(code: string): RoutingProgram {
+  const builder = new RoutingDslBuilder()
+  const sandbox = createContext(builder.sandbox(), { codeGeneration: { strings: false, wasm: false } })
+  new Script(`"use strict";\n${code}`, { filename: "routing.dsl.js" })
+    .runInContext(sandbox, { timeout: 1_000, displayErrors: true })
+  return builder.program()
 }

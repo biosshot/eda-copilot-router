@@ -27,10 +27,6 @@
       "types": "./dist/adapters/contracts.d.ts",
       "import": "./dist/adapters/contracts.js"
     },
-    "./adapters/legacy-raw": {
-      "types": "./dist/adapters/legacy-raw.d.ts",
-      "import": "./dist/adapters/legacy-raw.js"
-    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -48,7 +44,7 @@
   },
   "scripts": {
     "build": "npm run build:public && npm run build:legacy && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
-    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/adapters/legacy-raw.ts src/cli.ts --format esm --platform node --target node20 --out-dir dist --dts --clean --tsconfig tsconfig.public.json",
+    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/cli.ts --format esm --platform node --target node20 --out-dir dist --dts --clean --tsconfig tsconfig.public.json",
     "build:package": "npm run build:public",
     "build:legacy": "tsup src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist",
     "test:baseline": "node dist/benchmark.js baseline",

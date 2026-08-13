@@ -1,560 +1,276 @@
 import type {
-  CompiledRuleValuesV1,
-  PcbSnapshotV1,
-  RuleRangeV1,
+  RoutingBoard,
   RoutingDiagnostic,
-  ViaRuleV1,
-} from "../core/contracts.js";
-import type {
-  RouterBackendCapabilities,
-  RouterCapability,
-} from "../adapters/contracts.js";
+  RoutingRuleOverride,
+  RoutingRules,
+  RoutingRuleValues,
+} from "../core/contracts.js"
+import type { RouterBackendCapabilities, RouterCapability } from "../adapters/contracts.js"
 import type {
   DifferentialPairIntent,
-  ImpedanceConstraint,
   LayerSelector,
-  RoutingIntentV2,
-  ViaConstraint,
-} from "./types.js";
-import { validateRoutingIntent } from "./validation.js";
+  RoutingProgram,
+} from "./types.js"
+import { validateRoutingProgram } from "./validation.js"
 
-export interface RoutingIntentPreflightOptions {
-  /**
-   * Optional backend declaration. When omitted, preflight still returns the
-   * capabilities that orchestration must negotiate before execution.
-   */
-  readonly backendCapabilities?: RouterBackendCapabilities | readonly RouterCapability[];
-  /** True for a full-board route; false for polygon/special-only stages. */
-  readonly routeUnqualifiedNets?: boolean;
+const COPPER_MM_PER_OZ = 0.03479
+const DEFAULT_TEMP_RISE_C = 16
+const DEFAULT_VIA_PLATING_UM = 20
+const WIDTH_GRID_MM = 0.05
+const EPSILON = 1e-6
+
+export type CompiledRoutingRules = Readonly<{
+  effective: RoutingRules
+  overriddenFields: readonly RoutingRuleOverride[]
+  diagnostics: readonly RoutingDiagnostic[]
+  requiredCapabilities: readonly RouterCapability[]
+}>
+
+function diagnostic(code: string, message: string, details?: unknown): RoutingDiagnostic {
+  return { code, severity: "error", message, ...(details === undefined ? {} : { details }) }
 }
 
-export interface RoutingIntentPreflightResult {
-  readonly valid: boolean;
-  readonly requiredCapabilities: readonly RouterCapability[];
-  readonly diagnostics: readonly RoutingDiagnostic[];
+function valuesForNet(rules: RoutingRules, net: string) {
+  return rules.nets.find((entry) => entry.net === net)?.values ?? rules.default
 }
 
-const CAPABILITY_ORDER: readonly RouterCapability[] = [
-  "ordinary-routing",
-  "vias",
-  "zones",
-  "plane-stitching",
-  "differential-pairs",
-  "matched-length",
-  "impedance-controlled",
-  "preserve-existing-copper",
-];
-
-function error(
-  diagnostics: RoutingDiagnostic[],
-  code: string,
-  path: string,
-  message: string,
-  details?: unknown,
-): void {
-  diagnostics.push({
-    code,
-    severity: "error",
-    path,
-    message,
-    ...(details === undefined ? {} : { details }),
-  });
+function roundedUp(value: number) {
+  return Number((Math.ceil((value - EPSILON) / WIDTH_GRID_MM) * WIDTH_GRID_MM).toFixed(6))
 }
 
-function explicitValueInRange(
-  diagnostics: RoutingDiagnostic[],
-  path: string,
-  label: string,
-  value: number | undefined,
-  range: RuleRangeV1,
-): void {
-  if (value === undefined) return;
-  if (value < range.minMm || value > range.maxMm) {
-    error(
-      diagnostics,
-      "RULE_CONFLICT",
-      path,
-      `${label} ${value} mm is outside the compiled native range ` +
-        `[${range.minMm}, ${range.maxMm}] mm.`,
-      { requestedMm: value, nativeRangeMm: range },
-    );
+/** IPC-2221 chart equation retained as the documented conservative fallback. */
+export function calculateTrackWidthMm(
+  currentA: number,
+  maxTempRiseC: number,
+  copperThicknessMm: number,
+  external: boolean,
+) {
+  const coefficient = external ? 0.048 : 0.024
+  const crossSectionMil2 = (currentA / (coefficient * maxTempRiseC ** 0.44)) ** (1 / 0.725)
+  return crossSectionMil2 / (copperThicknessMm / 0.0254) * 0.0254
+}
+
+function selectedLayers(board: RoutingBoard, selector?: LayerSelector) {
+  if (!selector) return board.layers.map((layer) => layer.name)
+  if (selector.kind === "top") return board.layers.filter((layer) => layer.side === "top").map((layer) => layer.name)
+  if (selector.kind === "bottom") return board.layers.filter((layer) => layer.side === "bottom").map((layer) => layer.name)
+  if (selector.kind === "outer") return board.layers.filter((layer) => layer.side !== "inner").map((layer) => layer.name)
+  return [...selector.names]
+}
+
+function copperThicknesses(board: RoutingBoard, selector?: LayerSelector, fallbackOz = 1) {
+  const names = selectedLayers(board, selector)
+  const stackup = board.stackup?.layers ?? []
+  return names.map((name) => {
+    const explicit = stackup.find((layer) => layer.kind === "copper" && layer.layer === name)
+    return {
+      layer: name,
+      external: board.layers.find((layer) => layer.name === name)?.side !== "inner",
+      thicknessMm: explicit?.kind === "copper" ? explicit.thicknessMm : fallbackOz * COPPER_MM_PER_OZ,
+    }
+  })
+}
+
+function changed(scope: RoutingRuleOverride["scope"], source: RoutingRuleValues, effective: RoutingRuleValues) {
+  const output: RoutingRuleOverride[] = []
+  const walk = (before: unknown, after: unknown, path: string) => {
+    if (before && after && typeof before === "object" && typeof after === "object"
+      && !Array.isArray(before) && !Array.isArray(after)) {
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        walk((before as Record<string, unknown>)[key], (after as Record<string, unknown>)[key], path ? `${path}.${key}` : key)
+      }
+      return
+    }
+    if (JSON.stringify(before) !== JSON.stringify(after)) output.push({ scope, field: path, source: before, effective: after })
   }
+  walk(source, effective, "")
+  return output
 }
 
-function intersectRanges(
-  diagnostics: RoutingDiagnostic[],
-  path: string,
-  label: string,
-  ranges: readonly RuleRangeV1[],
-): RuleRangeV1 | undefined {
-  if (ranges.length === 0) return undefined;
-  const minMm = Math.max(...ranges.map((range) => range.minMm));
-  const maxMm = Math.min(...ranges.map((range) => range.maxMm));
-  if (minMm > maxMm) {
-    error(
-      diagnostics,
-      "RULE_CONFLICT",
-      path,
-      `${label} native rule ranges have an empty intersection.`,
-      { ranges },
-    );
-    return undefined;
-  }
-  const preferredCandidates = ranges
-    .map((range) => range.preferredMm)
-    .filter((value) => value >= minMm && value <= maxMm);
+function applyAbsolute(
+  base: RoutingRuleValues,
+  intent: {
+    trackWidthMm?: number
+    minTrackWidthMm?: number
+    clearanceMm?: number
+    maxLengthMm?: number
+    allowedLayers?: LayerSelector
+    via?: { diameterMm?: number; drillMm?: number }
+    impedance?: { targetOhm: number; tolerancePercent?: number }
+  },
+  board: RoutingBoard,
+): RoutingRuleValues {
+  const exact = intent.trackWidthMm
+  const minimum = exact ?? intent.minTrackWidthMm ?? base.minTrackWidthMm
   return {
-    minMm,
-    preferredMm: preferredCandidates[0] ?? minMm,
-    maxMm,
-  };
-}
-
-function clearanceDoesNotWeaken(
-  diagnostics: RoutingDiagnostic[],
-  path: string,
-  requestedMm: number | undefined,
-  nativeMinimumMm: number,
-): void {
-  if (requestedMm === undefined || requestedMm >= nativeMinimumMm) return;
-  error(
-    diagnostics,
-    "RULE_CONFLICT",
-    path,
-    `Requested clearance ${requestedMm} mm is below the compiled native minimum ` +
-      `${nativeMinimumMm} mm.`,
-    { requestedMm, nativeMinimumMm },
-  );
-}
-
-function maximumDoesNotWeaken(
-  diagnostics: RoutingDiagnostic[],
-  path: string,
-  label: string,
-  requestedMm: number | undefined,
-  nativeMaximumMm: number | undefined,
-): void {
-  if (requestedMm === undefined || nativeMaximumMm === undefined || requestedMm <= nativeMaximumMm) {
-    return;
-  }
-  error(
-    diagnostics,
-    "RULE_CONFLICT",
-    path,
-    `${label} ${requestedMm} mm is looser than the compiled native maximum ` +
-      `${nativeMaximumMm} mm.`,
-    { requestedMm, nativeMaximumMm },
-  );
-}
-
-function viaInRange(
-  diagnostics: RoutingDiagnostic[],
-  path: string,
-  requested: ViaConstraint | undefined,
-  native: ViaRuleV1,
-): void {
-  if (!requested) return;
-  explicitValueInRange(
-    diagnostics,
-    `${path}.diameterMm`,
-    "Via diameter",
-    requested.diameterMm,
-    native.diameterMm,
-  );
-  explicitValueInRange(
-    diagnostics,
-    `${path}.drillMm`,
-    "Via drill",
-    requested.drillMm,
-    native.drillMm,
-  );
-
-  const smallestPossibleDrill = requested.drillMm ?? native.drillMm.minMm;
-  const largestPossibleDiameter = requested.diameterMm ?? native.diameterMm.maxMm;
-  if (smallestPossibleDrill >= largestPossibleDiameter) {
-    error(
-      diagnostics,
-      "RULE_CONFLICT",
-      path,
-      "Requested via constraints have no legal drill/diameter combination.",
-      { requested, native },
-    );
+    ...base,
+    minTrackWidthMm: minimum,
+    preferredTrackWidthMm: exact ?? Math.max(base.preferredTrackWidthMm, minimum),
+    ...(intent.clearanceMm === undefined ? {} : { clearanceMm: intent.clearanceMm }),
+    ...(intent.maxLengthMm === undefined ? {} : { maxLengthMm: intent.maxLengthMm }),
+    ...(intent.allowedLayers === undefined ? {} : { allowedLayers: selectedLayers(board, intent.allowedLayers) }),
+    ...(intent.impedance === undefined ? {} : {
+      impedanceOhm: intent.impedance.targetOhm,
+      ...(intent.impedance.tolerancePercent === undefined ? {} : { impedanceTolerancePercent: intent.impedance.tolerancePercent }),
+    }),
+    via: {
+      ...base.via,
+      minDiameterMm: intent.via?.diameterMm ?? base.via.minDiameterMm,
+      preferredDiameterMm: intent.via?.diameterMm ?? base.via.preferredDiameterMm,
+      minDrillMm: intent.via?.drillMm ?? base.via.minDrillMm,
+      preferredDrillMm: intent.via?.drillMm ?? base.via.preferredDrillMm,
+    },
   }
 }
 
-function hasUsableImpedanceStackup(snapshot: PcbSnapshotV1): boolean {
-  return snapshot.rawPcb.stackup.layers.some((layer) =>
-    layer.kind === "dielectric" &&
-    Number.isFinite(layer.thicknessMm) &&
-    layer.thicknessMm > 0 &&
-    typeof layer.relativePermittivity === "number" &&
-    Number.isFinite(layer.relativePermittivity) &&
-    layer.relativePermittivity > 0
-  );
-}
-
-/**
- * Compile the portable DSL against one immutable board snapshot.
- *
- * This function performs no backend calls. It only checks board references,
- * rule intersections and capability requirements, so a conflict terminates
- * orchestration before an external router is started.
- */
-export function preflightRoutingIntent(
-  snapshot: PcbSnapshotV1,
-  intent: RoutingIntentV2,
-  options: RoutingIntentPreflightOptions = {},
-): RoutingIntentPreflightResult {
-  const diagnostics: RoutingDiagnostic[] = [];
-  const required = new Set<RouterCapability>();
-  if (options.routeUnqualifiedNets) required.add("ordinary-routing");
-
-  const netsByName = new Map<string, PcbSnapshotV1["rawPcb"]["nets"][number]>();
-  for (const [index, net] of snapshot.rawPcb.nets.entries()) {
-    if (netsByName.has(net.name)) {
-      error(
-        diagnostics,
-        "RULE_CONFLICT",
-        `$.snapshot.rawPcb.nets[${index}].name`,
-        `Net name ${JSON.stringify(net.name)} is ambiguous in RawPcb.`,
-      );
-    } else {
-      netsByName.set(net.name, net);
-    }
-  }
-
-  const syntax = validateRoutingIntent(intent, { knownNets: netsByName.keys() });
-  diagnostics.push(...syntax.diagnostics);
-  if (!syntax.valid) return { valid: false, requiredCapabilities: [], diagnostics };
-
-  const rulesByNetId = new Map<string, CompiledRuleValuesV1>();
-  snapshot.rawPcb.rules.byNet.forEach((entry, index) => {
-    if (rulesByNetId.has(entry.netId)) {
-      error(
-        diagnostics,
-        "RULE_CONFLICT",
-        `$.snapshot.rawPcb.rules.byNet[${index}]`,
-        `More than one compiled native rule exists for net id ${JSON.stringify(entry.netId)}.`,
-      );
-    } else {
-      rulesByNetId.set(entry.netId, entry.values);
-    }
-  });
-
-  const rulesForNet = (netName: string): CompiledRuleValuesV1 | undefined => {
-    const net = netsByName.get(netName);
-    return net ? (rulesByNetId.get(net.id) ?? snapshot.rawPcb.rules.global) : undefined;
-  };
-
-  const resolveLayers = (selector: LayerSelector, path: string): readonly string[] => {
-    const resolved = selector.kind === "outer-layers"
-      ? snapshot.rawPcb.layers
-        .filter((layer) => layer.side === "top" || layer.side === "bottom")
-        .map((layer) => layer.id)
-      : selector.kind === "outer-layer"
-        ? snapshot.rawPcb.layers
-          .filter((layer) => layer.side === selector.side)
-          .map((layer) => layer.id)
-      : snapshot.rawPcb.layers
-        .filter((layer) => layer.id === selector.layer || layer.name === selector.layer)
-        .map((layer) => layer.id);
-    const unique = [...new Set(resolved)];
-    if (unique.length === 0) {
-      error(
-        diagnostics,
-        "RULE_CONFLICT",
-        path,
-        selector.kind === "outer-layers"
-          ? "RawPcb has no available outer copper layer."
-          : selector.kind === "outer-layer"
-            ? `RawPcb has no ${selector.side} outer copper layer.`
-            : `Copper layer ${JSON.stringify(selector.layer)} is unavailable.`,
-      );
-    } else if (selector.kind !== "outer-layers" && unique.length > 1) {
-      error(
-        diagnostics,
-        "RULE_CONFLICT",
-        path,
-        "Copper layer selector is ambiguous.",
-        { layerIds: unique },
-      );
-    }
-    return unique;
-  };
-
-  const checkImpedance = (
-    impedance: ImpedanceConstraint | undefined,
-    path: string,
-  ): void => {
-    if (!impedance) return;
-    required.add("impedance-controlled");
-    if (!hasUsableImpedanceStackup(snapshot)) {
-      error(
-        diagnostics,
-        "UNSUPPORTED_CONSTRAINT",
-        path,
-        "Impedance control requires dielectric thickness and relative permittivity in RawPcb stackup.",
-      );
-    }
-  };
-
-  for (const [index, copper] of intent.copper.entries()) {
-    const path = `$.copper[${index}]`;
-    required.add("zones");
-    resolveLayers(copper.layers, `${path}.layers`);
-    if (copper.kind === "compact-polygon") {
-      for (const [targetIndex, target] of copper.connect.entries()) {
-        if (target.kind !== "pad") continue;
-        const targetPath = `${path}.connect[${targetIndex}]`;
-        const owners = snapshot.rawPcb.components.filter((component) => component.designator === target.component);
-        if (owners.length !== 1) {
-          error(diagnostics, "RULE_CONFLICT", targetPath, `Component ${JSON.stringify(target.component)} is absent or ambiguous.`);
-          continue;
-        }
-        const pads = snapshot.rawPcb.pads.filter((pad) =>
-          pad.componentId === owners[0].id && pad.number === target.pad
-        );
-        if (pads.length !== 1) {
-          error(diagnostics, "RULE_CONFLICT", targetPath, `Pad ${target.component}.${target.pad} is absent or ambiguous.`);
-          continue;
-        }
-        const polygonNet = netsByName.get(copper.net);
-        if (pads[0].netId !== polygonNet?.id) {
-          error(diagnostics, "RULE_CONFLICT", targetPath, `Pad ${target.component}.${target.pad} is not on net ${copper.net}.`);
-        }
-      }
-    }
-    if (copper.kind === "plane") {
-      if (copper.region.kind === "components") {
-        error(
-          diagnostics,
-          "UNSUPPORTED_CONSTRAINT",
-          `${path}.region`,
-          "components(...) regions are reserved by RoutingIntentV2 and are not implemented.",
-        );
-      }
-      if (copper.stitching.enabled) {
-        required.add("plane-stitching");
-        required.add("vias");
-        if (copper.stitching.via && copper.stitching.via !== "drc-min") {
-          const native = rulesForNet(copper.net);
-          if (native) viaInRange(
-            diagnostics,
-            `${path}.stitching.via`,
-            copper.stitching.via,
-            native.via,
-          );
-        }
-      }
-    }
-  }
-
-  for (const [index, netIntent] of intent.nets.entries()) {
-    const path = `$.nets[${index}]`;
-    const native = rulesForNet(netIntent.net);
-    if (!native) continue;
-    if (netIntent.kind === "power-net") {
-      explicitValueInRange(
-        diagnostics,
-        `${path}.minTrackWidthMm`,
-        "Minimum track width",
-        netIntent.minTrackWidthMm,
-        native.trackWidth,
-      );
-      if (netIntent.maxTrackWidthMm !== undefined &&
-        netIntent.maxTrackWidthMm < native.trackWidth.minMm) {
-        error(
-          diagnostics,
-          "RULE_CONFLICT",
-          `${path}.maxTrackWidthMm`,
-          `Maximum track width ${netIntent.maxTrackWidthMm} mm leaves no value at or above ` +
-            `the native minimum ${native.trackWidth.minMm} mm.`,
-        );
-      }
-      if (netIntent.minTrackWidthMm !== undefined &&
-        netIntent.maxTrackWidthMm !== undefined &&
-        netIntent.minTrackWidthMm > netIntent.maxTrackWidthMm) {
-        error(
-          diagnostics,
-          "RULE_CONFLICT",
-          path,
-          "minTrackWidthMm exceeds maxTrackWidthMm.",
-        );
-      }
-      if (netIntent.via) {
-        required.add("vias");
-        viaInRange(diagnostics, `${path}.via`, netIntent.via, native.via);
-      }
-      continue;
-    }
-
-    explicitValueInRange(
-      diagnostics,
-      `${path}.trackWidthMm`,
-      "Track width",
-      netIntent.trackWidthMm,
-      native.trackWidth,
-    );
-    clearanceDoesNotWeaken(
-      diagnostics,
-      `${path}.clearanceMm`,
-      netIntent.clearanceMm,
-      native.clearanceMm,
-    );
-    if (netIntent.allowedLayers) resolveLayers(netIntent.allowedLayers, `${path}.allowedLayers`);
-    if (netIntent.via) {
-      required.add("vias");
-      viaInRange(diagnostics, `${path}.via`, netIntent.via, native.via);
-    }
-    checkImpedance(netIntent.impedance, `${path}.impedance`);
-
-    // RawPcbV1 intentionally has no compiled max-length field yet. When a
-    // future capture provides one, enforce the same max-only intersection.
-    const nativeMaximumLength = native.maxLengthMm;
-    maximumDoesNotWeaken(
-      diagnostics,
-      `${path}.maxLengthMm`,
-      "Maximum length",
-      netIntent.maxLengthMm,
-      nativeMaximumLength,
-    );
-  }
-
-  const differentialPairs = new Map<string, DifferentialPairIntent>();
-  for (const special of intent.special) {
-    if (special.kind === "differential-pair") differentialPairs.set(special.id, special);
-  }
-
-  for (const [index, special] of intent.special.entries()) {
-    const path = `$.special[${index}]`;
-    if (special.kind === "matched-group") {
-      required.add("matched-length");
-      special.members.forEach((member, memberIndex) => {
-        if (member.kind === "differential-pair" && !differentialPairs.has(member.id)) {
-          error(
-            diagnostics,
-            "RULE_CONFLICT",
-            `${path}.members[${memberIndex}].id`,
-            `Differential-pair member ${JSON.stringify(member.id)} is not declared in this intent.`,
-          );
-        }
-      });
-      if (special.toleranceMm === undefined) {
-        const memberNetIds = special.members.flatMap((member) => {
-          if (member.kind === "net") return [netsByName.get(member.net)?.id].filter((id): id is string => Boolean(id));
-          const pair = differentialPairs.get(member.id);
-          return pair ? [netsByName.get(pair.positiveNet)?.id, netsByName.get(pair.negativeNet)?.id]
-            .filter((id): id is string => Boolean(id)) : [];
-        }).sort();
-        const nativeGroup = snapshot.rawPcb.rules.matchedGroups?.find((group) =>
-          [...group.netIds].sort().join("\u0000") === memberNetIds.join("\u0000")
-        );
-        if (!nativeGroup) {
-          error(diagnostics, "UNSUPPORTED_CONSTRAINT", `${path}.toleranceMm`, "Matched-group tolerance is omitted and no exact compiled native group exists.");
-        }
-      }
-      continue;
-    }
-
-    required.add("differential-pairs");
-    const positiveRules = rulesForNet(special.positiveNet);
-    const negativeRules = rulesForNet(special.negativeNet);
-    if (!positiveRules || !negativeRules) continue;
-
-    const trackWidthRange = intersectRanges(
-      diagnostics,
-      `${path}.trackWidthMm`,
-      "Differential-pair track width",
-      [positiveRules.trackWidth, negativeRules.trackWidth],
-    );
-    if (trackWidthRange) explicitValueInRange(
-      diagnostics,
-      `${path}.trackWidthMm`,
-      "Differential-pair track width",
-      special.trackWidthMm,
-      trackWidthRange,
-    );
-
-    const pairRules = [positiveRules.diffPair, negativeRules.diffPair].filter(
-      (value): value is NonNullable<CompiledRuleValuesV1["diffPair"]> => value !== undefined,
-    );
-    const gapRange = intersectRanges(
-      diagnostics,
-      `${path}.gapMm`,
-      "Differential-pair gap",
-      pairRules.map((nativePair) => nativePair.gapMm),
-    );
-    if (gapRange) explicitValueInRange(
-      diagnostics,
-      `${path}.gapMm`,
-      "Differential-pair gap",
-      special.gapMm,
-      gapRange,
-    );
-    const nativeMaximumSkew = pairRules
-      .map((nativePair) => nativePair.maxSkewMm)
-      .filter((value): value is number => value !== undefined)
-      .reduce<number | undefined>(
-        (smallest, value) => smallest === undefined ? value : Math.min(smallest, value),
-        undefined,
-      );
-    maximumDoesNotWeaken(
-      diagnostics,
-      `${path}.maxSkewMm`,
-      "Maximum differential-pair skew",
-      special.maxSkewMm,
-      nativeMaximumSkew,
-    );
-    const nativeMaximumUncoupled = pairRules
-      .map((nativePair) => nativePair.maxUncoupledLengthMm)
-      .filter((value): value is number => value !== undefined)
-      .reduce<number | undefined>(
-        (smallest, value) => smallest === undefined ? value : Math.min(smallest, value),
-        undefined,
-      );
-    maximumDoesNotWeaken(
-      diagnostics,
-      `${path}.maxUncoupledLengthMm`,
-      "Maximum uncoupled length",
-      special.maxUncoupledLengthMm,
-      nativeMaximumUncoupled,
-    );
-    // Pair rules are fully compiled per net; the intersections above prevent
-    // the backend from silently choosing one member's weaker values.
-    if (special.allowedLayers) resolveLayers(special.allowedLayers, `${path}.allowedLayers`);
-    checkImpedance(special.impedance, `${path}.impedance`);
-  }
-
-  const hasExistingCopper = snapshot.rawPcb.copper.tracks.length > 0 ||
-    snapshot.rawPcb.copper.arcs.length > 0 ||
-    snapshot.rawPcb.copper.vias.length > 0 ||
-    snapshot.rawPcb.copper.zones.length > 0;
-  if (hasExistingCopper || intent.copper.length > 0) required.add("preserve-existing-copper");
-
-  const requiredCapabilities = CAPABILITY_ORDER.filter((capability) => required.has(capability));
-  const declaredCapabilities = options.backendCapabilities === undefined
-    ? undefined
-    : new Set(
-      Array.isArray(options.backendCapabilities)
-        ? options.backendCapabilities as readonly RouterCapability[]
-        : (options.backendCapabilities as RouterBackendCapabilities).supported,
-    );
-  if (declaredCapabilities) {
-    const missing = requiredCapabilities.filter((capability) => !declaredCapabilities.has(capability));
-    if (missing.length > 0) {
-      error(
-        diagnostics,
-        "UNSUPPORTED_CONSTRAINT",
-        "$.backendCapabilities",
-        `Backend lacks required capabilities: ${missing.join(", ")}.`,
-        { missing },
-      );
-    }
-  }
-
+function pairRules(base: RoutingRuleValues, pair: DifferentialPairIntent, board: RoutingBoard): RoutingRuleValues {
+  const absolute = applyAbsolute(base, pair, board)
   return {
-    valid: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
-    requiredCapabilities,
+    ...absolute,
+    differential: {
+      trackWidthMm: pair.trackWidthMm ?? base.differential?.trackWidthMm ?? absolute.preferredTrackWidthMm,
+      gapMm: pair.gapMm ?? base.differential?.gapMm ?? base.clearanceMm,
+      ...(pair.maxSkewMm ?? base.differential?.maxSkewMm) === undefined ? {} : {
+        maxSkewMm: pair.maxSkewMm ?? base.differential?.maxSkewMm,
+      },
+      ...(pair.maxUncoupledLengthMm ?? base.differential?.maxUncoupledLengthMm) === undefined ? {} : {
+        maxUncoupledLengthMm: pair.maxUncoupledLengthMm ?? base.differential?.maxUncoupledLengthMm,
+      },
+    },
+  }
+}
+
+export function compileRoutingRules(
+  board: RoutingBoard,
+  program: RoutingProgram,
+  backendCapabilities?: RouterBackendCapabilities,
+): CompiledRoutingRules {
+  const diagnostics = [...validateRoutingProgram(program).diagnostics]
+  const knownNets = new Set(board.nets.map((net) => net.name))
+  const knownLayers = new Set(board.layers.map((layer) => layer.name))
+  const byNet = new Map(board.nets.map((net) => [net.name, valuesForNet(board.rules, net.name)]))
+  const originalByNet = new Map(byNet)
+  const required = new Set<RouterCapability>()
+
+  const checkNet = (net: string) => {
+    if (!knownNets.has(net)) diagnostics.push(diagnostic("DSL_UNKNOWN_NET", `Net ${net} does not exist.`))
+  }
+  const checkLayers = (selector?: LayerSelector) => {
+    for (const layer of selectedLayers(board, selector)) if (!knownLayers.has(layer)) {
+      diagnostics.push(diagnostic("DSL_UNKNOWN_LAYER", `Copper layer ${layer} does not exist.`))
+    }
+  }
+
+  for (const polygon of program.polygons) {
+    required.add("zones")
+    checkNet(polygon.net)
+    checkLayers(polygon.layers)
+    for (const target of polygon.targets) {
+      if (target.kind === "net") checkNet(target.net)
+      else {
+        const pad = board.pads.find((item) => item.component === target.component && item.number === target.pad)
+        if (!pad) diagnostics.push(diagnostic("DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`))
+        else if (pad.net !== polygon.net) diagnostics.push(diagnostic("DSL_PAD_NET_MISMATCH", `Pad ${target.component}.${target.pad} is not on ${polygon.net}.`))
+      }
+    }
+  }
+  for (const plane of program.planes) {
+    required.add("zones")
+    if (plane.stitching) required.add("plane-stitching")
+    checkNet(plane.net)
+    checkLayers(plane.layers)
+    if (plane.region.kind === "components") diagnostics.push(diagnostic("UNSUPPORTED_CONSTRAINT", "components(...) plane regions are reserved but not implemented."))
+  }
+  for (const signal of program.signalNets) {
+    checkNet(signal.net); checkLayers(signal.allowedLayers)
+    if (signal.impedance) required.add("impedance-controlled")
+    const base = byNet.get(signal.net) ?? board.rules.default
+    byNet.set(signal.net, applyAbsolute(base, signal, board))
+  }
+  const fallbackOz = program.manufacturing?.fallbackCopperThicknessOz
+    ?? board.stackup?.fallbackCopperThicknessOz ?? 1
+  const widthCeiling = program.manufacturing?.maxTrackWidthMm ?? 10
+  const platingUm = program.manufacturing?.viaPlatingThicknessUm ?? DEFAULT_VIA_PLATING_UM
+  for (const power of program.powerNets) {
+    checkNet(power.net); checkLayers(power.allowedLayers)
+    const base = byNet.get(power.net) ?? board.rules.default
+    const physicalWidth = power.maxCurrentA === undefined ? 0 : Math.max(...copperThicknesses(
+      board, power.allowedLayers, fallbackOz,
+    ).map((layer) => calculateTrackWidthMm(
+      power.maxCurrentA!, power.maxTempRiseC ?? DEFAULT_TEMP_RISE_C, layer.thicknessMm, layer.external,
+    )))
+    const requiredWidth = roundedUp(Math.max(base.minTrackWidthMm, physicalWidth, power.minTrackWidthMm ?? 0))
+    const maximum = Math.min(power.maxTrackWidthMm ?? widthCeiling, 10)
+    if (requiredWidth > maximum + EPSILON) diagnostics.push(diagnostic(
+      "DSL_RULE_CONFLICT", `${power.net} needs ${requiredWidth.toFixed(2)} mm copper, above maxTrackWidthMm=${maximum.toFixed(2)} mm.`,
+    ))
+    const explicit = applyAbsolute(base, { ...power, minTrackWidthMm: requiredWidth }, board)
+    const requiredArea = requiredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
+    const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
+    byNet.set(power.net, {
+      ...explicit,
+      preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, requiredWidth),
+    })
+    if (!Number.isFinite(requiredArea / barrelArea)) diagnostics.push(diagnostic("DSL_VIA_CONFLICT", `${power.net} has invalid via current geometry.`))
+  }
+  for (const pair of program.differentialPairs) {
+    required.add("differential-pairs")
+    if (pair.impedance) required.add("impedance-controlled")
+    checkNet(pair.positive); checkNet(pair.negative); checkLayers(pair.allowedLayers)
+    const positiveBase = byNet.get(pair.positive) ?? board.rules.default
+    const negativeBase = byNet.get(pair.negative) ?? board.rules.default
+    byNet.set(pair.positive, pairRules(positiveBase, pair, board))
+    byNet.set(pair.negative, pairRules(negativeBase, pair, board))
+  }
+  const matchedGroups = [...(board.rules.matchedGroups ?? [])]
+  for (const group of program.matchedGroups) {
+    required.add("matched-length")
+    for (const net of group.nets) checkNet(net)
+    const inherited = matchedGroups.find((item) => item.id === group.id)
+    const toleranceMm = group.toleranceMm ?? inherited?.toleranceMm
+    if (toleranceMm === undefined) diagnostics.push(diagnostic(
+      "DSL_MATCH_TOLERANCE_REQUIRED", `${group.id} needs toleranceMm because no source rule supplies it.`,
+    ))
+    else {
+      const index = matchedGroups.findIndex((item) => item.id === group.id)
+      const replacement = { id: group.id, nets: [...group.nets], toleranceMm }
+      if (index >= 0) matchedGroups[index] = replacement
+      else matchedGroups.push(replacement)
+    }
+  }
+  if (program.operation !== "apply-drc") required.add("ordinary-routing")
+  const effective: RoutingRules = {
+    default: board.rules.default,
+    nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),
+    ...(matchedGroups.length ? { matchedGroups } : {}),
+  }
+  const overriddenFields = effective.nets.flatMap(({ net, values }) => changed(
+    { net }, originalByNet.get(net) ?? board.rules.default, values,
+  ))
+  if (program.operation === "route") {
+    const weakening = overriddenFields.filter((item) => {
+      if (typeof item.source !== "number" || typeof item.effective !== "number") return false
+      if (/maxLength|maxSkew|maxUncoupled|tolerance/i.test(item.field)) return item.effective > item.source
+      return /clearance|minTrackWidth|diameter|drill|gap/i.test(item.field) && item.effective < item.source
+    })
+    if (weakening.length) diagnostics.push(diagnostic(
+      "DRC_APPLY_REQUIRED", "runRouting() cannot use rules weaker than unchanged source DRC; use runAll().", weakening,
+    ))
+  }
+  if (backendCapabilities) {
+    const supported = new Set(backendCapabilities.supported)
+    const missing = [...required].filter((capability) => !supported.has(capability))
+    if (missing.length) diagnostics.push(diagnostic("CAPABILITY_MISMATCH", "Backend lacks required capabilities.", { missing }))
+    if (backendCapabilities.maxCopperLayers !== undefined && board.layers.length > backendCapabilities.maxCopperLayers) {
+      diagnostics.push(diagnostic("CAPABILITY_MISMATCH", "Backend copper-layer limit is too small.", {
+        actual: board.layers.length, maximum: backendCapabilities.maxCopperLayers,
+      }))
+    }
+  }
+  return {
+    effective,
+    overriddenFields,
     diagnostics,
-  };
+    requiredCapabilities: [...required],
+  }
 }

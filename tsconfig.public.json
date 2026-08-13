@@ -14,7 +14,6 @@
     "src/schema.ts",
     "src/core/**/*.ts",
     "src/intent/**/*.ts",
-    "src/adapters/contracts.ts",
-    "src/adapters/legacy-raw.ts"
+    "src/adapters/contracts.ts"
   ]
 }

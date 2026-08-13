@@ -1,10 +1,12 @@
 import type {
-  CoreStatus,
-  PcbPatchOperationV1,
-  PcbPatchV1,
-  PcbSnapshotV1,
+  RoutingBoard,
+  RoutingCopper,
   RoutingDiagnostic,
+  RoutingMetrics,
+  RoutingResult,
+  RoutingRules,
 } from "../core/contracts.js"
+import type { CompiledRoutingProgram, RoutingPolicy } from "../intent/types.js"
 
 export type RouterCapability =
   | "ordinary-routing"
@@ -14,48 +16,35 @@ export type RouterCapability =
   | "differential-pairs"
   | "matched-length"
   | "impedance-controlled"
-  | "preserve-existing-copper"
+  | "preserve-fixed-copper"
 
 export type RouterBackendCapabilities = Readonly<{
   supported: readonly RouterCapability[]
   maxCopperLayers?: number
 }>
 
-export type BackendRouteRequest<TIntent = unknown> = Readonly<{
-  snapshot: PcbSnapshotV1
-  intent: TIntent
-  scope: "full" | "declared-only"
-  policy?: unknown
+export type BackendRouteRequest = Readonly<{
+  board: RoutingBoard
+  program: CompiledRoutingProgram
+  rules: RoutingRules
+  policy?: RoutingPolicy
   signal?: AbortSignal
-}>
-
-export type BackendPreflightResult = Readonly<{
-  diagnostics: readonly RoutingDiagnostic[]
 }>
 
 export type BackendRouteResult = Readonly<{
-  operations: readonly PcbPatchOperationV1[]
+  status: "complete" | "partial" | "error"
+  copper: RoutingCopper
   diagnostics?: readonly RoutingDiagnostic[]
-  coreStatus?: CoreStatus
+  metrics?: Partial<RoutingMetrics>
 }>
 
-/**
- * A backend receives only the normalized snapshot and serializable intent.
- * It must not call KiCad, EasyEDA, or another board editor.
- */
-export interface RouterBackendAdapter<TIntent = unknown> {
+/** Backends only translate normalized routing data to and from an engine. */
+export interface RouterBackendAdapter {
   readonly id: string
-  readonly version: string
   readonly capabilities: RouterBackendCapabilities
-  preflight?(
-    request: BackendRouteRequest<TIntent>,
-  ): BackendPreflightResult | Promise<BackendPreflightResult>
-  route(request: BackendRouteRequest<TIntent>): Promise<BackendRouteResult>
+  preflight?(request: BackendRouteRequest): readonly RoutingDiagnostic[] | Promise<readonly RoutingDiagnostic[]>
+  route(request: BackendRouteRequest): Promise<BackendRouteResult>
 }
-
-export type BoardCaptureContext = Readonly<{
-  signal?: AbortSignal
-}>
 
 export type BoardApplyContext = Readonly<{
   signal?: AbortSignal
@@ -69,18 +58,13 @@ export type BoardApplyResult<TOutput> = Readonly<{
   nativeVerification: "passed" | "failed" | "not-run"
 }>
 
-/**
- * The only EDA-aware boundary. A host captures once, runs the core while the
- * EDA is absent, then applies one patch. Adapter implementations own all
- * native transaction, refill, and DRC behavior.
- */
+/** EDA conversion lives outside the router core. */
 export interface BoardFormatAdapter<TInput = unknown, TOutput = TInput> {
   readonly id: string
-  readonly version: string
-  capture(input: TInput, context?: BoardCaptureContext): Promise<PcbSnapshotV1>
+  import(input: TInput, context?: Readonly<{ signal?: AbortSignal }>): Promise<RoutingBoard>
   apply(
     input: TInput,
-    patch: PcbPatchV1,
+    result: RoutingResult,
     context?: BoardApplyContext,
   ): Promise<BoardApplyResult<TOutput>>
 }
