@@ -42,7 +42,10 @@ In particular:
 - `pad`, `net`, `board`, and `components` retain their meanings;
 - polygon geometry is semantic and contains no generated coordinates;
 - `components(...)` remains reserved until implemented;
-- omission of stitching does not silently enable it.
+- omission of stitching does not silently enable it;
+- zone priority is not exposed by the DSL. The core assigns it
+  deterministically: compact polygons precede board-wide planes, and a
+  board-wide GND plane receives the lowest internal priority.
 
 ## Rule statements
 
@@ -54,7 +57,7 @@ The target rule vocabulary covers:
 
 - an ordinary net rule: width, clearance, allowed layers, via geometry, and
   optional length/impedance requirements;
-- a power net rule: exactly one of maximum current or explicit minimum width,
+- a power net rule: optional maximum current and/or explicit minimum width,
   optional temperature rise (default 16 C), width ceiling (absolute maximum
   10 mm), and via-current intent;
 - differential pair membership and optional width, gap, impedance, skew,
@@ -110,6 +113,12 @@ taps and may neck down to `tapWidthMm` (default `drc-min`). Power width and
 parallel-via requirements apply to the trunk, not to every control/sense pad.
 This distinction is required rather than guessed from geometry.
 
+`maxCurrentA` and `minTrackWidthMm` are compatible, not mutually exclusive. If
+both are present, the effective trunk minimum is the stricter of the
+current-derived width and the explicit minimum. If neither is present, the
+power net inherits its width from its named class or effective DRC. The DSL
+does not require an LLM to repeat a width already supplied by the board.
+
 ## Global DRC and named net classes
 
 `drc(...)` sets optional global/default fields. It is one structured statement;
@@ -160,6 +169,55 @@ When the terminal command is `applyDrcRules()` or `runAll()`, named DSL classes
 are persisted as real named net classes by capable KiCad/EasyEDA adapters, with
 their exact net assignments. `runRouting()` may use the effective class without
 requesting persistence, subject to the existing `DRC_APPLY_REQUIRED` rule.
+
+## Controlled impedance
+
+Impedance is a constraint inside `signalNet(...)` or `diffPair(...)`, not a
+separate top-level statement. The containing statement determines whether the
+target is single-ended or differential:
+
+```js
+signalNet("RF_IN_AC", {
+  impedance: {
+    targetOhm: 50,
+    tolerancePercent: 10,
+    topology: "microstrip",
+    reference: { net: "GND" },
+  },
+})
+
+diffPair("USB", {
+  positive: "USB_DP",
+  negative: "USB_DM",
+  impedance: {
+    targetOhm: 90,
+    tolerancePercent: 10,
+    topology: "microstrip",
+    reference: { net: "GND" },
+  },
+})
+```
+
+The reference layer is deliberately not part of the DSL. The compiler selects
+the nearest physically eligible copper carrying the requested reference net,
+using dielectric distance in the resolved stack. For stripline it resolves the
+nearest valid reference copper on both sides when the model requires both. The
+routed layer still comes from the net's effective `allowedLayers` rule.
+
+The first controlled-impedance contract supports `microstrip`, `stripline`, and
+`coplanar`. Topology, tolerance, and reference net may be omitted only when the
+imported board or assigned class resolves them unambiguously. The compiler
+never guesses a dielectric thickness, relative permittivity, or nonexistent
+reference plane. If no suitable reference copper can be proven, preflight
+reports `IMPEDANCE_REFERENCE_NOT_FOUND`.
+
+For microstrip and stripline the compiler normally derives track width. A
+coplanar constraint has two geometric variables: when an explicit or inherited
+preferred width exists, the compiler derives the coplanar gap; when an explicit
+gap exists, it may derive the width. If both are explicit, it validates them;
+if neither variable can be anchored, the declaration is ambiguous and fails
+preflight. Explicit width/gap constraints and the semantic impedance target
+must have a non-empty common solution.
 
 ## Physical stack
 
@@ -311,14 +369,15 @@ Optional geometry controls are deliberately small:
 viaFence("RF_FENCE", {
   along: ["RF_IN_AC"],
   net: "GND",
-  sides: "both",
   pitchMm: 0.8,
   offsetMm: 0.6,
   via: { diameterMm: 0.5, drillMm: 0.25 },
 })
 ```
 
-- `sides` defaults to `"both"` and may also select one side;
+- the first contract always places candidates on both sides of the retained
+  routed path. There is no `sides` option until a portable directed-path
+  selector can define left and right without ambiguity;
 - omitted via geometry is inherited from effective DRC for the fence net;
 - omitted `offsetMm` is the closest DRC-correct offset derived from the routed
   signal width, effective clearance, and via diameter;
@@ -362,7 +421,6 @@ available in KRT and meaningful for other backends:
 - AC-coupled differential-pair matching;
 - automatic return vias near differential-pair signal vias, distinct from the
   explicit net-assigned `viaFence(...)` statement;
-- microstrip or coplanar impedance intent;
 - component fanout intent (`auto`, `bga`, or `qfn`);
 - teardrop post-processing;
 - `onlyComponents(...)` as a portable scope selector.

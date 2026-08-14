@@ -85,9 +85,10 @@ only when a routing feature such as `components(...)` regions needs them.
 
 `RoutedTrack` is a width plus a polyline on one copper layer. `RoutedVia`
 contains position, finished geometry, and layer span. `RoutedZone` is a native
-copper-zone intent: net, layer set, outline, priority, and connection settings.
-It is not an editor-specific filled-polygon cache. Exact fill belongs to the
-target EDA.
+copper-zone intent: net, layer set, outline, compiler-assigned priority, and
+connection settings. Zone priority is an internal deterministic output detail,
+not a router DSL field. `RoutedZone` is not an editor-specific filled-polygon
+cache. Exact fill belongs to the target EDA.
 
 Core postprocessors such as `viaFence(...)` return normal `RoutedVia` objects.
 Their provenance may be retained in diagnostics or metrics, but it does not
