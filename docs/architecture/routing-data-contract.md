@@ -89,6 +89,11 @@ copper-zone intent: net, layer set, outline, priority, and connection settings.
 It is not an editor-specific filled-polygon cache. Exact fill belongs to the
 target EDA.
 
+Core postprocessors such as `viaFence(...)` return normal `RoutedVia` objects.
+Their provenance may be retained in diagnostics or metrics, but it does not
+create another copper primitive or imply electrical connection merely because
+a net is assigned.
+
 ## Copper ownership
 
 Input `fixed` copper is immutable. It may be used as an obstacle and electrical

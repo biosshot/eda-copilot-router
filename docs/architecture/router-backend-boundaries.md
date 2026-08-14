@@ -38,8 +38,10 @@ The complete-cycle implementation uses adapters and six ordered stages:
 1. Plan all requested power polygons, apply every ready outline, and run the
    native EDA refill.
 2. Invoke the backend once for all special nets: every declared differential
-   pair and every explicit equal-length group. Persist these nets as protected
-   copper and run native refill before the next backend invocation.
+   pair, every explicit equal-length group, and every net followed by a
+   `viaFence(...)` statement. After routing, the core materializes requested via
+   fences from the retained special-track geometry. Persist this copper as
+   protected and run native refill before the next backend invocation.
 3. Invoke the same backend once for all remaining non-GND nets, excluding the
    special nets from the ordinary pass.
 4. Refill, derive the exact residual ordinary-net set, and run a bounded
@@ -123,6 +125,14 @@ pass cannot reinterpret or replace them as independent nets. Their exact
 segment/arc/via geometry is also protected in backend project metadata and
 compared after the pass; net-count equality is insufficient because a
 same-count reroute can still destroy coupling or matching.
+
+`viaFence(...)` does not add a backend-specific route job or a seventh stage.
+Its `along` nets join the same special scope, then a core-owned postprocessor
+places ordinary net-assigned vias beside their routed tracks. A backend need
+not understand via fences, but it must preserve selected special copper and the
+remaining pass must treat the emitted vias as fixed obstacles. The presence of
+a fence via does not prove connectivity to a plane or other same-net copper;
+that remains a final native connectivity question.
 
 ## Stage diagnostics and final validity
 

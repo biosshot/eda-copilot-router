@@ -281,6 +281,76 @@ quality policy   = portable search objective
 backend adapter  = engine-specific tuning
 ```
 
+## Via fences
+
+`viaFence(...)` is a portable special-routing statement. It marks every net in
+`along` as special, routes those nets in the existing special stage alongside
+differential pairs and matched groups, and then adds a via array next to their
+actual retained track geometry before the remaining-routing stage starts.
+
+```js
+viaFence("RF_FENCE", {
+  along: [
+    "Net-(C1-Pad1)",
+    "RF_IN_AC",
+    "RF_OUT_DC",
+    "Net-(C5-Pad2)",
+  ],
+  net: "GND",
+})
+```
+
+The first argument is a stable fence name. `along` is a non-empty exact net
+list; it is not a net-name pattern. `net` is the net assigned to every emitted
+via. A fence is independent of impedance intent and may follow any routable
+net, not only a differential pair or RF net.
+
+Optional geometry controls are deliberately small:
+
+```js
+viaFence("RF_FENCE", {
+  along: ["RF_IN_AC"],
+  net: "GND",
+  sides: "both",
+  pitchMm: 0.8,
+  offsetMm: 0.6,
+  via: { diameterMm: 0.5, drillMm: 0.25 },
+})
+```
+
+- `sides` defaults to `"both"` and may also select one side;
+- omitted via geometry is inherited from effective DRC for the fence net;
+- omitted `offsetMm` is the closest DRC-correct offset derived from the routed
+  signal width, effective clearance, and via diameter;
+- omitted `pitchMm` selects a dense, DRC-correct automatic pitch;
+- explicit values are requirements, not suggestions, and are rejected when
+  they conflict with effective rules.
+
+The feature adds no workflow phase and requires no via-fence implementation in
+an external router backend. The backend routes the special `along` nets; the
+router core post-processes their resulting tracks into via candidates. The
+generated vias are present before remaining routing and therefore act as normal
+obstacles for that pass.
+
+A via fence is not a plane or zone generator. A fence via may be assigned to
+`GND` without any GND plane in the same run. Net assignment alone does not
+claim that the via is electrically connected; later native copper, plane fill,
+or other routing must provide that connection, and final native verification
+is authoritative. Fence vias are ordinary `RoutingResult.copper.vias`; there
+is no fence-specific output geometry type and they do not create implicit
+preconnected pad groups.
+
+Placement is best-effort without weakening DRC:
+
+- a candidate that conflicts with pads, tracks, vias, zones, keepouts, the
+  board edge, or effective via rules is skipped;
+- an incomplete `along` net produces a fence only on available retained track
+  segments and records a diagnostic;
+- if no candidate can be placed, the statement records
+  `VIA_FENCE_NOT_PLACED` and remaining routing still runs;
+- intermediate fence diagnostics do not decide board validity; the final
+  native verification does.
+
 ## Portable advanced routing statements
 
 The next contract reserves portable statements/options for capabilities already
@@ -290,7 +360,8 @@ available in KRT and meaningful for other backends:
 - `matchedGroup(...)` with exactly one of length tolerance in millimetres or
   propagation-delay tolerance in picoseconds;
 - AC-coupled differential-pair matching;
-- automatic return vias near differential-pair signal vias;
+- automatic return vias near differential-pair signal vias, distinct from the
+  explicit net-assigned `viaFence(...)` statement;
 - microstrip or coplanar impedance intent;
 - component fanout intent (`auto`, `bga`, or `qfn`);
 - teardrop post-processing;
