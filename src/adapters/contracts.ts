@@ -53,6 +53,9 @@ export interface RouterBackendAdapter {
   readonly id: string
   readonly capabilities: RouterBackendCapabilities
   preflight?(request: BackendRouteRequest): readonly RoutingDiagnostic[] | Promise<readonly RoutingDiagnostic[]>
+  /** Optional portable split used by core-owned postprocessors such as viaFence. */
+  routeSpecial?(request: BackendRouteRequest): Promise<BackendRouteResult>
+  routeRemaining?(request: BackendRouteRequest): Promise<BackendRouteResult>
   route(request: BackendRouteRequest): Promise<BackendRouteResult>
 }
 

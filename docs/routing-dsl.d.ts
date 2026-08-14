@@ -1,84 +1,96 @@
 /**
- * Routing DSL globals. This file documents editor/LLM authoring only; a DSL
- * file is one sequence of statements and exactly one terminal command.
- * All dimensions are millimetres unless a field says otherwise.
+ * Local routing DSL. A file is a sequence of statements followed by exactly
+ * one of applyDrcRules(), runRouting(), or runAll(). Dimensions are mm.
+ * Omitted values inherit the imported board/DSN rules.
  */
 
-type LayerSelector = object;
+type PhysicalLayer = "TOP" | "BOTTOM" | `INNER_${number}`;
+type LayerSelector = PhysicalLayer | "OUTER" | "ALL" | PhysicalLayer[];
 type CopperTarget = object;
 type RegionSelector = object;
 
+interface ViaOptions {
+  diameterMm?: number;
+  drillMm?: number;
+  from?: PhysicalLayer;
+  to?: PhysicalLayer;
+  maxCount?: number;
+}
+
+interface RuleOptions {
+  trackWidthMm?: number;
+  minTrackWidthMm?: number;
+  preferredTrackWidthMm?: number;
+  clearanceMm?: number;
+  edgeClearanceMm?: number;
+  holeToHoleClearanceMm?: number;
+  allowedLayers?: LayerSelector;
+  via?: ViaOptions;
+}
+
+interface ImpedanceOptions {
+  targetOhm: number;
+  tolerancePercent?: number;
+  topology?: "microstrip" | "stripline" | "coplanar";
+  /** The nearest actual copper plane for this net is selected automatically. */
+  reference: { net: string };
+  coplanarGapMm?: number;
+}
+
 declare function pad(component: string, pad: string | number): CopperTarget;
 declare function net(name: string): CopperTarget;
-
-declare function topLayer(): LayerSelector;
-declare function bottomLayer(): LayerSelector;
-declare function outerLayers(): LayerSelector;
-declare function layers(...names: string[]): LayerSelector;
-
 declare function board(): RegionSelector;
-/** Reserved: component-bounded planes are validated but not generated yet. */
+/** Reserved and rejected until component-bounded regions are implemented. */
 declare function components(...designators: string[]): RegionSelector;
 
 interface PolygonBuilder {
   connect(...targets: CopperTarget[]): this;
   on(layers: LayerSelector): this;
-  compact(): this;
-  priority(value: number): this;
+  compact(options?: { maxPadFreeGapWidths?: number }): this;
   maxPadFreeGapWidths(value: number): this;
 }
 
 declare function polygon(net: string): PolygonBuilder;
-
-interface ViaOptions { diameterMm?: number; drillMm?: number }
-interface ImpedanceOptions { targetOhm: number; tolerancePercent?: number }
 
 declare function plane(options: {
   net: string;
   layers?: LayerSelector;
   region?: RegionSelector;
   paddingMm?: number;
-  priority?: number;
   stitching?: false | true | {
     gridMm?: number;
-    maxPadViaDistanceMm?: number;
-    via?: 'drc-min' | Required<ViaOptions>;
+    maxVisibleViaDistanceMm?: number;
+    via?: "drc-min" | Pick<ViaOptions, "diameterMm" | "drillMm">;
     viaInPad?: boolean;
     maxVias?: number;
   };
 }): void;
 
-declare function powerNet(net: string, options: {
-  maxCurrentA?: number;
-  maxTempRiseC?: number;
-  /** Preferred trunk width; short fine-pitch neck-downs may use the fixed 0.127 mm hard floor. */
-  minTrackWidthMm?: number;
-  maxTrackWidthMm?: number;
-  clearanceMm?: number;
-  allowedLayers?: LayerSelector;
-  via?: ViaOptions;
-}): void;
+declare function drc(options: RuleOptions): void;
+declare function netClass(name: string, options: RuleOptions & { nets: string[] }): void;
 
-declare function signalNet(net: string, options?: {
-  trackWidthMm?: number;
-  minTrackWidthMm?: number;
-  clearanceMm?: number;
+declare function signalNet(net: string, options?: RuleOptions & {
+  netClass?: string;
   maxLengthMm?: number;
-  allowedLayers?: LayerSelector;
-  via?: ViaOptions;
   impedance?: ImpedanceOptions;
 }): void;
 
-declare function diffPair(id: string, options: {
+declare function powerNet(net: string, options?: RuleOptions & {
+  netClass?: string;
+  maxCurrentA?: number;
+  maxTempRiseC?: number;
+  maxTrackWidthMm?: number;
+  /** Pads carrying the trunk current. Other pads use tapWidthMm. */
+  powerPads?: CopperTarget[];
+  tapWidthMm?: number | "drc-min";
+}): void;
+
+declare function diffPair(id: string, options: RuleOptions & {
   positive: string;
   negative: string;
-  trackWidthMm?: number;
   gapMm?: number;
   maxSkewMm?: number;
   maxUncoupledLengthMm?: number;
-  clearanceMm?: number;
-  allowedLayers?: LayerSelector;
-  via?: ViaOptions;
   impedance?: ImpedanceOptions;
 }): void;
 
@@ -87,15 +99,45 @@ declare function matchedGroup(id: string, options: {
   toleranceMm?: number;
 }): void;
 
-declare function fabrication(options: {
+/** Route along[] in the existing special stage, then fence retained tracks on both sides. */
+declare function viaFence(id: string, options: {
+  along: string[];
+  net: string;
+  pitchMm?: number;
+  offsetMm?: number;
+  via?: Omit<ViaOptions, "maxCount">;
+}): void;
+
+declare function stack(options: {
+  boardThicknessMm?: number;
   fallbackCopperThicknessOz?: number;
   viaPlatingThicknessUm?: number;
   maxTrackWidthMm?: number;
+  layers?: Array<
+    | { kind: "copper"; name: PhysicalLayer; thicknessOz?: number; thicknessMm?: number }
+    | { kind: "dielectric"; name?: string; thicknessMm?: number; relativePermittivity?: number; lossTangent?: number; material?: string }
+  >;
+  solderMask?: {
+    top?: { thicknessMm?: number; relativePermittivity?: number };
+    bottom?: { thicknessMm?: number; relativePermittivity?: number };
+  };
 }): void;
 
-/** Write effective DRC rules only; no routing is run. */
+declare function quality(options: {
+  profile?: "fast" | "balanced" | "quality-first" | "completion-first";
+  /** 1..16; use at most 3 unless a broader portfolio is intentional. */
+  maxCandidates?: number;
+}): void;
+
+declare function onlyNets(...nets: string[]): void;
+declare function ignoreNets(...nets: string[]): void;
+declare function clearRouting(options?: {
+  nets?: "all" | string[];
+  /** Alias for nets, retained for natural agent requests. */
+  only?: string[];
+  items?: Array<"tracks" | "vias" | "zones">;
+}): void;
+
 declare function applyDrcRules(): void;
-/** Route using effective rules without persisting DSL rule overrides. */
 declare function runRouting(): void;
-/** Apply effective DRC rules and run all routing stages. */
 declare function runAll(): void;

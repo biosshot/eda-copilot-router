@@ -314,7 +314,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     error instanceof Error ? error.message : String(error),
     error instanceof RouterAssetError ? error.details : undefined,
   )
-  return {
+  const adapter: RouterBackendAdapter = {
     id: "krt",
     capabilities: {
       supported: [
@@ -366,9 +366,13 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
           ...request.program.matchedGroups.flatMap((group) => group.nets),
         ])
+        const inScope = (net: string) => (
+          (!request.program.onlyNets || request.program.onlyNets.includes(net))
+          && !request.program.ignoreNets.includes(net)
+        )
         const preconnected = fullyPreconnectedNets(request)
         const remainingNets = request.board.nets.map((item) => item.name).filter((net) => (
-          net.toUpperCase() !== "GND" && !allSpecial.has(net) && !preconnected.has(net)
+          net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net) && !preconnected.has(net)
           && request.board.pads.filter((pad) => pad.net === net).length >= 2
         ))
         const remainingValues = remainingNets.map((net) => ruleFor(request, net))
@@ -482,6 +486,38 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
       } finally {
         if (ownedTemporary && !options.keepArtifacts) await rm(root, { recursive: true, force: true }).catch(() => undefined)
       }
+    },
+  }
+  const specialMembers = (request: BackendRouteRequest) => [...new Set([
+    ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
+    ...request.program.matchedGroups.flatMap((group) => group.nets),
+    ...request.program.viaFences.flatMap((fence) => fence.along),
+  ])]
+  return {
+    ...adapter,
+    routeSpecial(request) {
+      const members = specialMembers(request)
+      return adapter.route({
+        ...request,
+        program: {
+          ...request.program,
+          signalNets: request.program.signalNets.filter((item) => members.includes(item.net)),
+          powerNets: request.program.powerNets.filter((item) => members.includes(item.net)),
+          onlyNets: members,
+          ignoreNets: request.board.nets.map((item) => item.name).filter((net) => !members.includes(net)),
+        },
+      })
+    },
+    routeRemaining(request) {
+      const members = specialMembers(request)
+      return adapter.route({
+        ...request,
+        program: {
+          ...request.program,
+          differentialPairs: [], matchedGroups: [], viaFences: [],
+          ignoreNets: [...new Set([...request.program.ignoreNets, ...members])],
+        },
+      })
     },
   }
 }

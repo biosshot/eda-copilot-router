@@ -126,6 +126,20 @@ assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC")
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.via.minParallelCount, 2)
 
+const namedClassResult = await api.run({
+  board,
+  dsl: `
+    drc({ clearanceMm: 0.22 })
+    netClass("RF", { nets: ["VCC"], trackWidthMm: 0.31 })
+    signalNet("VCC", { netClass: "RF" })
+    applyDrcRules()
+  `,
+})
+assert.equal(namedClassResult.status, "complete")
+assert.equal(namedClassResult.rules.effective.default.clearanceMm, 0.22)
+assert.equal(namedClassResult.rules.effective.netClasses[0].name, "RF")
+assert.equal(namedClassResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.31)
+
 const belowHardFloor = await api.run({
   board,
   dsl: `powerNet("VCC", { minTrackWidthMm: 0.1 }); applyDrcRules()`,
@@ -166,6 +180,43 @@ assert.equal(routed.rules.applyRequested, true)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
 
+const fenced = await api.run({
+  board,
+  backend,
+  dsl: `
+    viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 })
+    runAll()
+  `,
+})
+assert.equal(fenced.status, "complete")
+assert.ok(fenced.copper.vias.length > 0)
+assert.ok(fenced.copper.vias.every((via) => via.net === "GND"))
+assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:")))
+
+let remainingSawFence = false
+const stagedFenceBackend = {
+  ...backend,
+  async routeSpecial() {
+    return {
+      status: "complete",
+      copper: {
+        tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }],
+        vias: [], zones: [],
+      },
+    }
+  },
+  async routeRemaining(request) {
+    remainingSawFence = request.board.copper.fixed.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:"))
+    return { status: "complete", copper: emptyCopper }
+  },
+}
+const stagedFence = await api.run({
+  board, backend: stagedFenceBackend,
+  dsl: `viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
+})
+assert.equal(stagedFence.status, "complete")
+assert.equal(remainingSawFence, true, "remaining routing must see core-generated fence vias as fixed copper")
+
 const singleBalancedProfiles = []
 const singleBalancedBackend = {
   ...backend,
@@ -175,8 +226,7 @@ const singleBalancedBackend = {
   },
 }
 await api.run({
-  board, dsl: "runRouting()", backend: singleBalancedBackend,
-  policy: { profile: "balanced" },
+  board, dsl: `quality({ profile: "balanced", maxCandidates: 1 }); runRouting()`, backend: singleBalancedBackend,
 })
 assert.deepEqual(singleBalancedProfiles, ["balanced"], "one selected profile must mean one backend run")
 
@@ -281,7 +331,7 @@ const polygonResult = await api.run({
   board,
   backend: polygonBackend,
   dsl: `
-    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
     runRouting()
   `,
 })
@@ -304,7 +354,7 @@ const planeResult = await api.run({
   dsl: `
     plane({
       net: "VCC",
-      layers: outerLayers(),
+      layers: "OUTER",
       region: board(),
       stitching: { gridMm: 5, maxVias: 8 }
     })
@@ -326,8 +376,8 @@ const groundAndPowerResult = await api.run({
   backend: polygonBackend,
   dsl: `
     powerNet("VCC", { minTrackWidthMm: 1.85 })
-    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
-    plane({ net: "GND", layers: outerLayers(), region: board(), stitching: false })
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
+    plane({ net: "GND", layers: "OUTER", region: board(), stitching: false })
     runRouting()
   `,
 })
@@ -348,7 +398,7 @@ const weakOnlyRouting = await api.run({
 })
 assert.equal(weakOnlyRouting.status, "error")
 assert.ok(weakOnlyRouting.diagnostics.some((item) => item.code === "DRC_APPLY_REQUIRED"))
-assert.equal(backendCalls, 1, "preflight must reject before backend")
+assert.equal(backendCalls, 2, "preflight must reject before backend")
 
 const weakAll = await api.run({
   board,
@@ -357,7 +407,7 @@ const weakAll = await api.run({
 })
 assert.equal(weakAll.status, "complete")
 assert.equal(weakAll.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.1)
-assert.equal(backendCalls, 2)
+assert.equal(backendCalls, 3)
 
 let wasmCalls = 0
 let wasmInput
@@ -394,7 +444,7 @@ const wasmPolygonRouted = await api.run({
   board,
   backend: wasmBackend,
   dsl: `
-    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
     runRouting()
   `,
 })

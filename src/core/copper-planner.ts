@@ -45,10 +45,17 @@ function valuesForNet(rules: RoutingRules, net: string) {
 }
 
 function selectedLayers(board: RoutingBoard, selector: LayerSelector) {
+  if (selector.kind === "all") return board.layers.map((layer) => layer.name)
   if (selector.kind === "top") return board.layers.filter((layer) => layer.side === "top").map((layer) => layer.name)
   if (selector.kind === "bottom") return board.layers.filter((layer) => layer.side === "bottom").map((layer) => layer.name)
   if (selector.kind === "outer") return board.layers.filter((layer) => layer.side !== "inner").map((layer) => layer.name)
-  return [...selector.names]
+  const inner = board.layers.filter((layer) => layer.side === "inner").sort((left, right) => left.index - right.index)
+  return selector.names.map((name) => {
+    if (name === "TOP") return board.layers.find((layer) => layer.side === "top")?.name ?? name
+    if (name === "BOTTOM") return board.layers.find((layer) => layer.side === "bottom")?.name ?? name
+    const match = /^INNER_(\d+)$/.exec(name)
+    return match ? inner[Number(match[1]) - 1]?.name ?? name : name
+  })
 }
 
 function pointInRing(point: PointMm, ring: readonly PointMm[]) {
@@ -282,7 +289,7 @@ export function planRoutingCopper(
         net: plan.net,
         layers: [plan.layer],
         outline: { outer: plan.boundary },
-        priority: ROUTER_COMPACT_ZONE_PRIORITY_BASE + plan.intent.priority,
+        priority: ROUTER_COMPACT_ZONE_PRIORITY_BASE + index,
         minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
         connection: "solid",
       })
@@ -304,7 +311,7 @@ export function planRoutingCopper(
       outline: { outer: board.outline, holes: board.cutouts },
       priority: plane.net.toUpperCase() === "GND"
         ? 0
-        : ROUTER_COMPACT_ZONE_PRIORITY_BASE + plane.priority,
+        : ROUTER_COMPACT_ZONE_PRIORITY_BASE,
       minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
       connection: "solid",
     })

@@ -1,7 +1,9 @@
 import type { RoutingOperation } from "../core/contracts.js"
 
+/** Canonical, EDA-neutral copper-layer selector used by the compiled program. */
 export type LayerSelector =
   | Readonly<{ kind: "outer" }>
+  | Readonly<{ kind: "all" }>
   | Readonly<{ kind: "top" }>
   | Readonly<{ kind: "bottom" }>
   | Readonly<{ kind: "named"; names: readonly string[] }>
@@ -20,8 +22,16 @@ export type PolygonIntent = Readonly<{
   targets: readonly CopperTarget[]
   layers: LayerSelector
   mode: "compact"
+  /** Compiler-owned stable order. It is deliberately not authorable in the DSL. */
   priority: number
   maxPadFreeGapWidths: number
+}>
+
+export type ViaGeometryIntent = Readonly<{
+  diameterMm?: number
+  drillMm?: number
+  from?: string
+  to?: string
 }>
 
 export type PlaneStitchingIntent = false | Readonly<{
@@ -38,58 +48,76 @@ export type PlaneIntent = Readonly<{
   layers: LayerSelector
   region: RegionSelector
   paddingMm: number
+  /** Compiler-owned. Board-wide GND is always the lowest-priority zone. */
   priority: number
   stitching: PlaneStitchingIntent
 }>
 
-export type ViaConstraint = Readonly<{
-  diameterMm?: number
-  drillMm?: number
+export type ViaConstraint = ViaGeometryIntent & Readonly<{
+  maxCount?: number
 }>
+
+export type ImpedanceTopology = "microstrip" | "stripline" | "coplanar"
 
 export type ImpedanceConstraint = Readonly<{
   targetOhm: number
   tolerancePercent?: number
+  topology?: ImpedanceTopology
+  reference?: Readonly<{ net: string }>
+  /** Lateral ground gap for coplanar geometry. */
+  coplanarGapMm?: number
 }>
 
-export type SignalNetIntent = Readonly<{
-  kind: "signal-net"
-  net: string
+export type RuleIntent = Readonly<{
   trackWidthMm?: number
   minTrackWidthMm?: number
+  preferredTrackWidthMm?: number
   clearanceMm?: number
-  maxLengthMm?: number
+  edgeClearanceMm?: number
+  holeToHoleClearanceMm?: number
   allowedLayers?: LayerSelector
   via?: ViaConstraint
+}>
+
+export type DrcIntent = RuleIntent & Readonly<{
+  preferredTrackWidthMm?: number
+  holeToHoleClearanceMm?: number
+}>
+
+export type NetClassIntent = RuleIntent & Readonly<{
+  kind: "net-class"
+  name: string
+  nets: readonly string[]
+  preferredTrackWidthMm?: number
+}>
+
+export type SignalNetIntent = RuleIntent & Readonly<{
+  kind: "signal-net"
+  net: string
+  netClass?: string
+  maxLengthMm?: number
   impedance?: ImpedanceConstraint
 }>
 
-export type PowerNetIntent = Readonly<{
+export type PowerNetIntent = RuleIntent & Readonly<{
   kind: "power-net"
   net: string
-  /** Semantic requirement. May coexist with compatible absolute limits. */
+  netClass?: string
   maxCurrentA?: number
   maxTempRiseC?: number
-  /** Preferred trunk width when current is omitted; local neck-downs may use the fixed hard floor. */
-  minTrackWidthMm?: number
   maxTrackWidthMm?: number
-  clearanceMm?: number
-  allowedLayers?: LayerSelector
-  via?: ViaConstraint
+  powerPads?: readonly PadTarget[]
+  tapWidthMm?: number | "drc-min"
 }>
 
-export type DifferentialPairIntent = Readonly<{
+export type DifferentialPairIntent = RuleIntent & Readonly<{
   kind: "differential-pair"
   id: string
   positive: string
   negative: string
-  trackWidthMm?: number
   gapMm?: number
   maxSkewMm?: number
   maxUncoupledLengthMm?: number
-  clearanceMm?: number
-  allowedLayers?: LayerSelector
-  via?: ViaConstraint
   impedance?: ImpedanceConstraint
 }>
 
@@ -100,10 +128,55 @@ export type MatchedGroupIntent = Readonly<{
   toleranceMm?: number
 }>
 
-export type ManufacturingIntent = Readonly<{
+export type ViaFenceIntent = Readonly<{
+  kind: "via-fence"
+  id: string
+  along: readonly string[]
+  net: string
+  pitchMm?: number
+  offsetMm?: number
+  via?: ViaGeometryIntent
+}>
+
+export type StackCopperLayerIntent = Readonly<{
+  name: string
+  kind: "copper"
+  thicknessOz?: number
+  thicknessMm?: number
+}>
+
+export type StackDielectricLayerIntent = Readonly<{
+  name?: string
+  kind: "dielectric"
+  thicknessMm?: number
+  relativePermittivity?: number
+  lossTangent?: number
+  material?: string
+}>
+
+export type StackIntent = Readonly<{
+  boardThicknessMm?: number
   fallbackCopperThicknessOz?: number
   viaPlatingThicknessUm?: number
   maxTrackWidthMm?: number
+  layers?: readonly (StackCopperLayerIntent | StackDielectricLayerIntent)[]
+  solderMask?: Readonly<{
+    top?: Readonly<{ thicknessMm?: number; relativePermittivity?: number }>
+    bottom?: Readonly<{ thicknessMm?: number; relativePermittivity?: number }>
+  }>
+}>
+
+export type ClearRoutingIntent = Readonly<{
+  nets: "all" | readonly string[]
+  items: readonly ("tracks" | "vias" | "zones")[]
+}>
+
+export type RoutingProfile = "fast" | "completion-first" | "balanced" | "quality-first"
+
+export type RoutingPolicy = Readonly<{
+  profile?: RoutingProfile
+  maxCandidates?: number
+  meander?: Readonly<{ amplitudeMm?: number; spacingMm?: number }>
 }>
 
 export type RoutingProgram = Readonly<{
@@ -113,18 +186,15 @@ export type RoutingProgram = Readonly<{
   powerNets: readonly PowerNetIntent[]
   differentialPairs: readonly DifferentialPairIntent[]
   matchedGroups: readonly MatchedGroupIntent[]
-  manufacturing?: ManufacturingIntent
+  viaFences: readonly ViaFenceIntent[]
+  netClasses: readonly NetClassIntent[]
+  drc?: DrcIntent
+  stack?: StackIntent
+  quality?: RoutingPolicy
+  onlyNets?: readonly string[]
+  ignoreNets: readonly string[]
+  clearRouting?: ClearRoutingIntent
   operation: RoutingOperation
 }>
 
 export type CompiledRoutingProgram = RoutingProgram
-
-export type RoutingProfile = "fast" | "completion-first" | "balanced" | "quality-first"
-
-export type RoutingPolicy = Readonly<{
-  profile?: RoutingProfile
-  maxCandidates?: number
-  /** @deprecated Ignored. Cancel routing through RunRequest.signal. */
-  timeoutMs?: number
-  meander?: Readonly<{ amplitudeMm?: number; spacingMm?: number }>
-}>

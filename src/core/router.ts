@@ -1,7 +1,7 @@
 import type { BackendRouteRequest, BackendRouteResult, RouterBackendAdapter } from "../adapters/contracts.js"
 import { compileRoutingDsl } from "../intent/builder.js"
 import { compileRoutingRules } from "../intent/preflight.js"
-import type { RoutingPolicy, RoutingProfile, RoutingProgram } from "../intent/types.js"
+import type { ClearRoutingIntent, RoutingPolicy, RoutingProfile, RoutingProgram } from "../intent/types.js"
 import type {
   RoutingBoard,
   RoutingCopper,
@@ -10,6 +10,7 @@ import type {
 } from "./contracts.js"
 import { planRoutingCopper } from "./copper-planner.js"
 import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
+import { planViaFences } from "./via-fence.js"
 
 export type RunRequest = Readonly<{
   board: RoutingBoard
@@ -49,6 +50,29 @@ function mergeCopper(first: RoutingCopper, second: RoutingCopper): RoutingCopper
   }
 }
 
+function clearEditableCopper(copper: RoutingCopper, intent: ClearRoutingIntent): RoutingCopper {
+  const selected = (net: string) => intent.nets === "all" || intent.nets.includes(net)
+  return {
+    tracks: intent.items.includes("tracks") ? copper.tracks.filter((item) => !selected(item.net)) : copper.tracks,
+    vias: intent.items.includes("vias") ? copper.vias.filter((item) => !selected(item.net)) : copper.vias,
+    zones: intent.items.includes("zones") ? copper.zones.filter((item) => !selected(item.net)) : copper.zones,
+  }
+}
+
+function backendProgram(program: RoutingProgram): RoutingProgram {
+  const selected = (net: string) => (!program.onlyNets || program.onlyNets.includes(net)) && !program.ignoreNets.includes(net)
+  return {
+    ...program,
+    polygons: [],
+    planes: [],
+    signalNets: program.signalNets.filter((item) => selected(item.net)),
+    powerNets: program.powerNets.filter((item) => selected(item.net)),
+    differentialPairs: program.differentialPairs.filter((item) => selected(item.positive) && selected(item.negative)),
+    matchedGroups: program.matchedGroups.filter((item) => item.nets.every(selected)),
+    viaFences: program.viaFences.filter((item) => item.along.every(selected)),
+  }
+}
+
 type BackendCandidate = Readonly<{
   index: number
   profile: RoutingProfile
@@ -59,7 +83,7 @@ function profileCascade(policy: RoutingPolicy | undefined): RoutingProfile[] {
   const selected = policy?.profile ?? "balanced"
   const candidateLimit = Number(policy?.maxCandidates ?? 1)
   const requested = Number.isFinite(candidateLimit)
-    ? Math.max(1, Math.min(32, Math.trunc(candidateLimit)))
+    ? Math.max(1, Math.min(16, Math.trunc(candidateLimit)))
     : 1
   if (requested === 1 || selected === "fast") return [selected]
   const profiles: RoutingProfile[] = selected === "balanced"
@@ -110,10 +134,44 @@ async function routeCandidate(
   policy: RoutingPolicy | undefined,
   profile: RoutingProfile,
 ) {
-  return await backend.route({
+  const scoped = {
     ...request,
     policy: { ...policy, profile, maxCandidates: 1 },
+  }
+  if (!request.program.viaFences.length || !backend.routeSpecial || !backend.routeRemaining) {
+    return await backend.route(scoped)
+  }
+  const special = await backend.routeSpecial(scoped)
+  const fenceBoard: RoutingBoard = {
+    ...request.board,
+    copper: {
+      fixed: mergeCopper(request.board.copper.fixed, special.copper),
+      editable: request.board.copper.editable,
+    },
+  }
+  const fences = planViaFences(fenceBoard, special.copper, request.program.viaFences, request.rules)
+  const fenceCopper: RoutingCopper = { tracks: [], vias: fences.vias, zones: [] }
+  const remaining = await backend.routeRemaining({
+    ...scoped,
+    board: {
+      ...fenceBoard,
+      copper: { ...fenceBoard.copper, fixed: mergeCopper(fenceBoard.copper.fixed, fenceCopper) },
+    },
   })
+  const diagnostics = [...(special.diagnostics ?? []), ...fences.diagnostics, ...(remaining.diagnostics ?? [])]
+  return {
+    status: special.status === "error" || remaining.status === "error"
+      ? "error" as const
+      : special.status === "partial" || remaining.status === "partial" ? "partial" as const : "complete" as const,
+    copper: mergeCopper(mergeCopper(special.copper, fenceCopper), remaining.copper),
+    diagnostics,
+    metrics: {
+      ...remaining.metrics,
+      elapsedMs: Number(special.metrics?.elapsedMs ?? 0) + Number(remaining.metrics?.elapsedMs ?? 0),
+      viaCount: special.copper.vias.length + fences.vias.length + remaining.copper.vias.length,
+      details: { ...remaining.metrics?.details, special: special.metrics?.details, viaFenceCount: fences.vias.length },
+    },
+  }
 }
 
 /**
@@ -134,6 +192,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     )], startedAt)
   }
   const compiled = compileRoutingRules(request.board, program, request.backend?.capabilities)
+  const policy: RoutingPolicy = { ...program.quality, ...request.policy }
   const errors = compiled.diagnostics.filter((item) => item.severity === "error")
   const applyRequested = program.operation !== "route"
   if (errors.length) return {
@@ -170,7 +229,16 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   let planned: ReturnType<typeof planRoutingCopper>
   try {
-    planned = planRoutingCopper(request.board, program, compiled.effective, {
+    const cleared = program.clearRouting
+      ? {
+          ...request.board,
+          copper: {
+            ...request.board.copper,
+            editable: clearEditableCopper(request.board.copper.editable, program.clearRouting),
+          },
+        }
+      : request.board
+    planned = planRoutingCopper(cleared, program, compiled.effective, {
       compact: true,
       planes: false,
     })
@@ -194,21 +262,28 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
   }
-  const backendBoard: RoutingBoard = {
+  const transactionBoard: RoutingBoard = program.clearRouting ? {
     ...request.board,
     copper: {
+      ...request.board.copper,
+      editable: clearEditableCopper(request.board.copper.editable, program.clearRouting),
+    },
+  } : request.board
+  const backendBoard: RoutingBoard = {
+    ...transactionBoard,
+    copper: {
       fixed: mergeCopper(request.board.copper.fixed, planned.copper),
-      editable: request.board.copper.editable,
+      editable: transactionBoard.copper.editable,
     },
   }
   const backendRequest = {
     board: backendBoard,
     // Polygon and plane statements are core-owned. External backends receive
     // only electrical/special intent plus the already planned fixed copper.
-    program: { ...program, polygons: [], planes: [] },
+    program: backendProgram(program),
     rules: compiled.effective,
     connectivity: planned.connectivity,
-    ...(request.policy ? { policy: request.policy } : {}),
+    policy,
     ...(request.signal ? { signal: request.signal } : {}),
   }
   let backendPreflight: readonly RoutingDiagnostic[] = []
@@ -228,11 +303,11 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     requiresNativeVerification: true,
   }
   const candidates: BackendCandidate[] = []
-  const profiles = profileCascade(request.policy)
+  const profiles = profileCascade(policy)
   for (const profile of profiles) {
     if (request.signal?.aborted) break
     try {
-      const result = await routeCandidate(request.backend, backendRequest, request.policy, profile)
+      const result = await routeCandidate(request.backend, backendRequest, policy, profile)
       candidates.push({ index: candidates.length, profile, result })
       if (result.status === "complete" && finiteMetric(result.metrics?.openNetCount, 0) === 0) break
     } catch (error) {
@@ -274,23 +349,33 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   const backendResult = selected.result
 
   try {
-    const planeBoard: RoutingBoard = {
-      ...request.board,
+    const fenceBoard: RoutingBoard = {
+      ...transactionBoard,
       copper: {
-        fixed: mergeCopper(request.board.copper.fixed, planned.copper),
+        fixed: mergeCopper(transactionBoard.copper.fixed, planned.copper),
         editable: backendResult.copper,
       },
+    }
+    const alreadyFenced = backendResult.copper.vias.some((via) => String(via.id ?? "").startsWith("via-fence:"))
+    const fences = alreadyFenced
+      ? { vias: [], diagnostics: [] as RoutingDiagnostic[] }
+      : planViaFences(fenceBoard, backendResult.copper, backendProgram(program).viaFences, compiled.effective)
+    const routedWithFences = mergeCopper(backendResult.copper, { tracks: [], vias: fences.vias, zones: [] })
+    const planeBoard: RoutingBoard = {
+      ...fenceBoard,
+      copper: { ...fenceBoard.copper, editable: routedWithFences },
     }
     const planes = planRoutingCopper(planeBoard, program, compiled.effective, {
       compact: false,
       planes: true,
     })
-    const resultCopper = mergeCopper(mergeCopper(planned.copper, backendResult.copper), planes.copper)
+    const resultCopper = mergeCopper(mergeCopper(planned.copper, routedWithFences), planes.copper)
     const copperValidation = validateRoutingCopper(resultCopper, request.board)
     const diagnostics = [
       ...compiled.diagnostics,
       ...planned.diagnostics,
       ...planes.diagnostics,
+      ...fences.diagnostics,
       ...backendPreflight,
       ...(backendResult.diagnostics ?? []),
       ...copperValidation.diagnostics,

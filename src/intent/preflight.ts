@@ -4,6 +4,7 @@ import type {
   RoutingRuleOverride,
   RoutingRules,
   RoutingRuleValues,
+  RoutingStackup,
 } from "../core/contracts.js"
 import type { RouterBackendCapabilities, RouterCapability } from "../adapters/contracts.js"
 import type {
@@ -24,6 +25,156 @@ const WIDTH_GRID_MM = 0.05
  */
 export const HARD_MIN_TRACK_WIDTH_MM = 0.127
 const EPSILON = 1e-6
+
+function effectiveStackup(board: RoutingBoard, program: RoutingProgram): RoutingStackup | undefined {
+  if (!program.stack?.layers) return board.stackup
+  return {
+    fallbackCopperThicknessOz: program.stack.fallbackCopperThicknessOz
+      ?? board.stackup?.fallbackCopperThicknessOz ?? 1,
+    layers: program.stack.layers.map((layer) => layer.kind === "copper"
+      ? {
+          kind: "copper" as const,
+          layer: resolvePhysicalLayer(board, layer.name) ?? layer.name,
+          thicknessMm: layer.thicknessMm ?? (layer.thicknessOz
+            ?? program.stack?.fallbackCopperThicknessOz
+            ?? board.stackup?.fallbackCopperThicknessOz ?? 1) * COPPER_MM_PER_OZ,
+        }
+      : {
+          kind: "dielectric" as const,
+          thicknessMm: layer.thicknessMm ?? Number.NaN,
+          ...(layer.relativePermittivity === undefined ? {} : { relativePermittivity: layer.relativePermittivity }),
+          ...(layer.material === undefined ? {} : { material: layer.material }),
+        }),
+  }
+}
+
+function resolvePhysicalLayer(board: RoutingBoard, name: string) {
+  if (name === "TOP") return board.layers.find((layer) => layer.side === "top")?.name
+  if (name === "BOTTOM") return board.layers.find((layer) => layer.side === "bottom")?.name
+  const match = /^INNER_(\d+)$/.exec(name)
+  return match ? board.layers.filter((layer) => layer.side === "inner")
+    .sort((left, right) => left.index - right.index)[Number(match[1]) - 1]?.name : undefined
+}
+
+function referenceLayers(board: RoutingBoard, program: RoutingProgram, net: string) {
+  const names = new Set<string>()
+  for (const plane of program.planes.filter((item) => item.net === net)) {
+    for (const layer of selectedLayers(board, plane.layers)) names.add(layer)
+  }
+  for (const zone of [...board.copper.fixed.zones, ...board.copper.editable.zones]) {
+    if (zone.net === net) for (const layer of zone.layers) names.add(layer)
+  }
+  return names
+}
+
+function impedanceForMicrostrip(width: number, height: number, thickness: number, er: number) {
+  return 87 / Math.sqrt(er + 1.41) * Math.log(5.98 * height / (0.8 * width + thickness))
+}
+
+function solveSingleEndedWidth(targetOhm: number, height: number, thickness: number, er: number) {
+  return (5.98 * height / Math.exp(targetOhm * Math.sqrt(er + 1.41) / 87) - thickness) / 0.8
+}
+
+function nearestReference(
+  board: RoutingBoard,
+  program: RoutingProgram,
+  signalLayer: string,
+  referenceNet: string,
+) {
+  const stack = effectiveStackup(board, program)
+  if (!stack) return undefined
+  const copperIndexes = stack.layers.flatMap((layer, index) => layer.kind === "copper" ? [{ layer: layer.layer, index }] : [])
+  const signal = copperIndexes.find((item) => item.layer === signalLayer)
+  const references = referenceLayers(board, program, referenceNet)
+  if (!signal || !references.size) return undefined
+  const candidates = copperIndexes.filter((item) => references.has(item.layer))
+    .sort((left, right) => Math.abs(left.index - signal.index) - Math.abs(right.index - signal.index))
+  const reference = candidates[0]
+  if (!reference) return undefined
+  const low = Math.min(signal.index, reference.index)
+  const high = Math.max(signal.index, reference.index)
+  const dielectric = stack.layers.slice(low + 1, high).filter((layer) => layer.kind === "dielectric")
+  if (!dielectric.length || dielectric.some((layer) => !Number.isFinite(layer.thicknessMm)
+    || !Number.isFinite(layer.relativePermittivity))) return undefined
+  const heightMm = dielectric.reduce((total, layer) => total + layer.thicknessMm, 0)
+  const relativePermittivity = dielectric.reduce((total, layer) => (
+    total + layer.relativePermittivity! * layer.thicknessMm
+  ), 0) / heightMm
+  const copper = stack.layers[signal.index]
+  return copper.kind === "copper" ? {
+    layer: reference.layer,
+    heightMm,
+    relativePermittivity,
+    copperThicknessMm: copper.thicknessMm,
+  } : undefined
+}
+
+function applyImpedanceConstraint(
+  board: RoutingBoard,
+  program: RoutingProgram,
+  net: string,
+  base: RoutingRuleValues,
+  constraint: NonNullable<RoutingProgram["signalNets"][number]["impedance"]>,
+  diagnostics: RoutingDiagnostic[],
+  differentialGapMm?: number,
+) {
+  const topology = constraint.topology ?? "microstrip"
+  const referenceNet = constraint.reference?.net
+  const allowed = base.allowedLayers ?? board.layers.map((layer) => layer.name)
+  if (!referenceNet) {
+    diagnostics.push(diagnostic("IMPEDANCE_REFERENCE_REQUIRED", `${net} impedance requires reference.net.`))
+    return base
+  }
+  if (topology === "stripline") {
+    diagnostics.push(diagnostic("IMPEDANCE_TOPOLOGY_UNSUPPORTED", `${net} stripline needs two explicit reference planes; this solver currently supports microstrip/coplanar.`))
+    return base
+  }
+  const candidates = allowed.flatMap((layer) => {
+    const reference = nearestReference(board, program, layer, referenceNet)
+    if (!reference) return []
+    const singleTarget = differentialGapMm === undefined ? constraint.targetOhm : constraint.targetOhm / 2
+    let width = solveSingleEndedWidth(singleTarget, reference.heightMm, reference.copperThicknessMm, reference.relativePermittivity)
+    if (differentialGapMm !== undefined) {
+      for (let iteration = 0; iteration < 8; iteration += 1) {
+        const single = impedanceForMicrostrip(width, reference.heightMm, reference.copperThicknessMm, reference.relativePermittivity)
+        const factor = 2 * (1 - 0.48 * Math.exp(-0.96 * differentialGapMm / reference.heightMm))
+        width *= Math.max(0.25, Math.min(4, single * factor / constraint.targetOhm))
+      }
+    }
+    return Number.isFinite(width) && width > 0 ? [{ layer, reference, width }] : []
+  })
+  if (!candidates.length) {
+    diagnostics.push(diagnostic(
+      "IMPEDANCE_STACK_INCOMPLETE",
+      `${net} has no routable layer with a nearest ${referenceNet} plane and complete dielectric thickness/relativePermittivity.`,
+    ))
+    return base
+  }
+  candidates.sort((left, right) => left.width - right.width || left.layer.localeCompare(right.layer))
+  const selected = candidates[0]
+  const preferred = roundedUp(Math.max(base.minTrackWidthMm, selected.width))
+  const single = impedanceForMicrostrip(preferred, selected.reference.heightMm, selected.reference.copperThicknessMm, selected.reference.relativePermittivity)
+  const achieved = differentialGapMm === undefined ? single : single * 2
+    * (1 - 0.48 * Math.exp(-0.96 * differentialGapMm / selected.reference.heightMm))
+  const tolerance = constraint.tolerancePercent ?? 10
+  if (Math.abs(achieved - constraint.targetOhm) / constraint.targetOhm * 100 > tolerance + EPSILON) diagnostics.push(diagnostic(
+    "IMPEDANCE_TOLERANCE_UNREACHABLE",
+    `${net} resolves to ${achieved.toFixed(1)} ohm at ${preferred.toFixed(3)} mm, outside ±${tolerance}%.`,
+  ))
+  return {
+    ...base,
+    preferredTrackWidthMm: preferred,
+    impedanceOhm: constraint.targetOhm,
+    impedanceTolerancePercent: tolerance,
+    impedanceTopology: topology,
+    impedanceReferenceNet: referenceNet,
+    impedanceReferenceLayers: [selected.reference.layer],
+    allowedLayers: [selected.layer],
+    ...(differentialGapMm === undefined ? {} : {
+      differential: { ...(base.differential ?? { trackWidthMm: preferred, gapMm: differentialGapMm }), trackWidthMm: preferred, gapMm: differentialGapMm },
+    }),
+  }
+}
 
 export type CompiledRoutingRules = Readonly<{
   effective: RoutingRules
@@ -58,10 +209,11 @@ export function calculateTrackWidthMm(
 
 function selectedLayers(board: RoutingBoard, selector?: LayerSelector) {
   if (!selector) return board.layers.map((layer) => layer.name)
+  if (selector.kind === "all") return board.layers.map((layer) => layer.name)
   if (selector.kind === "top") return board.layers.filter((layer) => layer.side === "top").map((layer) => layer.name)
   if (selector.kind === "bottom") return board.layers.filter((layer) => layer.side === "bottom").map((layer) => layer.name)
   if (selector.kind === "outer") return board.layers.filter((layer) => layer.side !== "inner").map((layer) => layer.name)
-  return [...selector.names]
+  return selector.names.map((name) => resolvePhysicalLayer(board, name) ?? name)
 }
 
 function copperThicknesses(board: RoutingBoard, selector?: LayerSelector, fallbackOz = 1) {
@@ -99,10 +251,18 @@ function applyAbsolute(
     trackWidthMm?: number
     minTrackWidthMm?: number
     clearanceMm?: number
+    edgeClearanceMm?: number
+    holeToHoleClearanceMm?: number
+    preferredTrackWidthMm?: number
     maxLengthMm?: number
     allowedLayers?: LayerSelector
     via?: { diameterMm?: number; drillMm?: number }
-    impedance?: { targetOhm: number; tolerancePercent?: number }
+    impedance?: {
+      targetOhm: number
+      tolerancePercent?: number
+      topology?: "microstrip" | "stripline" | "coplanar"
+      reference?: { net: string }
+    }
   },
   board: RoutingBoard,
 ): RoutingRuleValues {
@@ -111,13 +271,17 @@ function applyAbsolute(
   return {
     ...base,
     minTrackWidthMm: minimum,
-    preferredTrackWidthMm: exact ?? Math.max(base.preferredTrackWidthMm, minimum),
+    preferredTrackWidthMm: intent.preferredTrackWidthMm ?? exact ?? Math.max(base.preferredTrackWidthMm, minimum),
     ...(intent.clearanceMm === undefined ? {} : { clearanceMm: intent.clearanceMm }),
+    ...(intent.edgeClearanceMm === undefined ? {} : { edgeClearanceMm: intent.edgeClearanceMm }),
+    ...(intent.holeToHoleClearanceMm === undefined ? {} : { holeToHoleClearanceMm: intent.holeToHoleClearanceMm }),
     ...(intent.maxLengthMm === undefined ? {} : { maxLengthMm: intent.maxLengthMm }),
     ...(intent.allowedLayers === undefined ? {} : { allowedLayers: selectedLayers(board, intent.allowedLayers) }),
     ...(intent.impedance === undefined ? {} : {
       impedanceOhm: intent.impedance.targetOhm,
       ...(intent.impedance.tolerancePercent === undefined ? {} : { impedanceTolerancePercent: intent.impedance.tolerancePercent }),
+      ...(intent.impedance.topology === undefined ? {} : { impedanceTopology: intent.impedance.topology }),
+      ...(intent.impedance.reference === undefined ? {} : { impedanceReferenceNet: intent.impedance.reference.net }),
     }),
     via: {
       ...base.via,
@@ -161,8 +325,13 @@ export function compileRoutingRules(
   }
   const knownNets = new Set(board.nets.map((net) => net.name))
   const knownLayers = new Set(board.layers.map((layer) => layer.name))
-  const byNet = new Map(board.nets.map((net) => [net.name, valuesForNet(board.rules, net.name)]))
-  const originalByNet = new Map(byNet)
+  const sourceDefault = board.rules.default
+  const effectiveDefault = program.drc ? applyAbsolute(sourceDefault, program.drc, board) : sourceDefault
+  const byNet = new Map(board.nets.map((net) => [
+    net.name,
+    program.drc ? applyAbsolute(valuesForNet(board.rules, net.name), program.drc, board) : valuesForNet(board.rules, net.name),
+  ]))
+  const originalByNet = new Map(board.nets.map((net) => [net.name, valuesForNet(board.rules, net.name)]))
   const required = new Set<RouterCapability>()
 
   const checkNet = (net: string) => {
@@ -173,6 +342,50 @@ export function compileRoutingRules(
       diagnostics.push(diagnostic("DSL_UNKNOWN_LAYER", `Copper layer ${layer} does not exist.`))
     }
   }
+
+  const classByName = new Map<string, RoutingProgram["netClasses"][number]>()
+  const classValues = new Map<string, RoutingRuleValues>()
+  const classForNet = new Map<string, string>()
+  for (const netClass of program.netClasses) {
+    if (classByName.has(netClass.name)) diagnostics.push(diagnostic("DSL_DUPLICATE_NET_CLASS", `Net class ${netClass.name} is declared more than once.`))
+    classByName.set(netClass.name, netClass)
+    classValues.set(netClass.name, applyAbsolute(effectiveDefault, netClass, board))
+    checkLayers(netClass.allowedLayers)
+    for (const net of netClass.nets) {
+      checkNet(net)
+      const previous = classForNet.get(net)
+      if (previous && previous !== netClass.name) diagnostics.push(diagnostic(
+        "DSL_NET_CLASS_CONFLICT", `${net} is assigned to both ${previous} and ${netClass.name}.`,
+      ))
+      classForNet.set(net, netClass.name)
+      byNet.set(net, applyAbsolute(byNet.get(net) ?? effectiveDefault, netClass, board))
+    }
+  }
+  for (const intent of [...program.signalNets, ...program.powerNets]) {
+    if (!intent.netClass) continue
+    const declared = classByName.get(intent.netClass)
+    if (!declared) diagnostics.push(diagnostic("DSL_UNKNOWN_NET_CLASS", `Net class ${intent.netClass} does not exist.`))
+    else if (!declared.nets.includes(intent.net)) diagnostics.push(diagnostic(
+      "DSL_NET_CLASS_MEMBERSHIP", `${intent.net} names class ${intent.netClass} but is not a member of it.`,
+    ))
+  }
+
+  for (const net of program.onlyNets ?? []) checkNet(net)
+  for (const net of program.ignoreNets) checkNet(net)
+  if (program.onlyNets?.some((net) => program.ignoreNets.includes(net))) diagnostics.push(diagnostic(
+    "DSL_SCOPE_CONFLICT", "The same net cannot appear in onlyNets() and ignoreNets().",
+  ))
+  const selected = (net: string) => (!program.onlyNets || program.onlyNets.includes(net)) && !program.ignoreNets.includes(net)
+  for (const [id, members] of [
+    ...program.differentialPairs.map((item) => [item.id, [item.positive, item.negative]] as const),
+    ...program.matchedGroups.map((item) => [item.id, item.nets] as const),
+  ]) {
+    const count = members.filter(selected).length
+    if (count > 0 && count < members.length) diagnostics.push(diagnostic(
+      "DSL_ATOMIC_SCOPE_CONFLICT", `Scope selects only part of atomic special group ${id}.`, { id, members },
+    ))
+  }
+  if (program.clearRouting?.nets !== "all") for (const net of program.clearRouting?.nets ?? []) checkNet(net)
 
   for (const polygon of program.polygons) {
     required.add("preserve-fixed-copper")
@@ -198,14 +411,18 @@ export function compileRoutingRules(
   }
   for (const signal of program.signalNets) {
     checkNet(signal.net); checkLayers(signal.allowedLayers)
-    if (signal.impedance) required.add("impedance-controlled")
+    if (signal.impedance?.reference) checkNet(signal.impedance.reference.net)
     const base = byNet.get(signal.net) ?? board.rules.default
-    byNet.set(signal.net, applyAbsolute(base, signal, board))
+    const absolute = applyAbsolute(base, signal, board)
+    byNet.set(signal.net, signal.impedance
+      ? applyImpedanceConstraint(board, program, signal.net, absolute, signal.impedance, diagnostics)
+      : absolute)
   }
-  const fallbackOz = program.manufacturing?.fallbackCopperThicknessOz
+  const fallbackOz = program.stack?.fallbackCopperThicknessOz
     ?? board.stackup?.fallbackCopperThicknessOz ?? 1
-  const widthCeiling = program.manufacturing?.maxTrackWidthMm ?? 10
-  const platingUm = program.manufacturing?.viaPlatingThicknessUm ?? DEFAULT_VIA_PLATING_UM
+  const calculationBoard: RoutingBoard = { ...board, stackup: effectiveStackup(board, program) }
+  const widthCeiling = program.stack?.maxTrackWidthMm ?? 10
+  const platingUm = program.stack?.viaPlatingThicknessUm ?? DEFAULT_VIA_PLATING_UM
   for (const power of program.powerNets) {
     checkNet(power.net); checkLayers(power.allowedLayers)
     const base = byNet.get(power.net) ?? board.rules.default
@@ -216,7 +433,7 @@ export function compileRoutingRules(
       ))
     }
     const physicalWidth = power.maxCurrentA === undefined ? 0 : Math.max(...copperThicknesses(
-      board, power.allowedLayers, fallbackOz,
+      calculationBoard, power.allowedLayers, fallbackOz,
     ).map((layer) => calculateTrackWidthMm(
       power.maxCurrentA!, power.maxTempRiseC ?? DEFAULT_TEMP_RISE_C, layer.thicknessMm, layer.external,
     )))
@@ -235,7 +452,7 @@ export function compileRoutingRules(
       allowedLayers: power.allowedLayers,
       via: power.via,
     }, board)
-    const requiredArea = preferredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
+    const requiredArea = preferredWidth * Math.max(...copperThicknesses(calculationBoard, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
     const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
     const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
     if (requiredParallelVias > 1) required.add("parallel-vias")
@@ -252,12 +469,19 @@ export function compileRoutingRules(
   }
   for (const pair of program.differentialPairs) {
     required.add("differential-pairs")
-    if (pair.impedance) required.add("impedance-controlled")
+    if (pair.impedance?.reference) checkNet(pair.impedance.reference.net)
     checkNet(pair.positive); checkNet(pair.negative); checkLayers(pair.allowedLayers)
     const positiveBase = byNet.get(pair.positive) ?? board.rules.default
     const negativeBase = byNet.get(pair.negative) ?? board.rules.default
-    byNet.set(pair.positive, pairRules(positiveBase, pair, board))
-    byNet.set(pair.negative, pairRules(negativeBase, pair, board))
+    const positive = pairRules(positiveBase, pair, board)
+    const negative = pairRules(negativeBase, pair, board)
+    const gap = positive.differential?.gapMm ?? negative.differential?.gapMm ?? positive.clearanceMm
+    byNet.set(pair.positive, pair.impedance
+      ? applyImpedanceConstraint(board, program, pair.positive, positive, pair.impedance, diagnostics, gap)
+      : positive)
+    byNet.set(pair.negative, pair.impedance
+      ? applyImpedanceConstraint(board, program, pair.negative, negative, pair.impedance, diagnostics, gap)
+      : negative)
   }
   const differentialPairs = [...(board.rules.differentialPairs ?? [])]
   for (const pair of program.differentialPairs) {
@@ -282,16 +506,31 @@ export function compileRoutingRules(
       else matchedGroups.push(replacement)
     }
   }
+  for (const fence of program.viaFences) {
+    required.add("vias")
+    checkNet(fence.net)
+    for (const net of fence.along) checkNet(net)
+  }
   if (program.operation !== "apply-drc") required.add("ordinary-routing")
   const effective: RoutingRules = {
-    default: board.rules.default,
+    default: effectiveDefault,
     nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),
     ...(differentialPairs.length ? { differentialPairs } : {}),
     ...(matchedGroups.length ? { matchedGroups } : {}),
+    ...(program.netClasses.length ? {
+      netClasses: program.netClasses.map((item) => ({
+        name: item.name,
+        nets: item.nets,
+        values: classValues.get(item.name) ?? effectiveDefault,
+      })),
+    } : {}),
   }
-  const overriddenFields = effective.nets.flatMap(({ net, values }) => changed(
+  const overriddenFields = [
+    ...changed("default", sourceDefault, effectiveDefault),
+    ...effective.nets.flatMap(({ net, values }) => changed(
     { net }, originalByNet.get(net) ?? board.rules.default, values,
-  ))
+    )),
+  ]
   if (program.operation === "route") {
     const powerNets = new Set(program.powerNets.map((item) => item.net))
     const weakening = overriddenFields.filter((item) => {

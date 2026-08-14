@@ -123,6 +123,7 @@ export type DifferentialRules = Readonly<{
 export type RoutingRuleValues = Readonly<{
   clearanceMm: Millimeters
   edgeClearanceMm: Millimeters
+  holeToHoleClearanceMm?: Millimeters
   minTrackWidthMm: Millimeters
   preferredTrackWidthMm: Millimeters
   via: ViaRules
@@ -130,6 +131,9 @@ export type RoutingRuleValues = Readonly<{
   maxLengthMm?: Millimeters
   impedanceOhm?: number
   impedanceTolerancePercent?: number
+  impedanceTopology?: "microstrip" | "stripline" | "coplanar"
+  impedanceReferenceNet?: string
+  impedanceReferenceLayers?: readonly string[]
   differential?: DifferentialRules
 }>
 
@@ -151,6 +155,12 @@ export type RoutingRules = Readonly<{
   nets: readonly Readonly<{ net: string; values: RoutingRuleValues }>[]
   differentialPairs?: readonly DifferentialPairRule[]
   matchedGroups?: readonly MatchedLengthRule[]
+  /** Named classes requested by the DSL and persisted by the host adapter. */
+  netClasses?: readonly Readonly<{
+    name: string
+    nets: readonly string[]
+    values: RoutingRuleValues
+  }>[]
 }>
 
 export type RoutingStackup = Readonly<{
