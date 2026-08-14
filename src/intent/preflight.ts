@@ -17,6 +17,12 @@ const COPPER_MM_PER_OZ = 0.03479
 const DEFAULT_TEMP_RISE_C = 16
 const DEFAULT_VIA_PLATING_UM = 20
 const WIDTH_GRID_MM = 0.05
+/**
+ * Absolute manufacturing/search floor for a short neck-down. Power-current
+ * calculations select the preferred trunk width; they must not make that
+ * width mandatory at a fine-pitch pad escape.
+ */
+export const HARD_MIN_TRACK_WIDTH_MM = 0.127
 const EPSILON = 1e-6
 
 export type CompiledRoutingRules = Readonly<{
@@ -203,24 +209,40 @@ export function compileRoutingRules(
   for (const power of program.powerNets) {
     checkNet(power.net); checkLayers(power.allowedLayers)
     const base = byNet.get(power.net) ?? board.rules.default
+    if (power.minTrackWidthMm !== undefined && power.minTrackWidthMm < HARD_MIN_TRACK_WIDTH_MM - EPSILON) {
+      diagnostics.push(diagnostic(
+        "DSL_RULE_CONFLICT",
+        `${power.net} requests ${power.minTrackWidthMm.toFixed(3)} mm copper, below the hard ${HARD_MIN_TRACK_WIDTH_MM.toFixed(3)} mm routing floor.`,
+      ))
+    }
     const physicalWidth = power.maxCurrentA === undefined ? 0 : Math.max(...copperThicknesses(
       board, power.allowedLayers, fallbackOz,
     ).map((layer) => calculateTrackWidthMm(
       power.maxCurrentA!, power.maxTempRiseC ?? DEFAULT_TEMP_RISE_C, layer.thicknessMm, layer.external,
     )))
-    const requiredWidth = roundedUp(Math.max(base.minTrackWidthMm, physicalWidth, power.minTrackWidthMm ?? 0))
-    const maximum = Math.min(power.maxTrackWidthMm ?? widthCeiling, 10)
-    if (requiredWidth > maximum + EPSILON) diagnostics.push(diagnostic(
-      "DSL_RULE_CONFLICT", `${power.net} needs ${requiredWidth.toFixed(2)} mm copper, above maxTrackWidthMm=${maximum.toFixed(2)} mm.`,
+    const preferredWidth = roundedUp(Math.max(
+      HARD_MIN_TRACK_WIDTH_MM,
+      base.preferredTrackWidthMm,
+      physicalWidth,
+      power.minTrackWidthMm ?? 0,
     ))
-    const explicit = applyAbsolute(base, { ...power, minTrackWidthMm: requiredWidth }, board)
-    const requiredArea = requiredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
+    const maximum = Math.min(power.maxTrackWidthMm ?? widthCeiling, 10)
+    if (preferredWidth > maximum + EPSILON) diagnostics.push(diagnostic(
+      "DSL_RULE_CONFLICT", `${power.net} needs ${preferredWidth.toFixed(2)} mm copper, above maxTrackWidthMm=${maximum.toFixed(2)} mm.`,
+    ))
+    const explicit = applyAbsolute(base, {
+      clearanceMm: power.clearanceMm,
+      allowedLayers: power.allowedLayers,
+      via: power.via,
+    }, board)
+    const requiredArea = preferredWidth * Math.max(...copperThicknesses(board, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
     const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
     const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
     if (requiredParallelVias > 1) required.add("parallel-vias")
     byNet.set(power.net, {
       ...explicit,
-      preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, requiredWidth),
+      minTrackWidthMm: HARD_MIN_TRACK_WIDTH_MM,
+      preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, preferredWidth),
       via: {
         ...explicit.via,
         minParallelCount: requiredParallelVias,
@@ -271,8 +293,14 @@ export function compileRoutingRules(
     { net }, originalByNet.get(net) ?? board.rules.default, values,
   ))
   if (program.operation === "route") {
+    const powerNets = new Set(program.powerNets.map((item) => item.net))
     const weakening = overriddenFields.filter((item) => {
       if (typeof item.source !== "number" || typeof item.effective !== "number") return false
+      if (item.field === "minTrackWidthMm"
+        && typeof item.scope === "object"
+        && "net" in item.scope
+        && powerNets.has(item.scope.net)
+        && Math.abs(item.effective - HARD_MIN_TRACK_WIDTH_MM) <= EPSILON) return false
       if (/maxLength|maxSkew|maxUncoupled|tolerance/i.test(item.field)) return item.effective > item.source
       return /clearance|minTrackWidth|diameter|drill|gap/i.test(item.field) && item.effective < item.source
     })

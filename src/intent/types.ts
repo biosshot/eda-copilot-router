@@ -70,6 +70,7 @@ export type PowerNetIntent = Readonly<{
   /** Semantic requirement. May coexist with compatible absolute limits. */
   maxCurrentA?: number
   maxTempRiseC?: number
+  /** Preferred trunk width when current is omitted; local neck-downs may use the fixed hard floor. */
   minTrackWidthMm?: number
   maxTrackWidthMm?: number
   clearanceMm?: number

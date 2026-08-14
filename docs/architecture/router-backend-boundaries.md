@@ -76,7 +76,10 @@ Power-current intent is compiled in the core, not in an LLM or backend. Each
 declared power net supplies exactly one of `maxCurrentA` or `minTrackWidthMm`.
 Current-derived width uses the physical native stackup when present, otherwise
 the documented 1 oz baseline, with `maxTempRiseC=16` by default. Calculated
-width may not exceed the configured limit or the absolute 10 mm guard. Via
+width is the preferred trunk width, not a pad-escape minimum. Short neck-downs
+remain legal down to the fixed 0.127 mm hard floor; KRT must keep its normal
+power-tap neck-down enabled. The preferred width may not exceed the configured
+limit or the absolute 10 mm guard. Via
 geometry starts from the smallest legal DRC/fabrication size; required parallel
 barrel-copper capacity is calculated and checked after routing. These compiled
 per-net constraints are shared by every remaining backend and final validation.

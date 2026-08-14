@@ -51,6 +51,7 @@ declare function plane(options: {
 declare function powerNet(net: string, options: {
   maxCurrentA?: number;
   maxTempRiseC?: number;
+  /** Preferred trunk width; short fine-pitch neck-downs may use the fixed 0.127 mm hard floor. */
   minTrackWidthMm?: number;
   maxTrackWidthMm?: number;
   clearanceMm?: number;

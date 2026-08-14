@@ -116,8 +116,18 @@ assert.equal(applyResult.status, "complete")
 assert.equal(applyResult.operation, "apply-drc")
 assert.equal(applyResult.rules.applyRequested, true)
 assert.equal(applyResult.copper, undefined)
-assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.6)
+assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
+assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.via.minParallelCount, 2)
+
+const belowHardFloor = await api.run({
+  board,
+  dsl: `powerNet("VCC", { minTrackWidthMm: 0.1 }); applyDrcRules()`,
+})
+assert.equal(belowHardFloor.status, "error")
+assert.ok(belowHardFloor.diagnostics.some((item) => (
+  item.code === "DSL_RULE_CONFLICT" && item.message.includes("0.127 mm routing floor")
+)))
 
 let backendCalls = 0
 const backend = {
@@ -213,7 +223,8 @@ const groundAndPowerResult = await api.run({
   `,
 })
 assert.equal(groundAndPowerResult.status, "complete")
-assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 1.85)
+assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
+assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 1.85)
 assert.deepEqual(groundAndPowerResult.copper.zones.map((zone) => ({
   net: zone.net, priority: zone.priority, minThicknessMm: zone.minThicknessMm,
 })), [

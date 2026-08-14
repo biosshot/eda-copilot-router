@@ -54,6 +54,11 @@ after routing.
 `applyDrcRules()`, `runRouting()`, and `runAll()` are terminal DSL commands and
 return no values. Only `run(...)` returns `RoutingResult`.
 
+For `powerNet(...)`, current and temperature limits calculate the preferred
+trunk width. Short neck-downs, especially fine-pitch pad escapes, remain
+allowed down to the fixed `0.127 mm` hard floor; the backend must not replace
+the preferred width of the rest of the route with that floor.
+
 The CLI accepts EDA-neutral JSON plus DSL source:
 
 ```text

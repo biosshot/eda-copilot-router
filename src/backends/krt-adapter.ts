@@ -1019,7 +1019,6 @@ function matchedOrdinaryArgs(
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
   pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
-  args.push("--no-power-tap-neckdown")
   return args
 }
 
@@ -1041,7 +1040,6 @@ function remainingArgs(
     args.push("--power-nets", ...spec.powerNets.map((item) => item.net))
     args.push("--power-nets-widths", ...spec.powerNets.map((item) => numberArg(item.width)))
   }
-  args.push("--no-power-tap-neckdown")
   return args
 }
 
