@@ -15,9 +15,24 @@ const testDirectory = dirname(fileURLToPath(import.meta.url))
 const routerDirectory = resolve(testDirectory, "../../..")
 const repositoryDirectory = resolve(routerDirectory, "..")
 const fixtureDirectory = join(testDirectory, "fixture")
-const fixturePcb = join(fixtureDirectory, "Powerbank.kicad_pcb")
-const fixtureProject = join(fixtureDirectory, "Powerbank.kicad_pro")
-const dslPath = join(testDirectory, "routing.js")
+
+function configuredPath(name, fallback) {
+  const value = process.env[name]
+  return value ? resolve(value) : fallback
+}
+
+const fixturePcb = configuredPath("COPILOT_ROUTER_E2E_FIXTURE_PCB", join(fixtureDirectory, "Powerbank.kicad_pcb"))
+const fixtureProject = process.env.COPILOT_ROUTER_E2E_FIXTURE_PROJECT
+  ? resolve(process.env.COPILOT_ROUTER_E2E_FIXTURE_PROJECT)
+  : process.env.COPILOT_ROUTER_E2E_FIXTURE_PCB
+    ? undefined
+    : join(fixtureDirectory, "Powerbank.kicad_pro")
+const dslPath = configuredPath("COPILOT_ROUTER_E2E_DSL", join(testDirectory, "routing.js"))
+const suiteName = process.env.COPILOT_ROUTER_E2E_SUITE ?? "powerbank"
+const caseName = process.env.COPILOT_ROUTER_E2E_CASE ?? "powerbank"
+const requireUnroutedFixture = process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED === undefined
+  ? suiteName === "powerbank"
+  : process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED === "1"
 
 function parseArguments(argv) {
   const options = { profile: "balanced", maxCandidates: 1 }
@@ -248,19 +263,30 @@ async function main() {
   const options = parseArguments(process.argv.slice(2))
   if (options.help) return console.log(usage())
   const runId = safeRunId(options.runId)
-  const runDirectory = join(routerDirectory, "results", "e2e", "powerbank", runId)
+  const artifactStem = safeRunId(caseName)
+  const safeSuiteName = safeRunId(suiteName)
+  const resultParent = safeSuiteName === "powerbank"
+    ? join(routerDirectory, "results", "e2e", "powerbank")
+    : join(routerDirectory, "results", "e2e", safeSuiteName, artifactStem)
+  const runDirectory = join(resultParent, runId)
   if (await exists(runDirectory)) throw new Error(`Run directory already exists: ${runDirectory}`)
   await mkdir(runDirectory, { recursive: true })
 
-  const inputPcb = join(runDirectory, "Powerbank-input.kicad_pcb")
-  const inputProject = join(runDirectory, "Powerbank-input.kicad_pro")
-  const outputPcb = join(runDirectory, `Powerbank-${options.profile}.kicad_pcb`)
+  const inputBase = safeSuiteName === "powerbank" ? "Powerbank-input" : `${artifactStem}-input`
+  const outputBase = safeSuiteName === "powerbank" ? `Powerbank-${options.profile}` : `${artifactStem}-${options.profile}`
+  const inputPcb = join(runDirectory, `${inputBase}.kicad_pcb`)
+  const inputProject = join(runDirectory, `${inputBase}.kicad_pro`)
+  const outputPcb = join(runDirectory, `${outputBase}.kicad_pcb`)
   const copiedDsl = join(runDirectory, "routing.js")
   const baselineReportPath = join(runDirectory, "baseline-drc.json")
   const finalReportPath = join(runDirectory, "final-drc.json")
-  const fixtureBefore = { pcb: await sha256(fixturePcb), project: await sha256(fixtureProject) }
+  const fixtureBefore = {
+    pcb: await sha256(fixturePcb),
+    ...(fixtureProject ? { project: await sha256(fixtureProject) } : {}),
+  }
   await copyFile(fixturePcb, inputPcb)
-  await copyFile(fixtureProject, inputProject)
+  if (fixtureProject) await copyFile(fixtureProject, inputProject)
+  else await writeFile(inputProject, "{}\n", "utf8")
   await copyFile(dslPath, copiedDsl)
 
   const abortController = new AbortController()
@@ -277,8 +303,8 @@ async function main() {
     const imported = await adapter.importKiCadRoutingBoard(inputPcb, { existingCopper: "fixed" })
     if (!imported.board || !imported.context) throw new Error(`KiCad import failed: ${JSON.stringify(imported.diagnostics)}`)
     const fixtureCopper = sourceCopper({ board: imported.board })
-    if (fixtureCopper.tracks.length || fixtureCopper.vias.length || fixtureCopper.zones.length) {
-      throw new Error(`PowerBank fixture must be unrouted: ${JSON.stringify(copperMetrics(fixtureCopper))}`)
+    if (requireUnroutedFixture && (fixtureCopper.tracks.length || fixtureCopper.vias.length || fixtureCopper.zones.length)) {
+      throw new Error(`Fixture must be unrouted: ${JSON.stringify(copperMetrics(fixtureCopper))}`)
     }
     const kicadCli = await resolveKiCadCli()
     console.log(`[e2e] fixture: ${fixturePcb}`)
@@ -308,18 +334,23 @@ async function main() {
     await writeFile(join(runDirectory, "apply-result.json"), `${JSON.stringify(applied, null, 2)}\n`, "utf8")
     if (!applied.outputPath) throw new Error(`KiCad apply failed: ${JSON.stringify(applied.diagnostics)}`)
     const finalDrc = await nativeDrc(kicadCli, applied.outputPath, finalReportPath, abortController.signal)
-    const fixtureAfter = { pcb: await sha256(fixturePcb), project: await sha256(fixtureProject) }
-    if (fixtureBefore.pcb !== fixtureAfter.pcb || fixtureBefore.project !== fixtureAfter.project) {
+    const fixtureAfter = {
+      pcb: await sha256(fixturePcb),
+      ...(fixtureProject ? { project: await sha256(fixtureProject) } : {}),
+    }
+    if (JSON.stringify(fixtureBefore) !== JSON.stringify(fixtureAfter)) {
       throw new Error("Immutable fixture changed during E2E")
     }
     const summary = {
-      schema: "copilot-router-powerbank-e2e",
+      schema: safeSuiteName === "powerbank" ? "copilot-router-powerbank-e2e" : "copilot-router-kicad-e2e",
+      suite: safeSuiteName,
+      case: caseName,
       runId,
       profile: options.profile,
       maxCandidates: options.maxCandidates,
       fixture: {
         pcb: fixturePcb,
-        project: fixtureProject,
+        project: fixtureProject ?? null,
         sha256: fixtureAfter,
       },
       dsl: dslPath,
@@ -350,7 +381,7 @@ async function main() {
       },
     }
     await writeFile(join(runDirectory, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf8")
-    const latestPath = join(routerDirectory, "results", "e2e", "powerbank", "latest.json")
+    const latestPath = join(resultParent, "latest.json")
     await writeFile(latestPath, `${JSON.stringify({ runId, summary: join(runDirectory, "summary.json") }, null, 2)}\n`, "utf8")
     console.log(`[e2e] done: ${join(runDirectory, "summary.json")}`)
     console.log(JSON.stringify(summary.native, null, 2))
