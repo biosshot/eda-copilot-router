@@ -29,8 +29,9 @@ const result = await run({
 })
 ```
 
-Quality profiles form an internal cascade. For example, `balanced` tries
-`fast` and then `balanced`, stopping early when a candidate has no open nets.
+Selecting a quality profile runs exactly that profile. A portfolio is opt-in:
+for example, `profile: "balanced", maxCandidates: 2` tries `fast` and then
+`balanced`, stopping early when a candidate has no open nets.
 There are no internal routing deadlines: a profile runs to completion and the
 host may cancel the whole operation through `AbortSignal`.
 

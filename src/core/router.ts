@@ -56,13 +56,17 @@ type BackendCandidate = Readonly<{
 }>
 
 function profileCascade(policy: RoutingPolicy | undefined): RoutingProfile[] {
-  if (!policy?.profile) return ["balanced"]
-  const profiles: RoutingProfile[] = policy.profile === "fast"
-    ? ["fast"]
-    : policy.profile === "balanced"
-      ? ["fast", "balanced"]
-      : ["fast", "balanced", policy.profile]
-  const requested = Math.max(1, Math.min(profiles.length, Math.trunc(policy.maxCandidates ?? profiles.length)))
+  const selected = policy?.profile ?? "balanced"
+  const candidateLimit = Number(policy?.maxCandidates ?? 1)
+  const requested = Number.isFinite(candidateLimit)
+    ? Math.max(1, Math.min(32, Math.trunc(candidateLimit)))
+    : 1
+  if (requested === 1 || selected === "fast") return [selected]
+  const profiles: RoutingProfile[] = selected === "balanced"
+    ? ["fast", "balanced"]
+    : requested >= 3
+      ? ["fast", "balanced", selected]
+      : ["fast", selected]
   return profiles.slice(0, requested)
 }
 

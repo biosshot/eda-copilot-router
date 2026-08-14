@@ -166,6 +166,20 @@ assert.equal(routed.rules.applyRequested, true)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
 
+const singleBalancedProfiles = []
+const singleBalancedBackend = {
+  ...backend,
+  async route(request) {
+    singleBalancedProfiles.push(request.policy.profile)
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
+await api.run({
+  board, dsl: "runRouting()", backend: singleBalancedBackend,
+  policy: { profile: "balanced" },
+})
+assert.deepEqual(singleBalancedProfiles, ["balanced"], "one selected profile must mean one backend run")
+
 const cascadeProfiles = []
 const cascadeBackend = {
   ...backend,
