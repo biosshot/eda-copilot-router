@@ -125,28 +125,33 @@ function errorText(error: unknown) {
 }
 
 const routerWorkerWrapper = String.raw`
-const fs = require("fs");
-const { parentPort, workerData } = require("worker_threads");
-globalThis.self = globalThis;
-self.location = {
-  href: "file:///" + workerData.workerPath.replace(/\\/g, "/"),
-  origin: "file://",
-};
-self.postMessage = (message) => parentPort.postMessage(message);
-parentPort.on("message", (message) => {
-  if (typeof self.onmessage === "function") self.onmessage({ data: message });
+void (async () => {
+  const fs = await import("node:fs");
+  const { parentPort, workerData } = await import("node:worker_threads");
+  const { pathToFileURL } = await import("node:url");
+  globalThis.self = globalThis;
+  self.location = {
+    href: pathToFileURL(workerData.workerPath).href,
+    origin: "file://",
+  };
+  self.postMessage = (message) => parentPort.postMessage(message);
+  parentPort.on("message", (message) => {
+    if (typeof self.onmessage === "function") self.onmessage({ data: message });
+  });
+  const nativeFetch = globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
+  const wasmBytes = fs.readFileSync(workerData.wasmPath);
+  globalThis.fetch = async (url, options) => {
+    const href = String(url);
+    if (href.includes("PCBRouter-YFDILLBW-YFDILLBW.wasm")) {
+      return new Response(wasmBytes, { status: 200, headers: { "content-type": "application/wasm" } });
+    }
+    if (!nativeFetch) throw new Error("No fetch implementation for " + href);
+    return nativeFetch(url, options);
+  };
+  await import(pathToFileURL(workerData.workerPath).href);
+})().catch((error) => {
+  queueMicrotask(() => { throw error; });
 });
-const nativeFetch = globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
-const wasmBytes = fs.readFileSync(workerData.wasmPath);
-globalThis.fetch = async (url, options) => {
-  const href = String(url);
-  if (href.includes("PCBRouter-YFDILLBW-YFDILLBW.wasm")) {
-    return new Response(wasmBytes, { status: 200, headers: { "content-type": "application/wasm" } });
-  }
-  if (!nativeFetch) throw new Error("No fetch implementation for " + href);
-  return nativeFetch(url, options);
-};
-require(workerData.workerPath);
 `
 
 function messageText(value: unknown) {
