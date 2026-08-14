@@ -125,8 +125,11 @@ function applyImpedanceConstraint(
     diagnostics.push(diagnostic("IMPEDANCE_REFERENCE_REQUIRED", `${net} impedance requires reference.net.`))
     return base
   }
-  if (topology === "stripline") {
-    diagnostics.push(diagnostic("IMPEDANCE_TOPOLOGY_UNSUPPORTED", `${net} stripline needs two explicit reference planes; this solver currently supports microstrip/coplanar.`))
+  if (topology !== "microstrip") {
+    diagnostics.push(diagnostic(
+      "IMPEDANCE_TOPOLOGY_UNSUPPORTED",
+      `${net} ${topology} needs a dedicated field solver; the built-in deterministic solver currently supports microstrip.`,
+    ))
     return base
   }
   const candidates = allowed.flatMap((layer) => {
