@@ -27,6 +27,20 @@ import {
 } from "./workflow-board"
 import { summarizeFinalDrc, type FinalDrcSummary } from "./workflow-validation"
 
+// Surgical completion optimizes closure, not aesthetics.  The previous use
+// of the `max` portfolio preset made vias and bends extremely expensive and
+// paired that with a near-Dijkstra heuristic, so a one-net repair could spend
+// minutes proving that an artificially straight, low-via route did not fit.
+const BLOCKER_REPAIR_QUALITY = Object.freeze({
+  viaCost: 1,
+  viaProximityCost: 0,
+  turnCost: 0,
+  directionPreferenceCost: 0,
+  heuristicWeight: 1.9,
+  maxIterations: 1_500_000,
+  maxProbeIterations: 25_000,
+})
+
 export type CompletionProfile = {
   name: string
   scheduling: "global" | "singleton"
@@ -511,7 +525,7 @@ export async function runKrtCompletionPortfolio(
         "Whole special groups will be removed temporarily and rerouted atomically after the target net.",
         blockerProfile.movedSpecialGroups,
       ))
-      const quality = QUALITY_PRESETS[0]
+      const quality = BLOCKER_REPAIR_QUALITY
       const profileSpec = {
         ...request.krtSpec,
         remainingNets: candidateTargets,
@@ -556,6 +570,11 @@ export async function runKrtCompletionPortfolio(
         router = await runKrtRemaining(proxyInput, firstOutput, profileSpec, resolve(directory, "krt"))
         routerSubcalls.push(router)
         diagnostics.push(...router.diagnostics.map((item) => ({ ...item })))
+        if (router.status !== "completed") {
+          throw new Error(
+            `KRT target repair did not complete (${router.status}); skipping blocker expansion and atomic special reroute.`,
+          )
+        }
         backendBoard = await exists(firstOutput) ? firstOutput : proxyInput
         if (blockerProfile) {
           const expanded = buildBlockerRepairPlans(
@@ -586,8 +605,18 @@ export async function runKrtCompletionPortfolio(
             }, resolve(directory, "krt-expanded"))
             routerSubcalls.push(expandedRouter)
             diagnostics.push(...expandedRouter.diagnostics.map((item) => ({ ...item })))
-            router = expandedRouter
-            backendBoard = await exists(proxyOutput) ? proxyOutput : proxyInput
+            if (expandedRouter.status === "completed" && await exists(proxyOutput)) {
+              router = expandedRouter
+              backendBoard = proxyOutput
+            } else {
+              diagnostics.push(diagnostic(
+                "COMPLETION_EXPANDED_REPAIR_FAILED",
+                "info",
+                "The expanded blocker retry failed; retaining the completed first repair attempt.",
+                { status: expandedRouter.status, blockers: candidateBlockers },
+              ))
+              backendBoard = firstOutput
+            }
           } else if (backendBoard !== proxyOutput) {
             await copyBoardAndSidecars(backendBoard, proxyOutput)
             backendBoard = proxyOutput
