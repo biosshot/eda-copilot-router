@@ -1,8 +1,7 @@
 plane({
   net: "GND",
-  layers: bottomLayer(),
+  layers: "BOTTOM",
   region: board(),
-  priority: 0,
   stitching: false,
 })
 

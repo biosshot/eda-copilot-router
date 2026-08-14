@@ -5,3 +5,4 @@ package-dist
 .tmp
 artifacts
 tools
+tests/e2e/**/.history/
