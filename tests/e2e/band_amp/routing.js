@@ -3,16 +3,27 @@ stack({
   fallbackCopperThicknessOz: 1,
   layers: [
     { kind: "copper", name: "TOP", thicknessOz: 1 },
-    { kind: "dielectric", name: "TOP_PREPREG", thicknessMm: 0.2, relativePermittivity: 4.2 },
-    { kind: "copper", name: "INNER_1", thicknessOz: 1 },
-    { kind: "dielectric", name: "CORE", thicknessMm: 1.1, relativePermittivity: 4.2 },
-    { kind: "copper", name: "INNER_2", thicknessOz: 1 },
-    { kind: "dielectric", name: "BOTTOM_PREPREG", thicknessMm: 0.2, relativePermittivity: 4.2 },
+    { kind: "dielectric", name: "CORE", thicknessMm: 1.53042, relativePermittivity: 4.2 },
     { kind: "copper", name: "BOTTOM", thicknessOz: 1 },
   ],
 })
 
-plane({ net: "GND", layers: ["INNER_1", "INNER_2"], region: board(), stitching: false })
+drc({
+  edgeClearanceMm: 0.5,
+  holeToHoleClearanceMm: 0.25,
+})
+
+plane({
+  net: "GND",
+  layers: ["TOP", "BOTTOM"],
+  region: board(),
+  stitching: {
+    gridMm: 3,
+    maxVisibleViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+  },
+})
 
 signalNet("RF_IN_AC", {
   allowedLayers: "TOP",

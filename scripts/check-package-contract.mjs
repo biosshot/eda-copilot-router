@@ -34,6 +34,9 @@ assert.deepEqual(krt.KRT_QUALITY_PROFILES.fast, {
 })
 assert.equal(typeof freerouting.prepareFreeroutingRuntime, "function")
 assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.2\.zip$/)
+assert.deepEqual(krt.KRT_REQUIRED_NECKDOWN_ENVIRONMENT, {
+  KICAD_IMPEDANCE_NECKDOWN: "1",
+}, "KRT impedance neck-down must never be disabled by the adapter")
 assert.match(freerouting.freeroutingManagedRelease().url, /freerouting-2\.3\.0\.jar$/)
 assert.equal(api.createPcbSnapshotV1, undefined)
 assert.equal(api.routePcb, undefined)
@@ -149,6 +152,32 @@ assert.ok(belowHardFloor.diagnostics.some((item) => (
   item.code === "DSL_RULE_CONFLICT" && item.message.includes("0.127 mm routing floor")
 )))
 
+const impedanceResult = await api.run({
+  board,
+  dsl: `
+    stack({
+      boardThicknessMm: 1.6,
+      layers: [
+        { kind: "copper", name: "TOP", thicknessOz: 1 },
+        { kind: "dielectric", name: "CORE", thicknessMm: 1.53042, relativePermittivity: 4.2 },
+        { kind: "copper", name: "BOTTOM", thicknessOz: 1 },
+      ],
+    })
+    plane({ net: "GND", layers: ["TOP", "BOTTOM"], region: board(), stitching: false })
+    signalNet("VCC", {
+      allowedLayers: "TOP",
+      impedance: { targetOhm: 50, topology: "microstrip", reference: { net: "GND" } },
+    })
+    applyDrcRules()
+  `,
+})
+assert.equal(impedanceResult.status, "complete")
+assert.deepEqual(
+  impedanceResult.rules.effective.nets.find((item) => item.net === "VCC").values.impedanceReferenceLayers,
+  ["B.Cu"],
+  "TOP microstrip must use the opposite BOTTOM GND plane, not a same-layer GND pour",
+)
+
 let backendCalls = 0
 const backend = {
   id: "fixture",
@@ -189,7 +218,7 @@ const fenced = await api.run({
   `,
 })
 assert.equal(fenced.status, "complete")
-assert.ok(fenced.copper.vias.length > 0)
+assert.ok(fenced.copper.vias.length >= 2)
 assert.ok(fenced.copper.vias.every((via) => via.net === "GND"))
 assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:")))
 
@@ -216,6 +245,40 @@ const stagedFence = await api.run({
 })
 assert.equal(stagedFence.status, "complete")
 assert.equal(remainingSawFence, true, "remaining routing must see core-generated fence vias as fixed copper")
+
+const incompleteFenceBackend = {
+  ...stagedFenceBackend,
+  async routeSpecial() {
+    return {
+      status: "partial",
+      copper: {
+        tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }],
+        vias: [], zones: [],
+      },
+      metrics: { openNetCount: 1, openNets: ["VCC"] },
+    }
+  },
+  async routeRemaining() { return { status: "complete", copper: emptyCopper } },
+}
+const incompleteFence = await api.run({
+  board, backend: incompleteFenceBackend,
+  dsl: `viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
+})
+assert.equal(incompleteFence.copper.vias.length, 0)
+assert.ok(incompleteFence.diagnostics.some((item) => item.code === "VIA_FENCE_SOURCE_INCOMPLETE"))
+
+const oneViaFence = api.planViaFences(
+  board,
+  {
+    tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 0.8, y: 0.8 }, { x: 0.81, y: 0.8 }] }],
+    vias: [], zones: [],
+  },
+  [{ kind: "via-fence", id: "ONE_IS_NOT_A_FENCE", along: ["VCC"], net: "GND", pitchMm: 1.5 }],
+  board.rules,
+  { completedNets: ["VCC"] },
+)
+assert.equal(oneViaFence.vias.length, 0, "one legal via must be discarded instead of reporting a successful fence")
+assert.ok(oneViaFence.diagnostics.some((item) => item.code === "VIA_FENCE_INSUFFICIENT"))
 
 const singleBalancedProfiles = []
 const singleBalancedBackend = {

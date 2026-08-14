@@ -87,7 +87,9 @@ function nearestReference(
   const signal = copperIndexes.find((item) => item.layer === signalLayer)
   const references = referenceLayers(board, program, referenceNet)
   if (!signal || !references.size) return undefined
-  const candidates = copperIndexes.filter((item) => references.has(item.layer))
+  // A same-layer pour is not a microstrip reference plane. Keep searching for
+  // the nearest other copper layer separated by a dielectric.
+  const candidates = copperIndexes.filter((item) => references.has(item.layer) && item.layer !== signalLayer)
     .sort((left, right) => Math.abs(left.index - signal.index) - Math.abs(right.index - signal.index))
   const reference = candidates[0]
   if (!reference) return undefined

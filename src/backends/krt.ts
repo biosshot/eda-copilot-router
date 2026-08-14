@@ -25,6 +25,8 @@ import {
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
 
+export { KRT_REQUIRED_NECKDOWN_ENVIRONMENT } from "./krt-adapter.js"
+
 export {
   KRT_MANAGED_VERSION,
   krtManagedRelease,
@@ -452,14 +454,16 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         if (specialResult && !specialResult.jsonSummary) {
           for (const net of allSpecial) openNets.add(net)
         }
+        const routeScope = new Set([...allSpecial, ...remainingNets])
         return {
           status: failed || diagnostics.some((item) => item.severity === "error") ? "partial" : "complete",
           copper: routed.copper,
           diagnostics,
           metrics: {
             elapsedMs: performance.now() - startedAt,
-            routedNetCount: Math.max(0, request.board.nets.length - openNets.size),
+            routedNetCount: Math.max(0, routeScope.size - openNets.size),
             openNetCount: openNets.size,
+            openNets: [...openNets].sort(),
             viaCount: routed.copper.vias.length,
             trackLengthMm: trackLengthMm(routed.copper),
             backend: "krt",

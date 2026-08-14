@@ -97,23 +97,39 @@ export type ViaFencePlan = Readonly<{
   diagnostics: readonly RoutingDiagnostic[]
 }>
 
+export type ViaFenceSourceCompletion = Readonly<{
+  /** Nets proven complete by the routing backend that produced the source. */
+  completedNets: readonly string[]
+}>
+
 /** Materialize two-sided via fences around the retained routed centerlines. */
 export function planViaFences(
   board: RoutingBoard,
   routed: RoutingCopper,
   fences: readonly ViaFenceIntent[],
   rules: RoutingRules,
+  completion: ViaFenceSourceCompletion,
 ): ViaFencePlan {
   const vias: RoutedVia[] = []
   const diagnostics: RoutingDiagnostic[] = []
+  const completedNets = new Set(completion.completedNets)
   const tracks = [...board.copper.fixed.tracks, ...board.copper.editable.tracks, ...routed.tracks]
   const existingVias = [...board.copper.fixed.vias, ...board.copper.editable.vias, ...routed.vias]
   for (const fence of fences) {
+    const incomplete = fence.along.filter((net) => !completedNets.has(net))
+    if (incomplete.length) {
+      diagnostics.push({
+        code: "VIA_FENCE_SOURCE_INCOMPLETE", severity: "error",
+        message: `Via fence ${fence.id} was not created because its source routing is incomplete.`,
+        details: { id: fence.id, along: fence.along, incompleteNets: incomplete },
+      })
+      continue
+    }
     const source = tracks.filter((track) => fence.along.includes(track.net))
     if (!source.length) {
       diagnostics.push({
-        code: "VIA_FENCE_SOURCE_INCOMPLETE", severity: "warning",
-        message: `Via fence ${fence.id} has no retained source track to follow.`,
+        code: "VIA_FENCE_SOURCE_MISSING", severity: "error",
+        message: `Via fence ${fence.id} has no retained source track to follow despite a complete routing report.`,
         details: { id: fence.id, along: fence.along },
       })
       continue
@@ -129,7 +145,7 @@ export function planViaFences(
     const drillMm = fence.via?.drillMm ?? value.via.minDrillMm
     const radius = diameterMm / 2
     const pitch = fence.pitchMm ?? Math.max(diameterMm * 2, diameterMm + value.clearanceMm)
-    let produced = 0
+    const fenceVias: RoutedVia[] = []
     const accepted = [...existingVias, ...vias]
     for (const track of source) {
       const sourceRules = rulesForNet(rules, track.net)
@@ -151,20 +167,25 @@ export function planViaFences(
         if (accepted.some((other) => Math.hypot(point.x - other.at.x, point.y - other.at.y)
           < radius + other.diameterMm / 2 + (other.net === fence.net ? 0 : value.clearanceMm) - EPSILON)) continue
         const via: RoutedVia = {
-          id: `via-fence:${fence.id}:${vias.length}`,
+          id: `via-fence:${fence.id}:${vias.length + fenceVias.length}`,
           net: fence.net, at: point, diameterMm, drillMm,
           fromLayer: layers[0], toLayer: layers[1], type: "through",
         }
-        vias.push(via)
+        fenceVias.push(via)
         accepted.push(via)
-        produced += 1
       }
     }
-    if (!produced) diagnostics.push({
-      code: "VIA_FENCE_NOT_PLACED", severity: "warning",
+    if (!fenceVias.length) diagnostics.push({
+      code: "VIA_FENCE_NOT_PLACED", severity: "error",
       message: `Via fence ${fence.id} could not place a legal via.`,
       details: { id: fence.id, along: fence.along, net: fence.net },
     })
+    else if (fenceVias.length < 2) diagnostics.push({
+      code: "VIA_FENCE_INSUFFICIENT", severity: "error",
+      message: `Via fence ${fence.id} produced only one via; a single via is not a fence and was discarded.`,
+      details: { id: fence.id, along: fence.along, net: fence.net, produced: fenceVias.length, minimum: 2 },
+    })
+    else vias.push(...fenceVias)
   }
   return { vias, diagnostics }
 }

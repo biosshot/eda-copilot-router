@@ -106,6 +106,20 @@ function finiteMetric(value: unknown, fallback: number) {
   return Number.isFinite(number) ? number : fallback
 }
 
+function completedViaFenceSourceNets(
+  result: BackendRouteResult,
+  fences: RoutingProgram["viaFences"],
+) {
+  const sourceNets = [...new Set(fences.flatMap((fence) => fence.along))]
+  if (result.metrics?.openNets) {
+    const open = new Set(result.metrics.openNets)
+    return sourceNets.filter((net) => !open.has(net))
+  }
+  return result.status === "complete" && finiteMetric(result.metrics?.openNetCount, 0) === 0
+    ? sourceNets
+    : []
+}
+
 function candidateScore(candidate: BackendCandidate) {
   const errors = candidate.result.diagnostics?.filter((item) => item.severity === "error").length ?? 0
   const open = candidate.result.metrics?.openNetCount === undefined
@@ -149,7 +163,13 @@ async function routeCandidate(
       editable: request.board.copper.editable,
     },
   }
-  const fences = planViaFences(fenceBoard, special.copper, request.program.viaFences, request.rules)
+  const fences = planViaFences(
+    fenceBoard,
+    special.copper,
+    request.program.viaFences,
+    request.rules,
+    { completedNets: completedViaFenceSourceNets(special, request.program.viaFences) },
+  )
   const fenceCopper: RoutingCopper = { tracks: [], vias: fences.vias, zones: [] }
   const remaining = await backend.routeRemaining({
     ...scoped,
@@ -159,6 +179,13 @@ async function routeCandidate(
     },
   })
   const diagnostics = [...(special.diagnostics ?? []), ...fences.diagnostics, ...(remaining.diagnostics ?? [])]
+  const openNets = [...new Set([...(special.metrics?.openNets ?? []), ...(remaining.metrics?.openNets ?? [])])].sort()
+  const openNetCount = special.metrics?.openNetCount === undefined && remaining.metrics?.openNetCount === undefined
+    ? undefined
+    : Number(special.metrics?.openNetCount ?? 0) + Number(remaining.metrics?.openNetCount ?? 0)
+  const routedNetCount = special.metrics?.routedNetCount === undefined && remaining.metrics?.routedNetCount === undefined
+    ? undefined
+    : Number(special.metrics?.routedNetCount ?? 0) + Number(remaining.metrics?.routedNetCount ?? 0)
   return {
     status: special.status === "error" || remaining.status === "error"
       ? "error" as const
@@ -168,6 +195,9 @@ async function routeCandidate(
     metrics: {
       ...remaining.metrics,
       elapsedMs: Number(special.metrics?.elapsedMs ?? 0) + Number(remaining.metrics?.elapsedMs ?? 0),
+      ...(openNetCount === undefined ? {} : { openNetCount }),
+      ...(routedNetCount === undefined ? {} : { routedNetCount }),
+      ...(!special.metrics?.openNets && !remaining.metrics?.openNets ? {} : { openNets }),
       viaCount: special.copper.vias.length + fences.vias.length + remaining.copper.vias.length,
       details: { ...remaining.metrics?.details, special: special.metrics?.details, viaFenceCount: fences.vias.length },
     },
@@ -359,7 +389,13 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     const alreadyFenced = backendResult.copper.vias.some((via) => String(via.id ?? "").startsWith("via-fence:"))
     const fences = alreadyFenced
       ? { vias: [], diagnostics: [] as RoutingDiagnostic[] }
-      : planViaFences(fenceBoard, backendResult.copper, backendProgram(program).viaFences, compiled.effective)
+      : planViaFences(
+        fenceBoard,
+        backendResult.copper,
+        backendProgram(program).viaFences,
+        compiled.effective,
+        { completedNets: completedViaFenceSourceNets(backendResult, backendProgram(program).viaFences) },
+      )
     const routedWithFences = mergeCopper(backendResult.copper, { tracks: [], vias: fences.vias, zones: [] })
     const planeBoard: RoutingBoard = {
       ...fenceBoard,

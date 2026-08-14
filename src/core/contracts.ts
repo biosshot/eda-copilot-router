@@ -219,6 +219,8 @@ export type RoutingMetrics = Readonly<{
   elapsedMs: number
   routedNetCount?: number
   openNetCount?: number
+  /** Exact unresolved nets when the backend can report them. */
+  openNets?: readonly string[]
   trackLengthMm?: number
   viaCount?: number
   candidateCount?: number

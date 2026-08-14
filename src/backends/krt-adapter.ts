@@ -11,6 +11,14 @@ import {
   type SExpression,
 } from "../internal/kicad-sexpr.js"
 
+/**
+ * Router invariant: geometry neck-down is always available. It may narrow only
+ * to the effective compiled DRC minimum; adapters must never disable it.
+ */
+export const KRT_REQUIRED_NECKDOWN_ENVIRONMENT = Object.freeze({
+  KICAD_IMPEDANCE_NECKDOWN: "1",
+})
+
 export type KrtDiagnosticSeverity = "info" | "warning" | "error"
 
 export type KrtDiagnostic = {
@@ -630,7 +638,7 @@ async function runCaptured(
         KICAD_FINALIZE_RIP: "0",
         KICAD_NET_RESCUE: "0",
         KICAD_TERMINAL_ESCALATION: "0",
-        KICAD_IMPEDANCE_NECKDOWN: "0",
+        ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
         PYTHONDONTWRITEBYTECODE: "1",
         ...environment,
       },
@@ -1156,7 +1164,7 @@ async function executeStage(
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
         PYTHONDONTWRITEBYTECODE: "1",
-        KICAD_IMPEDANCE_NECKDOWN: "0",
+        ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
         ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
       },
     }, null, 2)}\n`, diagnostics)

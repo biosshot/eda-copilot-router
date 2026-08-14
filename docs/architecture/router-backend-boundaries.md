@@ -81,7 +81,10 @@ the stricter minimum wins. Current-derived width uses the physical native
 stackup when present, otherwise the documented 1 oz baseline, with
 `maxTempRiseC=16` by default. Calculated width is the preferred trunk width,
 not a pad-escape minimum. Short neck-downs remain legal down to the fixed 0.127
-mm hard floor; KRT must keep its normal power-tap neck-down enabled. The
+mm hard floor. **All backend neck-down mechanisms are always enabled**, including
+KRT impedance neck-down and its normal power-tap/pad-escape neck-down. No adapter
+may emit a `--no-*-neckdown` option or a `NECKDOWN=0` environment override.
+Neck-down still may not cross the effective compiled DRC minimum. The
 preferred width may not exceed the configured limit or the absolute 10 mm
 guard. Via
 geometry starts from the smallest legal DRC/fabrication size; required parallel

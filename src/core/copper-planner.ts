@@ -136,6 +136,20 @@ function padRadius(board: RoutingBoard, component: string, number: string) {
   }
 }
 
+function padHole(board: RoutingBoard, pad: RoutingBoard["pads"][number]) {
+  if (!pad.hole) return undefined
+  const offset = pad.hole.offset ?? { x: 0, y: 0 }
+  const angle = pad.rotationDeg * Math.PI / 180
+  const center = {
+    x: pad.at.x + offset.x * Math.cos(angle) - offset.y * Math.sin(angle),
+    y: pad.at.y + offset.x * Math.sin(angle) + offset.y * Math.cos(angle),
+  }
+  return {
+    center,
+    radius: (pad.hole.diameterMm + (pad.hole.slotLengthMm ?? 0)) / 2,
+  }
+}
+
 function boardPointAllowed(board: RoutingBoard, point: PointMm, radius: number, edgeClearance: number) {
   if (!pointInRing(point, board.outline) || board.cutouts.some((cutout) => pointInRing(point, cutout))) return false
   const margin = radius + edgeClearance
@@ -179,9 +193,16 @@ function stitchingCandidates(
     for (const pad of board.pads) {
       if (ownerPad?.component === pad.component && ownerPad.number === pad.number) continue
       const distance = Math.hypot(point.x - pad.at.x, point.y - pad.at.y)
+      const padSpacing = pad.hole
+        ? Math.max(rules.clearanceMm, rules.holeToHoleClearanceMm ?? rules.clearanceMm)
+        : rules.clearanceMm
       const padClearance = padRadius(board, pad.component, pad.number)
-        + radius + (pad.net === plane.net ? 0 : rules.clearanceMm)
+        + radius + (pad.net === plane.net ? 0 : padSpacing)
       if (distance < padClearance - EPSILON) return false
+      const hole = padHole(board, pad)
+      const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
+      if (hole && Math.hypot(point.x - hole.center.x, point.y - hole.center.y)
+        < viaRule.drillMm / 2 + hole.radius + holeClearance - EPSILON) return false
     }
     for (const track of copper.tracks) {
       if (track.net === plane.net || !layers.includes(track.layer)) continue
@@ -193,6 +214,8 @@ function stitchingCandidates(
       const distance = Math.hypot(point.x - via.at.x, point.y - via.at.y)
       const clearance = radius + via.diameterMm / 2 + (via.net === plane.net ? 0 : rules.clearanceMm)
       if (distance < clearance - EPSILON) return false
+      const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
+      if (distance < viaRule.drillMm / 2 + via.drillMm / 2 + holeClearance - EPSILON) return false
     }
     return true
   }
