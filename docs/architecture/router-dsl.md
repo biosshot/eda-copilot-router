@@ -1,6 +1,6 @@
 # Local router DSL
 
-Status: next contract under discussion; accepted decisions below are not all implemented yet
+Status: next contract accepted; implementation migration pending
 Updated: 2026-08-14
 
 ## Fixed decisions
@@ -63,6 +63,21 @@ The target rule vocabulary covers:
 - a full physical board stack with 1 oz used only as a fallback when the input
   and DSL do not provide copper thickness.
 
+Every field that can be obtained from `RoutingBoard`, imported DSN/native DRC,
+the imported stackup, or a safe router default is optional in the DSL. The DSL
+states intent and deliberate overrides; it does not require the LLM to repeat
+known board data or calculate geometry. Resolution order is:
+
+1. explicit DSL value;
+2. imported board/rule/stack value;
+3. documented safe fallback, when one exists;
+4. a preflight diagnostic when the value is required but cannot be inferred
+   honestly.
+
+For example, omitted copper thickness may use the documented 1 oz fallback,
+but controlled-impedance routing does not guess an unknown dielectric thickness
+or relative permittivity.
+
 ```js
 signalNet("CLK", { trackWidthMm: 0.2, clearanceMm: 0.2, maxLengthMm: 40 })
 powerNet("VBUS", {
@@ -94,6 +109,93 @@ be joined by the high-current trunk. Other pads on the same net are low-current
 taps and may neck down to `tapWidthMm` (default `drc-min`). Power width and
 parallel-via requirements apply to the trunk, not to every control/sense pad.
 This distinction is required rather than guessed from geometry.
+
+## Global DRC and named net classes
+
+`drc(...)` sets optional global/default fields. It is one structured statement;
+the DSL does not add order-dependent setters such as `setClearance()` or
+`setVia()`.
+
+```js
+drc({
+  clearanceMm: 0.2,
+  edgeClearanceMm: 0.5,
+  holeToHoleClearanceMm: 0.25,
+  minTrackWidthMm: 0.127,
+  preferredTrackWidthMm: 0.254,
+  via: {
+    minDiameterMm: 0.45,
+    preferredDiameterMm: 0.6,
+    minDrillMm: 0.2,
+    preferredDrillMm: 0.3,
+    minAnnularRingMm: 0.1,
+    viaInPad: "allow",
+  },
+})
+```
+
+`netClass(...)` is the reusable physical-rule mechanism for ordinary or
+special nets that share geometry but are not necessarily power nets:
+
+```js
+netClass("WIDE_SIGNALS", {
+  nets: ["LED_A", "LED_B", "MOTOR_SENSE"],
+  minTrackWidthMm: 0.3,
+  preferredTrackWidthMm: 0.5,
+  clearanceMm: 0.2,
+  allowedLayers: "OUTER",
+  via: { preferredDiameterMm: 0.8, preferredDrillMm: 0.4 },
+})
+```
+
+All class fields except the class name and non-empty net membership are
+optional and inherit from global DRC. An explicit per-net declaration may
+further specialize its assigned class. Effective precedence is imported DRC,
+then `drc(...)`, then `netClass(...)`, then explicit per-net/special intent.
+Semantic requirements such as current or impedance are compatibility checks
+and derived constraints; an explicit value that makes them impossible is a DSL
+error.
+
+When the terminal command is `applyDrcRules()` or `runAll()`, named DSL classes
+are persisted as real named net classes by capable KiCad/EasyEDA adapters, with
+their exact net assignments. `runRouting()` may use the effective class without
+requesting persistence, subject to the existing `DRC_APPLY_REQUIRED` rule.
+
+## Physical stack
+
+`stack(...)` replaces `fabrication(...)`. Every field is optional when the
+adapter already imported an equivalent value. A complete declaration can
+contain copper and dielectric layers, finished thickness, solder mask, and via
+plating process data:
+
+```js
+stack({
+  boardThicknessMm: 1.6,
+  fallbackCopperThicknessOz: 1,
+  viaPlatingThicknessUm: 20,
+  layers: [
+    { name: "TOP", kind: "copper", thicknessOz: 1 },
+    {
+      name: "CORE",
+      kind: "dielectric",
+      thicknessMm: 1.53,
+      relativePermittivity: 4.3,
+      lossTangent: 0.02,
+      material: "FR4",
+    },
+    { name: "BOTTOM", kind: "copper", thicknessOz: 1 },
+  ],
+  solderMask: {
+    top: { thicknessMm: 0.02, relativePermittivity: 3.3 },
+    bottom: { thicknessMm: 0.02, relativePermittivity: 3.3 },
+  },
+})
+```
+
+The compiler merges the declaration field-by-field with the imported stack,
+validates physical layer order and finished thickness, and reports missing
+electrical properties only when a requested operation (for example impedance
+calculation) actually requires them.
 
 The object fields use explicit unit suffixes where values would otherwise be
 ambiguous. Backend paths, presets, and search knobs remain outside the DSL.
@@ -179,14 +281,34 @@ quality policy   = portable search objective
 backend adapter  = engine-specific tuning
 ```
 
+## Portable advanced routing statements
+
+The next contract reserves portable statements/options for capabilities already
+available in KRT and meaningful for other backends:
+
+- explicit `busGroup(...)` rather than backend-only automatic bus detection;
+- `matchedGroup(...)` with exactly one of length tolerance in millimetres or
+  propagation-delay tolerance in picoseconds;
+- AC-coupled differential-pair matching;
+- automatic return vias near differential-pair signal vias;
+- microstrip or coplanar impedance intent;
+- component fanout intent (`auto`, `bga`, or `qfn`);
+- teardrop post-processing;
+- `onlyComponents(...)` as a portable scope selector.
+
+Raw A* costs, MPS/inside-out switches, grid resolution, raw iteration and rip-up
+limits, and proximity penalties remain adapter mappings of `quality(...)`.
+Polarity/pin swaps and schematic rewrites remain outside this copper-only
+contract until the result model can represent an explicit schematic/netlist
+patch.
+
 ## Still open before implementation
 
-- the exact `drc(...)` and reusable `netClass(...)` shapes;
-- the complete `stack(...)` fields for solder mask, dielectric loss tangent,
-  finished thickness, and process limits;
-- which portable KRT features become DSL concepts (bus groups, time matching,
-  AC-coupled pair matching, return vias, fanout, teardrops) and which stay
-  profile/backend implementation details.
+- exact option names for the reserved advanced routing statements;
+- which optional stack process fields are needed beyond impedance and
+  current/via calculations;
+- adapter capability diagnostics for features that a selected backend cannot
+  implement.
 
 ## Rule semantics
 

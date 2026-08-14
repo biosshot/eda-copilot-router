@@ -31,6 +31,11 @@ native coordinate conversion exactly once.
 No `version`, `schema`, `V1`, or `V2` fields are part of these structures before
 the first public release.
 
+Physical copper layers use canonical EDA-neutral names: `TOP`, `BOTTOM`, and
+`INNER_1` through `INNER_30`. Native names such as KiCad `F.Cu`, `In1.Cu`, and
+`B.Cu` are translated only by the corresponding board adapter. `MULTI` may
+describe a pad or via span but is not a physical routing layer.
+
 ## Core types
 
 The exact TypeScript spelling may change during implementation, but the
