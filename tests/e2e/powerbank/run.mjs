@@ -224,7 +224,6 @@ function violationKey(violation) {
   return JSON.stringify([
     violation?.severity ?? "",
     violation?.type ?? "",
-    violation?.description ?? "",
     items,
   ])
 }
