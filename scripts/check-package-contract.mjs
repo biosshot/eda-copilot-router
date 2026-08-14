@@ -26,6 +26,12 @@ assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
 assert.equal(typeof krt.createKrtBackend, "function")
 assert.equal(typeof krt.prepareKrtRuntime, "function")
+assert.deepEqual(krt.KRT_QUALITY_PROFILES.fast, {
+  maxIterations: 120_000,
+  maxProbeIterations: 8_000,
+  maxRipup: 2,
+  heuristicWeight: 1.8,
+})
 assert.equal(typeof freerouting.prepareFreeroutingRuntime, "function")
 assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.2\.zip$/)
 assert.match(freerouting.freeroutingManagedRelease().url, /freerouting-2\.3\.0\.jar$/)
@@ -159,6 +165,95 @@ assert.equal(routed.operation, "all")
 assert.equal(routed.rules.applyRequested, true)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
+
+const cascadeProfiles = []
+const cascadeBackend = {
+  ...backend,
+  async route(request) {
+    cascadeProfiles.push(request.policy.profile)
+    const complete = request.policy.profile === "balanced"
+    return {
+      status: complete ? "complete" : "partial",
+      copper: {
+        tracks: complete
+          ? [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }]
+          : [],
+        vias: [], zones: [],
+      },
+      metrics: { openNetCount: complete ? 0 : 2, viaCount: 0 },
+    }
+  },
+}
+const cascadeResult = await api.run({
+  board, dsl: "runRouting()", backend: cascadeBackend,
+  policy: { profile: "balanced", maxCandidates: 2 },
+})
+assert.deepEqual(cascadeProfiles, ["fast", "balanced"])
+assert.equal(cascadeResult.status, "complete")
+assert.equal(cascadeResult.copper.tracks.length, 1)
+assert.equal(cascadeResult.metrics.candidateCount, 2)
+assert.ok(cascadeResult.diagnostics.some((item) => (
+  item.code === "ROUTING_PORTFOLIO_SELECTED" && item.details.selectedProfile === "balanced"
+)))
+
+let earlyStopCalls = 0
+const earlyStopBackend = {
+  ...backend,
+  async route() {
+    earlyStopCalls += 1
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
+const earlyStopResult = await api.run({
+  board, dsl: "runRouting()", backend: earlyStopBackend,
+  policy: { profile: "completion-first", maxCandidates: 3 },
+})
+assert.equal(earlyStopResult.status, "complete")
+assert.equal(earlyStopCalls, 1, "a fully routed fast candidate must stop the cascade")
+assert.equal(earlyStopResult.metrics.candidateCount, 1)
+
+let deprecatedTimeoutFinished = false
+const noInternalTimeoutBackend = {
+  ...backend,
+  async route() {
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 20))
+    deprecatedTimeoutFinished = true
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
+const noInternalTimeoutResult = await api.run({
+  board, dsl: "runRouting()", backend: noInternalTimeoutBackend,
+  policy: { profile: "fast", timeoutMs: 1 },
+})
+assert.equal(noInternalTimeoutResult.status, "complete")
+assert.equal(deprecatedTimeoutFinished, true, "deprecated timeoutMs must not stop public run()")
+
+const externalAbort = new AbortController()
+let backendObservedAbort = false
+const abortableBackend = {
+  ...backend,
+  async route(request) {
+    return await new Promise((resolvePromise) => {
+      const finishAbort = () => {
+        backendObservedAbort = true
+        resolvePromise({ status: "error", copper: emptyCopper })
+      }
+      if (request.signal.aborted) finishAbort()
+      else request.signal.addEventListener("abort", finishAbort, { once: true })
+    })
+  },
+}
+const abortedRun = api.run({
+  board, dsl: "runRouting()", backend: abortableBackend,
+  policy: { profile: "completion-first", maxCandidates: 3 },
+  signal: externalAbort.signal,
+})
+await new Promise((resolvePromise) => setImmediate(resolvePromise))
+externalAbort.abort("package contract test")
+const abortedResult = await abortedRun
+assert.equal(backendObservedAbort, true)
+assert.equal(abortedResult.status, "error")
+assert.ok(abortedResult.diagnostics.some((item) => item.code === "ROUTING_ABORTED"))
 
 let polygonBackendRequest
 const polygonBackend = {

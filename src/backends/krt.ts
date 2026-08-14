@@ -65,6 +65,7 @@ export type KrtBackendOptions = Readonly<{
   assets?: RouterAssetPolicy
   artifactsDirectory?: string
   keepArtifacts?: boolean
+  /** @deprecated Ignored. Cancel routing through BackendRouteRequest.signal. */
   timeoutMs?: number
 }>
 
@@ -219,12 +220,75 @@ function fullyPreconnectedNets(request: BackendRouteRequest) {
   }).map((group) => group.net))
 }
 
+export const KRT_QUALITY_PROFILES = Object.freeze({
+  fast: Object.freeze({
+    maxIterations: 120_000,
+    maxProbeIterations: 8_000,
+    maxRipup: 2,
+    heuristicWeight: 1.8,
+  }),
+  balanced: Object.freeze({
+    maxIterations: 350_000,
+    maxProbeIterations: 20_000,
+    maxRipup: 5,
+    heuristicWeight: 1.6,
+  }),
+  "quality-first": Object.freeze({
+    maxIterations: 1_000_000,
+    maxProbeIterations: 50_000,
+    maxRipup: 5,
+    heuristicWeight: 1.2,
+  }),
+  "completion-first": Object.freeze({
+    maxIterations: 1_500_000,
+    maxProbeIterations: 100_000,
+    maxRipup: 12,
+    heuristicWeight: 1.5,
+  }),
+} as const)
+
 function routeQuality(request: BackendRouteRequest) {
   switch (request.policy?.profile) {
-    case "quality-first": return { maxIterations: 1_000_000, maxProbeIterations: 50_000, maxRipup: 5, heuristicWeight: 1.2 }
-    case "completion-first": return { maxIterations: 1_500_000, maxProbeIterations: 100_000, maxRipup: 12, heuristicWeight: 1.5 }
-    default: return { maxIterations: 1_000_000, maxProbeIterations: 50_000, maxRipup: 8, heuristicWeight: 1.3 }
+    case "fast": return KRT_QUALITY_PROFILES.fast
+    case "quality-first": return KRT_QUALITY_PROFILES["quality-first"]
+    case "completion-first": return KRT_QUALITY_PROFILES["completion-first"]
+    default: return KRT_QUALITY_PROFILES.balanced
   }
+}
+
+function recordArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    : []
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+}
+
+function summaryOpenNets(summary: Record<string, unknown> | undefined) {
+  const output = new Set<string>()
+  if (!summary) return output
+  for (const key of ["failed_single", "open_single", "single_ended_followup_nets"]) {
+    for (const net of stringArray(summary[key])) output.add(net)
+  }
+  for (const key of ["failed_multipoint", "pad_pairs_open", "pair_reports"]) {
+    for (const item of recordArray(summary[key])) {
+      const incomplete = stringArray(item.incomplete_members)
+      if (incomplete.length) for (const net of incomplete) output.add(net)
+      else if (key !== "pair_reports" || item.outcome !== "coupled") for (const field of ["net", "p_net", "n_net"]) {
+        if (typeof item[field] === "string") output.add(item[field] as string)
+      }
+    }
+  }
+  return output
+}
+
+function trackLengthMm(copper: RoutingCopper) {
+  return copper.tracks.reduce((total, track) => total + track.points.slice(1).reduce((length, point, index) => {
+    const previous = track.points[index]
+    return length + Math.hypot(point.x - previous.x, point.y - previous.y)
+  }, 0), 0)
 }
 
 function processFailed(result: KrtProcessResult) {
@@ -282,7 +346,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
       }
       const krtDirectory = managed.directory
       const root = options.artifactsDirectory
-        ? resolve(options.artifactsDirectory)
+        ? join(resolve(options.artifactsDirectory), request.policy?.profile ?? "default")
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
       const ownedTemporary = !options.artifactsDirectory
       await mkdir(root, { recursive: true })
@@ -317,7 +381,6 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           pythonPath: managed.pythonPath,
           pythonPathEntries: managed.pythonPathEntries,
           krtDirectory,
-          timeoutMs: request.policy?.timeoutMs ?? options.timeoutMs ?? 600_000,
           layers: request.board.layers.map((item) => item.name),
           diffPairs: request.program.differentialPairs.map((pair) => [pair.positive, pair.negative] as const),
           matchedGroups: request.program.matchedGroups.map((group) => group.nets),
@@ -375,13 +438,26 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         }
         const failed = (specialResult ? processFailed(specialResult) : false)
           || (remainingResult ? processFailed(remainingResult) : false)
+        const openNets = new Set([
+          ...summaryOpenNets(specialResult?.jsonSummary),
+          ...summaryOpenNets(remainingResult?.jsonSummary),
+        ])
+        if (remainingResult && !remainingResult.jsonSummary) {
+          for (const net of remainingNets) openNets.add(net)
+        }
+        if (specialResult && !specialResult.jsonSummary) {
+          for (const net of allSpecial) openNets.add(net)
+        }
         return {
           status: failed || diagnostics.some((item) => item.severity === "error") ? "partial" : "complete",
           copper: routed.copper,
           diagnostics,
           metrics: {
             elapsedMs: performance.now() - startedAt,
-            routedNetCount: request.board.nets.length - remainingNets.length,
+            routedNetCount: Math.max(0, request.board.nets.length - openNets.size),
+            openNetCount: openNets.size,
+            viaCount: routed.copper.vias.length,
+            trackLengthMm: trackLengthMm(routed.copper),
             backend: "krt",
             details: {
               artifactsDirectory: root,

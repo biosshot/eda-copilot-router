@@ -55,7 +55,6 @@ export type EasyEdaWasmRouterOutput = Readonly<{
 
 export type EasyEdaWasmEngineContext = Readonly<{
   signal?: AbortSignal
-  timeoutMs: number
   onProgress?: (progress: number) => void
 }>
 
@@ -68,6 +67,7 @@ export type EasyEdaWasmBackendOptions = Readonly<{
   engine: EasyEdaWasmEngine
   /** Defaults to all board copper layers. */
   routeLayers?: readonly string[]
+  /** @deprecated Ignored. Cancel routing through BackendRouteRequest.signal. */
   timeoutMs?: number
   onProgress?: (progress: number) => void
 }>
@@ -542,7 +542,6 @@ function outputCopper(
 }
 
 export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): RouterBackendAdapter {
-  const timeoutMs = options.timeoutMs ?? 600_000
   return {
     id: "easyeda-wasm",
     capabilities: {
@@ -557,9 +556,6 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
     },
     preflight(request) {
       const diagnostics: RoutingDiagnostic[] = []
-      if (!(Number.isFinite(timeoutMs) && timeoutMs > 0)) diagnostics.push(diagnostic(
-        "EASYEDA_WASM_TIMEOUT_INVALID", "error", "EasyEDA WASM timeout must be positive.",
-      ))
       const top = request.board.layers.find((layer) => layer.side === "top")?.name
       const bottom = request.board.layers.find((layer) => layer.side === "bottom")?.name
       for (const via of [...request.board.copper.fixed.vias, ...request.board.copper.editable.vias]) {
@@ -580,7 +576,6 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
         const effectiveBoard: RoutingBoard = { ...request.board, rules: request.rules }
         const exported = boardToRouterInput(effectiveBoard, selected)
         const output = await options.engine(exported.input, {
-          timeoutMs: request.policy?.timeoutMs ?? timeoutMs,
           ...(request.signal ? { signal: request.signal } : {}),
           ...(options.onProgress ? { onProgress: options.onProgress } : {}),
         })
@@ -669,7 +664,6 @@ export function createEasyEdaWasmWorkerEngine(options: EasyEdaWasmWorkerEngineOp
     const finish = (error?: Error, result?: EasyEdaWasmRouterOutput) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
       context.signal?.removeEventListener("abort", abort)
       void worker.terminate().catch(() => undefined)
       if (error) reject(error)
@@ -677,10 +671,6 @@ export function createEasyEdaWasmWorkerEngine(options: EasyEdaWasmWorkerEngineOp
     }
     const abort = () => finish(new Error("EasyEDA WASM routing aborted"))
     context.signal?.addEventListener("abort", abort, { once: true })
-    const timer = setTimeout(
-      () => finish(new Error(`EasyEDA WASM timeout after ${context.timeoutMs} ms`)),
-      context.timeoutMs,
-    )
     worker.on("message", (message) => {
       if (message?.topic === "pcb/routerProgress") {
         const progress = Number(message.message?.progress ?? 0)

@@ -15,6 +15,8 @@ import { createEasyEdaWasmBackend } from "@easyeda-copilot/router/backends/easye
 const result = await run({
   board,
   backend,
+  signal: abortController.signal,
+  policy: { profile: "balanced", maxCandidates: 2 },
   dsl: `
     powerNet("VBUS", { maxCurrentA: 2, maxTempRiseC: 16 })
     polygon("VBUS")
@@ -26,6 +28,11 @@ const result = await run({
   `,
 })
 ```
+
+Quality profiles form an internal cascade. For example, `balanced` tries
+`fast` and then `balanced`, stopping early when a candidate has no open nets.
+There are no internal routing deadlines: a profile runs to completion and the
+host may cancel the whole operation through `AbortSignal`.
 
 KRT is the default complete-routing backend for the KiCad host integration.
 It does not require a separately cloned checkout: on first use the package

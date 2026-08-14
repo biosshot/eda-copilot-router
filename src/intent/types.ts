@@ -119,11 +119,12 @@ export type RoutingProgram = Readonly<{
 
 export type CompiledRoutingProgram = RoutingProgram
 
-export type RoutingProfile = "completion-first" | "balanced" | "quality-first"
+export type RoutingProfile = "fast" | "completion-first" | "balanced" | "quality-first"
 
 export type RoutingPolicy = Readonly<{
   profile?: RoutingProfile
   maxCandidates?: number
+  /** @deprecated Ignored. Cancel routing through RunRequest.signal. */
   timeoutMs?: number
   meander?: Readonly<{ amplitudeMm?: number; spacingMm?: number }>
 }>

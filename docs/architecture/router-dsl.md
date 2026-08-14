@@ -114,10 +114,11 @@ program fails preflight with `DRC_APPLY_REQUIRED`; the caller must select
 
 ## Separation from runtime policy
 
-Backend choice, executable paths, quality profiles, candidate limits, timeout,
+Backend choice, executable paths, quality profiles, candidate limits,
 iteration counts, rip-up limits, costs, and meander search preferences are not
 board DSL. They are runtime options supplied to the outer `run(...)` call or
-CLI.
+CLI. The router does not impose a time limit: callers stop work only through
+the `AbortSignal` passed to `run(...)`.
 
 ```text
 local router DSL = copper intent + electrical/routing rules

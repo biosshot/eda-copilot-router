@@ -49,7 +49,8 @@ export type KrtStageSpec = {
   /** Managed site-package directories added without modifying the host Python. */
   pythonPathEntries?: readonly string[]
   krtDirectory: string
-  timeoutMs: number
+  /** Optional legacy process guard. Public run() relies only on AbortSignal. */
+  timeoutMs?: number
   layers: readonly string[]
   rules: KrtNumericRules
   fabOverridesPath: string
@@ -604,7 +605,7 @@ async function runCaptured(
   executable: string,
   args: string[],
   cwd: string,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   environment: Record<string, string> = {},
   abortSignal?: AbortSignal,
 ) : Promise<CapturedProcess> {
@@ -668,7 +669,7 @@ async function runCaptured(
       abortSignal?.addEventListener("abort", abort, { once: true })
     }
 
-    timer = setTimeout(() => {
+    if (timeoutMs !== undefined) timer = setTimeout(() => {
       timedOut = true
       child.kill("SIGKILL")
     }, timeoutMs)
@@ -744,7 +745,7 @@ async function commonPreflight(
   if (!spec.pythonPath.trim()) diagnostics.push(diagnostic(
     "KRT_INVALID_SPEC", "error", "pythonPath must not be empty.",
   ))
-  if (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0) diagnostics.push(diagnostic(
+  if (spec.timeoutMs !== undefined && (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0)) diagnostics.push(diagnostic(
     "KRT_INVALID_SPEC", "error", "timeoutMs must be a positive finite number.",
   ))
   if (!unique(spec.layers).length) diagnostics.push(diagnostic(
