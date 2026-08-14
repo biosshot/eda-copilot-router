@@ -1,0 +1,29 @@
+{
+  "schema": "copilot-router-kicad-routing-tools-corpus",
+  "defaultProfile": "balanced",
+  "source": "SOURCE.json",
+  "cases": [
+    { "id": "cap_chain", "directory": "cap_chain", "board": "fixture/cap_chain.kicad_pcb", "expectedDiffPairs": 2, "focus": "two differential pairs through a capacitor chain" },
+    { "id": "esp_prog", "directory": "esp_prog", "board": "fixture/esp_prog.kicad_pcb", "expectedDiffPairs": 1, "focus": "USB-style differential pair", "knownImportGap": "duplicate component designator Ref*" },
+    { "id": "flat_hierarchy", "directory": "flat_hierarchy", "board": "fixture/flat_hierarchy.kicad_pcb", "project": "fixture/flat_hierarchy.kicad_pro", "expectedDiffPairs": 0, "focus": "ordinary multipoint routing with an existing zone" },
+    { "id": "glasgow_revC", "directory": "glasgow_revC", "board": "fixture/glasgow_revC.kicad_pcb", "expectedDiffPairs": 14, "focus": "USB plus thirteen FPGA differential pairs", "knownImportGap": "duplicate component designator REF**" },
+    { "id": "haasoscope_pro_max_test", "directory": "haasoscope_pro_max_test", "board": "fixture/haasoscope_pro_max_test.kicad_pcb", "expectedDiffPairs": 56, "focus": "ten-layer 56-pair LVDS stress case" },
+    { "id": "interf_u_unrouted", "directory": "interf_u_unrouted", "board": "fixture/interf_u_unrouted.kicad_pcb", "expectedDiffPairs": 0, "focus": "large unplaced ordinary-net case" },
+    { "id": "interf_u_unrouted_placed", "directory": "interf_u_unrouted_placed", "board": "fixture/interf_u_unrouted_placed.kicad_pcb", "expectedDiffPairs": 0, "focus": "large placed ordinary-net case" },
+    { "id": "kit-dev-coldfire-xilinx_5213", "directory": "kit-dev-coldfire-xilinx_5213", "board": "fixture/kit-dev-coldfire-xilinx_5213.kicad_pcb", "expectedDiffPairs": 0, "focus": "four-layer legacy development board" },
+    { "id": "lvds_converter_dualclk", "directory": "lvds_converter_dualclk", "board": "fixture/lvds_converter_dualclk.kicad_pcb", "expectedDiffPairs": 2, "focus": "clock and data differential pairs" },
+    { "id": "lvds_converter_dualclk_gnd", "directory": "lvds_converter_dualclk_gnd", "board": "fixture/lvds_converter_dualclk_gnd.kicad_pcb", "expectedDiffPairs": 2, "focus": "clock and data pairs with existing ground copper" },
+    { "id": "orangecrab_ext_pll", "directory": "orangecrab_ext_pll", "board": "fixture/orangecrab_ext_pll.kicad_pcb", "expectedDiffPairs": 6, "focus": "DDR, USB, and external PLL differential pairs", "knownImportGap": "unsupported KiCad custom pad shape" },
+    { "id": "qfn_csi_underpad_diff", "directory": "qfn_csi_underpad_diff", "board": "fixture/qfn_csi_underpad_diff.kicad_pcb", "expectedDiffPairs": 2, "focus": "two CSI differential pairs below a QFN" },
+    { "id": "qfn_diffpair_escape", "directory": "qfn_diffpair_escape", "board": "fixture/qfn_diffpair_escape.kicad_pcb", "expectedDiffPairs": 2, "focus": "two-pair QFN escape" },
+    { "id": "qfn_interior_pads", "directory": "qfn_interior_pads", "board": "fixture/qfn_interior_pads.kicad_pcb", "expectedDiffPairs": 2, "focus": "two pairs around interior QFN pads" },
+    { "id": "qfn_underpad_coupling", "directory": "qfn_underpad_coupling", "board": "fixture/qfn_underpad_coupling.kicad_pcb", "expectedDiffPairs": 0, "focus": "ordinary signals coupled around an underpad obstacle", "knownImportGap": "fixed track references unknown net FOREIGN" },
+    { "id": "routed_output", "directory": "routed_output", "board": "fixture/routed_output.kicad_pcb", "project": "fixture/routed_output.kicad_pro", "expectedDiffPairs": 56, "focus": "preservation and completion of an already-routed 56-pair board" },
+    { "id": "rp2350_fpga_eensy_prePlane", "directory": "rp2350_fpga_eensy_prePlane", "board": "fixture/rp2350_fpga_eensy_prePlane.kicad_pcb", "expectedDiffPairs": 2, "focus": "two USB pairs on a dense FPGA board", "knownImportGap": "unsupported KiCad custom pad shape" },
+    { "id": "sonde_u", "directory": "sonde_u", "board": "fixture/sonde_u.kicad_pcb", "expectedDiffPairs": 0, "focus": "ordinary routing plus bottom ground plane" },
+    { "id": "splitflap_driver", "directory": "splitflap_driver", "board": "fixture/splitflap_driver.kicad_pcb", "expectedDiffPairs": 0, "focus": "large two-layer ordinary-net driver board" },
+    { "id": "tigard", "directory": "tigard", "board": "fixture/tigard.kicad_pcb", "expectedDiffPairs": 1, "focus": "USB DP/DN routing", "knownImportGap": "unsupported KiCad custom pad shape" },
+    { "id": "ulx3s", "directory": "ulx3s", "board": "fixture/ulx3s.kicad_pcb", "expectedDiffPairs": 13, "focus": "thirteen GPDI and USB differential pairs", "knownImportGap": "duplicate component designator EMARD" },
+    { "id": "watchy", "directory": "watchy", "board": "fixture/watchy.kicad_pcb", "expectedDiffPairs": 3, "focus": "two clocks plus USB differential pair", "knownImportGap": "duplicate component designators TP4 and TP5" }
+  ]
+}

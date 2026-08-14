@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { readdir, readFile, stat } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const routerDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const testDirectory = join(routerDirectory, "tests", "e2e", "kicad-routing-tools")
+const e2eDirectory = join(routerDirectory, "tests", "e2e")
+const testDirectory = join(e2eDirectory, "_corpora", "kicad-routing-tools")
 const manifest = JSON.parse(await readFile(join(testDirectory, "manifest.json"), "utf8"))
 const source = JSON.parse(await readFile(join(testDirectory, manifest.source), "utf8"))
 const { compileRoutingDsl } = await import(pathToFileURL(join(routerDirectory, "package-dist", "index.js")))
@@ -16,14 +17,26 @@ assert.equal(new Set(manifest.cases.map((entry) => entry.id)).size, manifest.cas
 assert.equal(source.commit, "52b006c7b74f05c67c928ce0471671a2ff599e69")
 assert.equal(source.files.length, 26)
 
+const fixtureFiles = new Map()
+for (const entry of manifest.cases) {
+  assert.equal(entry.directory, entry.id, `${entry.id} must be a direct tests/e2e child`)
+  const caseDirectory = join(e2eDirectory, entry.directory)
+  const fixtureDirectory = dirname(join(caseDirectory, entry.board))
+  for (const name of await readdir(fixtureDirectory)) {
+    assert.ok(!fixtureFiles.has(name), `duplicate fixture filename ${name}`)
+    fixtureFiles.set(name, join(fixtureDirectory, name))
+  }
+}
+
 for (const entry of source.files) {
-  const path = join(testDirectory, "upstream", entry.path)
+  const path = fixtureFiles.get(basename(entry.path))
+  assert.ok(path, `missing local fixture for ${entry.path}`)
   const contents = await readFile(path)
   assert.equal((await stat(path)).size, entry.bytes, `${entry.path} byte count`)
   assert.equal(createHash("sha256").update(contents).digest("hex"), entry.sha256, `${entry.path} hash`)
 }
 
-const fixtureBoards = (await readdir(join(testDirectory, "upstream", "kicad_files")))
+const fixtureBoards = [...fixtureFiles.keys()]
   .filter((name) => name.endsWith(".kicad_pcb"))
   .sort()
 assert.deepEqual(
@@ -33,10 +46,12 @@ assert.deepEqual(
 )
 
 for (const entry of manifest.cases) {
-  const boardPath = join(testDirectory, entry.board)
+  const caseDirectory = join(e2eDirectory, entry.directory)
+  const boardPath = join(caseDirectory, entry.board)
   await stat(boardPath)
-  if (entry.project) await stat(join(testDirectory, entry.project))
-  const dsl = await readFile(join(testDirectory, entry.dsl), "utf8")
+  if (entry.project) await stat(join(caseDirectory, entry.project))
+  await stat(join(caseDirectory, "run.mjs"))
+  const dsl = await readFile(join(caseDirectory, "routing.js"), "utf8")
   const program = compileRoutingDsl(dsl)
   assert.ok(["route", "all"].includes(program.operation), `${entry.id} must run routing`)
   assert.equal(program.differentialPairs.length, entry.expectedDiffPairs, `${entry.id} diff-pair count`)
