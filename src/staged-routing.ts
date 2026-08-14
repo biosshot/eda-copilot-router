@@ -42,6 +42,8 @@ import {
   type FreeroutingProcessResult,
   type FreeroutingStageSpec,
 } from "./backends/freerouting-adapter"
+import { prepareFreeroutingRuntime } from "./backends/freerouting-runtime"
+import { prepareKrtRuntime } from "./backends/krt-runtime"
 import {
   runEasyEdaWasmRemaining,
   type EasyEdaWasmProcessResult,
@@ -158,6 +160,7 @@ type WorkflowConfig = {
   outputBoard: string
   krtDirectory: string
   pythonPath: string
+  pythonPathEntries: string[]
   kicadCli: string
   timeoutMs: number
   remainingBackend: "krt" | "freerouting" | "easyeda-wasm"
@@ -186,10 +189,8 @@ type WorkflowConfig = {
 
 const DEFAULT_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.kicad_pcb"
 const DEFAULT_RULES_BOARD = "D:\\MyProject\\kicad\\Powerbank\\Powerbank.drc-benchmark-clean-no-gnd.kicad_pcb"
-const DEFAULT_KRT = "D:\\MyProject\\kicad\\Powerbank\\tmp\\KiCadRoutingTools-v0.20.2"
 const DEFAULT_KICAD = "C:\\Users\\kiril\\AppData\\Local\\Programs\\KiCad\\10.0\\bin\\kicad-cli.exe"
 const DEFAULT_KICAD_PYTHON = "C:\\Users\\kiril\\AppData\\Local\\Programs\\KiCad\\10.0\\bin\\python.exe"
-const DEFAULT_FREEROUTING_JAR = "D:\\MyProject\\NN\\projects\\Agents\\easyeda-copilot\\mcp-work\\autorouter-comparison-drc\\freerouting\\freerouting-2.3.0.jar"
 function diagnostic(
   code: string,
   severity: WorkflowDiagnostic["severity"],
@@ -489,6 +490,7 @@ async function buildKrtRemainingSpec(
     .map((item) => [item.net, item]))
   return {
     pythonPath: config.pythonPath,
+    pythonPathEntries: config.pythonPathEntries,
     krtDirectory: config.krtDirectory,
     timeoutMs: config.timeoutMs,
     layers: ["F.Cu", "B.Cu"],
@@ -578,12 +580,17 @@ function configFromEnvironment(): WorkflowConfig {
     specialIntentPath,
     resultDirectory,
     outputBoard: resolve(process.env.COPILOT_ROUTER_FULL_OUTPUT ?? join(resultDirectory, "Powerbank.full-cycle.kicad_pcb")),
-    krtDirectory: resolve(process.env.COPILOT_ROUTER_KRT_DIR ?? DEFAULT_KRT),
-    pythonPath: process.env.COPILOT_ROUTER_PYTHON ?? "python",
+    krtDirectory: process.env.COPILOT_ROUTER_KRT_DIR
+      ? resolve(process.env.COPILOT_ROUTER_KRT_DIR)
+      : "",
+    pythonPath: process.env.COPILOT_ROUTER_PYTHON ?? "",
+    pythonPathEntries: [],
     kicadCli: resolve(process.env.COPILOT_ROUTER_KICAD_CLI ?? DEFAULT_KICAD),
     timeoutMs: Number(process.env.COPILOT_ROUTER_FULL_TIMEOUT_MS ?? 10 * 60_000),
     remainingBackend: readRemainingBackend(process.env.COPILOT_ROUTER_REMAINING_BACKEND),
-    freeroutingJar: resolve(process.env.COPILOT_ROUTER_FREEROUTING_JAR ?? DEFAULT_FREEROUTING_JAR),
+    freeroutingJar: process.env.COPILOT_ROUTER_FREEROUTING_JAR
+      ? resolve(process.env.COPILOT_ROUTER_FREEROUTING_JAR)
+      : "",
     javaPath: process.env.COPILOT_ROUTER_JAVA ?? "java",
     javacPath: process.env.COPILOT_ROUTER_JAVAC ?? "javac",
     kicadPythonPath: resolve(process.env.COPILOT_ROUTER_KICAD_PYTHON ?? DEFAULT_KICAD_PYTHON),
@@ -626,19 +633,67 @@ async function main() {
 
   try {
     const preflightDiagnostics: WorkflowDiagnostic[] = []
+    const needsKrt = !config.skipSpecial
+      || config.remainingBackend === "krt"
+      || config.completionRuns > 0
+    if (needsKrt) {
+      try {
+        const runtime = await prepareKrtRuntime({
+          krtDirectory: config.krtDirectory || undefined,
+          pythonPath: config.pythonPath || undefined,
+        })
+        config.krtDirectory = runtime.directory
+        config.pythonPath = runtime.pythonPath
+        config.pythonPathEntries = [...runtime.pythonPathEntries]
+        preflightDiagnostics.push(diagnostic(
+          "KRT_RUNTIME_READY",
+          "info",
+          `KRT ${runtime.version} is ready from the managed ${runtime.source}.`,
+          { cacheDirectory: runtime.cacheDirectory },
+        ))
+      } catch (error) {
+        preflightDiagnostics.push(diagnostic(
+          "KRT_RUNTIME_UNAVAILABLE",
+          "error",
+          `Could not prepare the managed KRT backend: ${errorText(error)}`,
+        ))
+      }
+    }
+    if (config.remainingBackend === "freerouting") {
+      try {
+        const runtime = await prepareFreeroutingRuntime({
+          jarPath: config.freeroutingJar || undefined,
+        })
+        config.freeroutingJar = runtime.jarPath
+        preflightDiagnostics.push(diagnostic(
+          "FREEROUTING_RUNTIME_READY",
+          "info",
+          `Freerouting ${runtime.version} is ready from the managed ${runtime.source}.`,
+          { cacheDirectory: runtime.cacheDirectory },
+        ))
+      } catch (error) {
+        preflightDiagnostics.push(diagnostic(
+          "FREEROUTING_RUNTIME_UNAVAILABLE",
+          "error",
+          `Could not prepare the managed Freerouting backend: ${errorText(error)}`,
+        ))
+      }
+    }
     const requiredPaths: Array<readonly [string, string]> = [
       ["source board", config.sourceBoard],
       ["rules board", config.rulesBoard],
       ["polygon DSL", config.polygonDsl],
       ["special intent", config.specialIntentPath],
-      ["KRT route_diff", join(config.krtDirectory, "py_router", "route_diff.py")],
       ["KiCad CLI", config.kicadCli],
     ]
-    if (config.remainingBackend === "krt" || config.completionRuns > 0) requiredPaths.push([
+    if (!config.skipSpecial && config.krtDirectory) requiredPaths.push([
+      "KRT route_diff", join(config.krtDirectory, "py_router", "route_diff.py"),
+    ])
+    if ((config.remainingBackend === "krt" || config.completionRuns > 0) && config.krtDirectory) requiredPaths.push([
       "KRT route", join(config.krtDirectory, "py_router", "route.py"),
     ])
     if (config.remainingBackend === "freerouting") requiredPaths.push(
-      ["Freerouting JAR", config.freeroutingJar],
+      ...(config.freeroutingJar ? [["Freerouting JAR", config.freeroutingJar] as const] : []),
       ["KiCad Python", config.kicadPythonPath],
       ["Freerouting KiCad bridge", config.freeroutingBridge],
       ["scoped Freerouting runner", config.freeroutingRunner],
@@ -1004,6 +1059,7 @@ async function main() {
         if (ordinaryMatchedNets.length) await writeFabOverrides(ordinaryFabPath, ordinaryValues)
         const krtSpec: KrtStageSpec = {
           pythonPath: config.pythonPath,
+          pythonPathEntries: config.pythonPathEntries,
           krtDirectory: config.krtDirectory,
           timeoutMs: config.timeoutMs,
           layers: ["F.Cu", "B.Cu"],

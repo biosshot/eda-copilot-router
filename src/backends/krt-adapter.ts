@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { constants } from "node:fs"
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path"
+import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 import {
   atom,
@@ -46,6 +46,8 @@ export type KrtNumericRules = {
 
 export type KrtStageSpec = {
   pythonPath: string
+  /** Managed site-package directories added without modifying the host Python. */
+  pythonPathEntries?: readonly string[]
   krtDirectory: string
   timeoutMs: number
   layers: readonly string[]
@@ -166,6 +168,25 @@ function boardStem(path: string) {
 function pythonCommand(path: string) {
   if (isAbsolute(path) || path.includes("/") || path.includes("\\")) return resolve(path)
   return path
+}
+
+function pythonScriptArgs(
+  scriptPath: string,
+  args: readonly string[],
+  pythonPathEntries: readonly string[] | undefined,
+) {
+  if (!pythonPathEntries?.length) return [scriptPath, ...args]
+  // KiCad's bundled Python uses a ._pth file on Windows and intentionally
+  // ignores PYTHONPATH. Insert managed packages in-process, then execute the
+  // real KRT CLI as __main__ without modifying the host interpreter.
+  const bootstrap = [
+    "import os,runpy,sys",
+    "script=sys.argv[1]",
+    `sys.path[:0]=[os.path.dirname(script),*${JSON.stringify([...pythonPathEntries])}]`,
+    "sys.argv=sys.argv[1:]",
+    "runpy.run_path(script,run_name='__main__')",
+  ].join(";")
+  return ["-c", bootstrap, scriptPath, ...args]
 }
 
 function unique(values: readonly string[]) {
@@ -1111,15 +1132,19 @@ async function executeStage(
     }
 
     const scriptPath = join(normalizedKrt, "py_router", scriptName)
-    result.command = [executable, scriptPath, ...args]
+    const processArgs = pythonScriptArgs(scriptPath, args, spec.pythonPathEntries)
+    result.command = [executable, ...processArgs]
     result.invocationPath = join(normalizedArtifacts, `krt-${stage}-invocation.json`)
     await writeArtifact(result.invocationPath, `${JSON.stringify({
       stage,
       executable,
-      args: [scriptPath, ...args],
+      args: processArgs,
       cwd: normalizedKrt,
       timeoutMs: spec.timeoutMs,
       environment: {
+        ...(spec.pythonPathEntries?.length
+          ? { PYTHONPATH: [...spec.pythonPathEntries, ...(process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [])].join(delimiter) }
+          : {}),
         KICAD_RIP_PREEXISTING: "0",
         KICAD_PLANE_FINALIZE: "0",
         KICAD_FINALIZE_RIP: "0",
@@ -1133,10 +1158,13 @@ async function executeStage(
     result.attempted = true
     const captured = await runCaptured(
       executable,
-      [scriptPath, ...args],
+      processArgs,
       normalizedKrt,
       spec.timeoutMs,
       {
+        ...(spec.pythonPathEntries?.length
+          ? { PYTHONPATH: [...spec.pythonPathEntries, ...(process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [])].join(delimiter) }
+          : {}),
         ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",

@@ -31,6 +31,14 @@
       "types": "./package-dist/backends/easyeda-wasm.d.ts",
       "import": "./package-dist/backends/easyeda-wasm.js"
     },
+    "./backends/assets": {
+      "types": "./package-dist/backends/assets.d.ts",
+      "import": "./package-dist/backends/assets.js"
+    },
+    "./backends/freerouting": {
+      "types": "./package-dist/backends/freerouting-runtime.d.ts",
+      "import": "./package-dist/backends/freerouting-runtime.js"
+    },
     "./backends/krt": {
       "types": "./package-dist/backends/krt.d.ts",
       "import": "./package-dist/backends/krt.js"
@@ -52,7 +60,7 @@
   },
   "scripts": {
     "build": "npm run build:public && npm run build:legacy && node scripts/copy-router-assets.mjs && node scripts/copy-polygon-assets.mjs",
-    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/backends/easyeda-wasm.ts src/backends/krt.ts src/cli.ts --format esm --platform node --target node20 --out-dir package-dist --dts --clean --tsconfig tsconfig.public.json",
+    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/backends/assets.ts src/backends/easyeda-wasm.ts src/backends/freerouting-runtime.ts src/backends/krt.ts src/cli.ts --format esm --platform node --target node20 --out-dir package-dist --dts --clean --tsconfig tsconfig.public.json",
     "build:package": "npm run build:public",
     "build:legacy": "tsup src/benchmark.ts src/render.ts src/poly-test.ts src/poly-validate.ts src/polygon/index.ts src/net-scheduler.ts src/filled-copper-proxy.ts src/ground-plane.ts src/power-intent.ts src/workflow-board.ts src/workflow-validation.ts src/completion-routing.ts src/staged-routing.ts src/portfolio-routing.ts src/backends/krt-adapter.ts src/backends/freerouting-adapter.ts src/backends/easyeda-wasm-adapter.ts --format esm --platform node --out-dir dist",
     "test:baseline": "node dist/benchmark.js baseline",
@@ -71,7 +79,7 @@
     "route:portfolio": "node dist/portfolio-routing.js",
     "route:full:freerouting": "node scripts/run-staged-freerouting.mjs",
     "route:full:easyeda": "node scripts/run-staged-easyeda.mjs",
-    "test:package": "node scripts/check-package-contract.mjs",
+    "test:package": "npm run build:package && node scripts/check-package-contract.mjs",
     "test:powerbank:regression": "node scripts/check-powerbank-refactor-regression.mjs",
     "test": "node scripts/run-all.mjs && node scripts/check-polygon-dsl.mjs && node scripts/check-staged-workflow.mjs && node scripts/check-power-intent.mjs && node scripts/check-ground-plane.mjs && node scripts/check-package-contract.mjs",
     "prepack": "npm run build:package"

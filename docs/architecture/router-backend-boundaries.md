@@ -21,6 +21,10 @@ The public orchestration model uses three independent adapter boundaries:
 3. A native verification adapter runs the target EDA's zone refill, DRC, and
    connectivity checks after the result has been applied.
 
+Backend distribution follows [backend-assets.md](backend-assets.md): every
+router is host-bundled or a verified lazy-managed asset. A manual checkout is
+never part of the public backend contract.
+
 EasyEDA `RawPcb`, `BoardAssemble`, KiCad AST nodes, `PcbSnapshotV1`, and
 `PcbPatchV1` are not router-core contracts. DSN is a supported interchange and
 backend transport; it is not the core's in-memory model.

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)))
@@ -12,6 +13,9 @@ const dsl = await import(pathToFileURL(join(distRoot, "intent", "index.js")).hre
 const schema = await import(pathToFileURL(join(distRoot, "schema.js")).href)
 await import(pathToFileURL(join(distRoot, "adapters", "contracts.js")).href)
 const easyEdaWasm = await import(pathToFileURL(join(distRoot, "backends", "easyeda-wasm.js")).href)
+const managedAssets = await import(pathToFileURL(join(distRoot, "backends", "assets.js")).href)
+const krt = await import(pathToFileURL(join(distRoot, "backends", "krt.js")).href)
+const freerouting = await import(pathToFileURL(join(distRoot, "backends", "freerouting-runtime.js")).href)
 
 assert.equal(typeof api.run, "function")
 assert.equal(typeof api.validateRoutingBoard, "function")
@@ -19,6 +23,12 @@ assert.equal(typeof dsl.compileRoutingDsl, "function")
 assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
 assert.equal(typeof easyEdaWasm.createEasyEdaWasmBackend, "function")
 assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
+assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
+assert.equal(typeof krt.createKrtBackend, "function")
+assert.equal(typeof krt.prepareKrtRuntime, "function")
+assert.equal(typeof freerouting.prepareFreeroutingRuntime, "function")
+assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.2\.zip$/)
+assert.match(freerouting.freeroutingManagedRelease().url, /freerouting-2\.3\.0\.jar$/)
 assert.equal(api.createPcbSnapshotV1, undefined)
 assert.equal(api.routePcb, undefined)
 assert.equal(api.captureLegacyRawPcbV1, undefined)
@@ -279,6 +289,39 @@ assert.equal(JSON.parse(doctor.stdout).edaAccess, "none")
 
 const temporary = await mkdtemp(join(tmpdir(), "copilot-router-package-"))
 try {
+  const assetPayload = Buffer.from("managed backend fixture\n", "utf8")
+  const assetSpec = {
+    backend: "fixture-router",
+    version: "1.0.0",
+    url: `data:application/octet-stream;base64,${assetPayload.toString("base64")}`,
+    sha256: createHash("sha256").update(assetPayload).digest("hex"),
+    sizeBytes: assetPayload.length,
+    archive: "file",
+    fileName: "router.bin",
+    markers: ["router.bin"],
+  }
+  const firstAsset = await managedAssets.prepareManagedRouterAsset(assetSpec, {
+    cacheDirectory: join(temporary, "asset-cache"),
+  })
+  assert.equal(firstAsset.source, "download")
+  const cachedAsset = await managedAssets.prepareManagedRouterAsset(assetSpec, {
+    cacheDirectory: join(temporary, "asset-cache"),
+    allowDownload: false,
+  })
+  assert.equal(cachedAsset.source, "cache")
+  await assert.rejects(
+    managedAssets.prepareManagedRouterAsset({
+      ...assetSpec,
+      version: "1.0.1",
+      sha256: "0".repeat(64),
+    }, { cacheDirectory: join(temporary, "asset-cache") }),
+    error => error?.code === "ROUTER_ASSET_INTEGRITY_FAILED",
+  )
+  await assert.rejects(
+    krt.discoverKrtDirectory(join(temporary, "missing-krt"), { allowDownload: false }),
+    error => error?.code === "KRT_OVERRIDE_INVALID",
+  )
+
   const boardPath = join(temporary, "board.json")
   const dslPath = join(temporary, "routing.dsl.js")
   await writeFile(boardPath, JSON.stringify(board), "utf8")

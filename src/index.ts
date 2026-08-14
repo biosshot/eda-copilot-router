@@ -1,4 +1,6 @@
 export * from "./adapters/contracts.js"
+export * from "./backends/assets.js"
+export * from "./backends/freerouting-runtime.js"
 export * from "./backends/krt.js"
 export * from "./core/index.js"
 export * from "./intent/index.js"

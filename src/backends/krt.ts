@@ -1,5 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { constants } from "node:fs"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type {
@@ -20,6 +19,20 @@ import {
   type KrtProcessResult,
   type KrtStageSpec,
 } from "./krt-adapter.js"
+import { RouterAssetError, type RouterAssetPolicy } from "./assets.js"
+import {
+  prepareKrtRuntime,
+  type PreparedKrtRuntime,
+} from "./krt-runtime.js"
+
+export {
+  KRT_MANAGED_VERSION,
+  krtManagedRelease,
+  prepareKrtRuntime,
+  readKrtLicense,
+  type KrtRuntimeOptions,
+  type PreparedKrtRuntime,
+} from "./krt-runtime.js"
 
 export type KrtBoardTransportResult = Readonly<{
   inputBoard: string
@@ -46,8 +59,10 @@ export interface KrtBoardTransport {
 
 export type KrtBackendOptions = Readonly<{
   transport: KrtBoardTransport
+  /** Optional development override. Normal package use lazily prepares KRT. */
   krtDirectory?: string
   pythonPath?: string
+  assets?: RouterAssetPolicy
   artifactsDirectory?: string
   keepArtifacts?: boolean
   timeoutMs?: number
@@ -68,25 +83,12 @@ function convertDiagnostics(source: readonly KrtDiagnostic[]): RoutingDiagnostic
   }))
 }
 
-async function readable(path: string | undefined) {
-  if (!path) return false
-  return access(path, constants.R_OK).then(() => true, () => false)
-}
-
-export async function discoverKrtDirectory(explicit?: string) {
-  const values = [
-    explicit,
-    process.env.COPILOT_ROUTER_KRT_DIR,
-    process.env.KICAD_ROUTING_TOOLS_DIR,
-    join(process.cwd(), "KiCadRoutingTools"),
-    join(process.cwd(), "vendor", "KiCadRoutingTools"),
-  ].filter((item): item is string => Boolean(item))
-  for (const value of values) {
-    const candidate = resolve(value)
-    if (await readable(join(candidate, "py_router", "route.py"))
-      && await readable(join(candidate, "py_router", "route_diff.py"))) return candidate
-  }
-  return undefined
+/**
+ * Resolve KRT for support tooling. With no local override this performs the
+ * same verified lazy preparation used by createKrtBackend().
+ */
+export async function discoverKrtDirectory(explicit?: string, assets?: RouterAssetPolicy) {
+  return (await prepareKrtRuntime({ krtDirectory: explicit, assets })).directory
 }
 
 function ruleFor(request: BackendRouteRequest, net: string) {
@@ -194,6 +196,24 @@ function processFailed(result: KrtProcessResult) {
 }
 
 export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapter {
+  let preparedRuntime: Promise<PreparedKrtRuntime> | undefined
+  const runtime = (signal?: AbortSignal) => {
+    if (!preparedRuntime) preparedRuntime = prepareKrtRuntime({
+      krtDirectory: options.krtDirectory,
+      pythonPath: options.pythonPath,
+      assets: { ...options.assets, ...(signal ? { signal } : {}) },
+    }).catch((error) => {
+      preparedRuntime = undefined
+      throw error
+    })
+    return preparedRuntime
+  }
+  const runtimeDiagnostic = (error: unknown) => diagnostic(
+    error instanceof RouterAssetError ? error.code : "KRT_RUNTIME_PREPARE_FAILED",
+    "error",
+    error instanceof Error ? error.message : String(error),
+    error instanceof RouterAssetError ? error.details : undefined,
+  )
   return {
     id: "krt",
     capabilities: {
@@ -205,11 +225,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     },
     async preflight(request) {
       const diagnostics: RoutingDiagnostic[] = []
-      const krt = await discoverKrtDirectory(options.krtDirectory)
-      if (!krt) diagnostics.push(diagnostic(
-        "KRT_NOT_FOUND", "error",
-        "KiCadRoutingTools was not found. Set COPILOT_ROUTER_KRT_DIR or pass krtDirectory.",
-      ))
+      try {
+        await runtime(request.signal)
+      } catch (error) {
+        diagnostics.push(runtimeDiagnostic(error))
+      }
       if (request.board.layers.length > 32) diagnostics.push(diagnostic(
         "KRT_LAYER_LIMIT", "error", "KRT supports at most 32 copper layers.",
       ))
@@ -218,11 +238,13 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     },
     async route(request): Promise<BackendRouteResult> {
       const diagnostics: RoutingDiagnostic[] = []
-      const krtDirectory = await discoverKrtDirectory(options.krtDirectory)
-      if (!krtDirectory) return {
-        status: "error", copper: EMPTY_COPPER,
-        diagnostics: [diagnostic("KRT_NOT_FOUND", "error", "KiCadRoutingTools was not found.")],
+      let managed: PreparedKrtRuntime
+      try {
+        managed = await runtime(request.signal)
+      } catch (error) {
+        return { status: "error", copper: EMPTY_COPPER, diagnostics: [runtimeDiagnostic(error)] }
       }
+      const krtDirectory = managed.directory
       const root = options.artifactsDirectory
         ? resolve(options.artifactsDirectory)
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
@@ -256,7 +278,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         if (special.rules) await writeFabOverrides(specialFab, special.rules)
         await writeFabOverrides(remainingFab, remainingRules)
         const common: Omit<KrtStageSpec, "rules" | "fabOverridesPath"> = {
-          pythonPath: options.pythonPath ?? process.env.COPILOT_ROUTER_PYTHON ?? "python",
+          pythonPath: managed.pythonPath,
+          pythonPathEntries: managed.pythonPathEntries,
           krtDirectory,
           timeoutMs: request.policy?.timeoutMs ?? options.timeoutMs ?? 600_000,
           layers: request.board.layers.map((item) => item.name),
@@ -313,6 +336,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             backend: "krt",
             details: {
               artifactsDirectory: root,
+              runtime: {
+                version: managed.version,
+                source: managed.source,
+                cacheDirectory: managed.cacheDirectory,
+              },
               special: specialResult?.jsonSummary,
               remaining: remainingResult?.jsonSummary,
             },

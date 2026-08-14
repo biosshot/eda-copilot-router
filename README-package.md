@@ -27,9 +27,17 @@ const result = await run({
 })
 ```
 
-The EasyEDA WASM backend is still EDA-neutral: the host supplies the local
-engine function or explicit worker/WASM asset paths. The package never opens
-EasyEDA and does not download or bundle proprietary router assets.
+KRT is the default complete-routing backend for the KiCad host integration.
+It does not require a separately cloned checkout: on first use the package
+downloads the pinned official KRT release, verifies its SHA-256, prepares its
+platform module and Python dependencies in the user cache, and reuses that
+cache offline. `COPILOT_ROUTER_KRT_DIR` is only an optional development
+override. Freerouting uses the same managed-asset policy for its pinned JAR.
+
+The EasyEDA WASM backend is still EDA-neutral: the EasyEDA host integration
+bundles and injects its local engine. End users are not asked for worker/WASM
+paths. The public MIT package does not redistribute those proprietary assets;
+direct package consumers may inject an engine they are licensed to use.
 
 ```js
 const backend = createEasyEdaWasmBackend({

@@ -254,7 +254,9 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_RULES_BOARD`
 - `COPILOT_ROUTER_POLYGON_DSL`
 - `COPILOT_ROUTER_SPECIAL_INTENT`
-- `COPILOT_ROUTER_KRT_DIR`
+- `COPILOT_ROUTER_KRT_DIR` optionally overrides the managed KRT cache for development;
+  normal users do not set it
+- `COPILOT_ROUTER_CACHE_DIR` optionally relocates the verified backend cache
 - `COPILOT_ROUTER_KRT_ORDERING=inside_out|mps|original`
 - `COPILOT_ROUTER_KRT_NET_RESCUE=1` enables KRT's additive, native-clearance rescue pass
 - `COPILOT_ROUTER_KRT_MAX_ITERATIONS` and `COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS`
@@ -275,7 +277,7 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_FULL_OUTPUT`
 - `COPILOT_ROUTER_FULL_TIMEOUT_MS`
 - `COPILOT_ROUTER_REMAINING_BACKEND=krt|freerouting|easyeda-wasm`
-- `COPILOT_ROUTER_FREEROUTING_JAR`
+- `COPILOT_ROUTER_FREEROUTING_JAR` optionally overrides the managed Freerouting JAR
 - `COPILOT_ROUTER_JAVA`
 - `COPILOT_ROUTER_JAVAC`
 - `COPILOT_ROUTER_KICAD_PYTHON`
