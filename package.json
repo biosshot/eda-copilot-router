@@ -50,6 +50,7 @@
   },
   "files": [
     "package-dist",
+    "assets/krt-patches",
     "docs",
     "README.md",
     "README-package.md",

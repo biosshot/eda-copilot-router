@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createRequire } from "node:module"
 import {
   access,
   copyFile,
@@ -11,7 +12,8 @@ import {
 } from "node:fs/promises"
 import { constants } from "node:fs"
 import { arch, platform } from "node:os"
-import { delimiter, join, resolve } from "node:path"
+import { delimiter, dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   prepareManagedRouterAsset,
   RouterAssetError,
@@ -69,6 +71,27 @@ async function validKrtDirectory(path: string | undefined) {
   if (!path) return false
   return await readable(join(path, "py_router", "route.py"))
     && await readable(join(path, "py_router", "route_diff.py"))
+}
+
+async function packagedPatchDirectory() {
+  const candidates = [
+    fileURLToPath(new URL("../assets/krt-patches/", import.meta.url)),
+    fileURLToPath(new URL("../../assets/krt-patches/", import.meta.url)),
+  ]
+  try {
+    const require = createRequire(import.meta.url)
+    candidates.unshift(join(dirname(require.resolve("@easyeda-copilot/router/package.json")), "assets", "krt-patches"))
+  } catch {
+    // Source-tree and standalone package candidates above remain authoritative.
+  }
+  for (const candidate of candidates) {
+    if (await readable(join(candidate, "copilot_router_krt_patch.py"))) return candidate
+  }
+  throw new RouterAssetError(
+    "KRT_PATCH_MISSING",
+    "The packaged KRT filled-zone obstacle patch is missing.",
+    { candidates },
+  )
 }
 
 /** Resolve only optional developer overrides. Managed installation is separate. */
@@ -307,12 +330,14 @@ export async function prepareKrtRuntime(options: KrtRuntimeOptions = {}): Promis
     prepareDirectory: prepareReleaseDirectory,
   }, options.assets, override)
   const python = await discoverPython(options.pythonPath, options.assets?.signal)
-  const pythonPathEntries = await preparePythonDependencies(
+  const dependencyEntries = await preparePythonDependencies(
     asset,
     python.command,
     python.details.tag,
     options.assets ?? {},
   )
+  const patchDirectory = await packagedPatchDirectory()
+  const pythonPathEntries = [patchDirectory, ...dependencyEntries]
   const finalProbe = await probeKrtPython(
     python.command,
     asset.directory,

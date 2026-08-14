@@ -69,6 +69,7 @@ export type KrtBackendOptions = Readonly<{
 }>
 
 const EMPTY_COPPER: RoutingCopper = { tracks: [], vias: [], zones: [] }
+const HARD_MIN_TRACK_WIDTH_MM = 0.127
 
 function diagnostic(code: string, severity: RoutingDiagnostic["severity"], message: string, details?: unknown): RoutingDiagnostic {
   return { code, severity, message, ...(details === undefined ? {} : { details }) }
@@ -131,7 +132,7 @@ function specialRules(request: BackendRouteRequest): { rules?: KrtNumericRules; 
   return {
     diagnostics: [],
     rules: {
-      trackWidth: widths[0],
+      trackWidth: Math.max(HARD_MIN_TRACK_WIDTH_MM, widths[0]),
       clearance: clearances[0],
       viaSize: viaSizes[0],
       viaDrill: viaDrills[0],
@@ -148,13 +149,48 @@ function minimumRules(values: readonly RoutingRuleValues[]): KrtNumericRules {
   const source = values.length ? values : []
   const first = source[0]
   return {
-    trackWidth: Math.min(...source.map((item) => item.minTrackWidthMm)),
+    trackWidth: Math.max(HARD_MIN_TRACK_WIDTH_MM, Math.min(...source.map((item) => item.minTrackWidthMm))),
     clearance: Math.min(...source.map((item) => item.clearanceMm)),
     viaSize: Math.min(...source.map((item) => item.via.minDiameterMm)),
     viaDrill: Math.min(...source.map((item) => item.via.minDrillMm)),
     gridStep: 0.05,
     boardEdgeClearance: first?.edgeClearanceMm,
   }
+}
+
+function routedCopperRuleDiagnostics(request: BackendRouteRequest, copper: RoutingCopper) {
+  const narrowTracks = copper.tracks.flatMap((track) => {
+    const minimum = Math.max(HARD_MIN_TRACK_WIDTH_MM, ruleFor(request, track.net).minTrackWidthMm)
+    return track.widthMm + 1e-9 < minimum
+      ? [{ net: track.net, layer: track.layer, actualMm: track.widthMm, minimumMm: minimum }]
+      : []
+  })
+  const undersizedVias = copper.vias.flatMap((via) => {
+    const rules = ruleFor(request, via.net).via
+    return via.diameterMm + 1e-9 < rules.minDiameterMm || via.drillMm + 1e-9 < rules.minDrillMm
+      ? [{
+        net: via.net,
+        actualDiameterMm: via.diameterMm,
+        actualDrillMm: via.drillMm,
+        minimumDiameterMm: rules.minDiameterMm,
+        minimumDrillMm: rules.minDrillMm,
+      }]
+      : []
+  })
+  const diagnostics: RoutingDiagnostic[] = []
+  if (narrowTracks.length) diagnostics.push(diagnostic(
+    "KRT_TRACK_WIDTH_BELOW_HARD_MINIMUM",
+    "error",
+    `KRT produced ${narrowTracks.length} track segment(s) below the compiled hard minimum; the routed delta was rejected.`,
+    { hardMinimumMm: HARD_MIN_TRACK_WIDTH_MM, samples: narrowTracks.slice(0, 16) },
+  ))
+  if (undersizedVias.length) diagnostics.push(diagnostic(
+    "KRT_VIA_BELOW_HARD_MINIMUM",
+    "error",
+    `KRT produced ${undersizedVias.length} via(s) below the compiled hard minimum; the routed delta was rejected.`,
+    { samples: undersizedVias.slice(0, 16) },
+  ))
+  return diagnostics
 }
 
 async function writeFabOverrides(path: string, values: KrtNumericRules) {
@@ -290,7 +326,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           ...routeQuality(request),
           collectStats: true,
           debugMemory: true,
-          filledCopperProxy: true,
+          exactFilledZoneObstacles: true,
           signal: request.signal,
         }
         let current = prepared.inputBoard
@@ -324,6 +360,19 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         }
         const routed = await options.transport.read(request, prepared.inputBoard, current)
         diagnostics.push(...(routed.diagnostics ?? []))
+        const ruleDiagnostics = routedCopperRuleDiagnostics(request, routed.copper)
+        diagnostics.push(...ruleDiagnostics)
+        if (ruleDiagnostics.length) return {
+          status: "error",
+          copper: EMPTY_COPPER,
+          diagnostics,
+          metrics: {
+            elapsedMs: performance.now() - startedAt,
+            routedNetCount: 0,
+            backend: "krt",
+            details: { rejectedRoutedDelta: true, artifactsDirectory: root },
+          },
+        }
         const failed = (specialResult ? processFailed(specialResult) : false)
           || (remainingResult ? processFailed(remainingResult) : false)
         return {

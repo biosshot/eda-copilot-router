@@ -82,6 +82,8 @@ export type KrtStageSpec = {
   debugMemory?: boolean
   /** Exact native filled copper was materialized as locked same-net tracks. */
   filledCopperProxy?: boolean
+  /** Managed KRT patch stamps exact native filled polygons as net-aware obstacles. */
+  exactFilledZoneObstacles?: boolean
   /** Abort the active KRT subprocess without throwing from the workflow. */
   signal?: AbortSignal
 }
@@ -180,9 +182,11 @@ function pythonScriptArgs(
   // ignores PYTHONPATH. Insert managed packages in-process, then execute the
   // real KRT CLI as __main__ without modifying the host interpreter.
   const bootstrap = [
-    "import os,runpy,sys",
+    "import importlib,importlib.util,os,runpy,sys",
+    "sys.dont_write_bytecode=True",
     "script=sys.argv[1]",
     `sys.path[:0]=[os.path.dirname(script),*${JSON.stringify([...pythonPathEntries])}]`,
+    "importlib.import_module('copilot_router_krt_patch') if importlib.util.find_spec('copilot_router_krt_patch') else None",
     "sys.argv=sys.argv[1:]",
     "runpy.run_path(script,run_name='__main__')",
   ].join(";")
@@ -626,6 +630,7 @@ async function runCaptured(
         KICAD_NET_RESCUE: "0",
         KICAD_TERMINAL_ESCALATION: "0",
         KICAD_IMPEDANCE_NECKDOWN: "0",
+        PYTHONDONTWRITEBYTECODE: "1",
         ...environment,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -812,7 +817,8 @@ async function commonPreflight(
 
   try {
     const source = await readFile(inputBoard, "utf8")
-    if (!spec.filledCopperProxy && /(?:^|\s)\(zone(?=[\s(])/m.test(source)) diagnostics.push(diagnostic(
+    if (!spec.filledCopperProxy && !spec.exactFilledZoneObstacles
+      && /(?:^|\s)\(zone(?=[\s(])/m.test(source)) diagnostics.push(diagnostic(
       "KRT_ZONE_OBSTACLE_UNSUPPORTED",
       "warning",
       "Stock KRT does not stamp native filled-zone contours as routing obstacles. Native refill and final verification are authoritative.",
@@ -1148,6 +1154,7 @@ async function executeStage(
         KICAD_FINALIZE_RIP: "0",
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
+        PYTHONDONTWRITEBYTECODE: "1",
         KICAD_IMPEDANCE_NECKDOWN: "0",
         ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
       },
