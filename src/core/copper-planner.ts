@@ -1,5 +1,6 @@
 import type { BackendRouteRequest } from "../adapters/contracts.js"
 import type { LayerSelector, PlaneIntent, RoutingProgram } from "../intent/types.js"
+import { DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM } from "../polygon/boundary-optimizer.js"
 import { planPolygons } from "../polygon/engine.js"
 import { routingBoardToPolygonScene } from "../polygon/routing-board-adapter.js"
 import type {
@@ -246,7 +247,9 @@ export function planRoutingCopper(
         const value = valuesForNet(rules, net)
         return {
           obstacleClearanceMm: value.clearanceMm,
-          minimumCorridorWidthMm: Math.max(value.minTrackWidthMm, 0.2),
+          // Polygon feasibility always starts from one fixed manufacturable
+          // corridor. Power-current width must not inflate the search graph.
+          minimumCorridorWidthMm: DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM,
         }
       },
     })

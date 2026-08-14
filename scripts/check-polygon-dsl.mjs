@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import {
+  DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM,
   isOctilinearBoundary,
   MAX_COMPACT_BOARD_AREA_RATIO,
   mergeOctilinearBoundaries,
@@ -9,6 +10,8 @@ import {
   transformFootprintPoint,
   validateFilledPolygonPlans,
 } from "../dist/polygon/index.js"
+
+assert.equal(DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM, 0.254)
 
 const topRotatedPad = transformFootprintPoint(
   { x: 3.5, y: 1.35 },
@@ -741,5 +744,30 @@ assert.ok(Math.min(...cleanedMergedBoundaries[0].map((point, index) => {
   const next = cleanedMergedBoundaries[0][(index + 1) % cleanedMergedBoundaries[0].length]
   return Math.hypot(next.x - point.x, next.y - point.y)
 })) + 1e-6 >= 0.1)
+
+const boundedSearchProgram = runPolygonDsl(`
+polygon("BOUNDED")
+  .connect(pad("B1", 1), pad("B2", 1))
+  .on(topLayer())
+  .compact()
+  .maxPadFreeGap(20);
+`)
+const boundedSearch = planPolygons({
+  ...pcb,
+  pads: [
+    pad("B1", 1, "BOUNDED", 0, 0),
+    pad("B2", 1, "BOUNDED", 10, 0),
+    { ...pad("X1", 1, "OTHER", 5, 0), shape: ["RECT", 2, 4] },
+  ],
+}, boundedSearchProgram, {
+  rulesForNet: () => ({
+    minimumCorridorWidthMm: DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM,
+    obstacleClearanceMm: 0.2,
+    maxSearchWorkUnits: 1,
+  }),
+})
+assert.equal(boundedSearch.plans.length, 1)
+assert.equal(boundedSearch.plans[0].status, "error")
+assert.match(boundedSearch.plans[0].reason, /deterministic 1-unit limit/)
 
 console.log("polygon DSL, octilinear geometry, spike filtering, and deterministic boundary tests passed")

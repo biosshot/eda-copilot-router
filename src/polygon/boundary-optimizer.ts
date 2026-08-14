@@ -7,8 +7,9 @@ import ClipperLib from "clipper-lib"
 const SCALE = 1_000_000
 export const MAX_PAD_FREE_GAP_WIDTHS = 4.5
 export const PAD_ENVELOPE_EXPANSION_RATIO = 0.20
-export const DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM = 0.20
+export const DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM = 0.254
 export const DEFAULT_OBSTACLE_CLEARANCE_MM = 0.20
+export const DEFAULT_MAX_POLYGON_SEARCH_WORK_UNITS = 250_000
 export const MIN_BOUNDARY_FEATURE_WIDTH_RATIO = 0.12
 export const MAX_OCTILINEAR_ENVELOPE_AREA_RATIO = 1.12
 export const MAX_ADAPTIVE_CORRIDOR_WIDTH_RATIO = 2.5
@@ -26,6 +27,40 @@ const ADAPTIVE_WIDTH_SEARCH_STEPS = 14
 // contraction conservative at that scale; narrower engines automatically
 // clamp this to their requested minimum corridor width.
 const DEFAULT_MIN_BANK_CONNECTIVITY_NECK_MM = 0.10
+
+class PolygonSearchBudgetExceeded extends Error {
+  readonly code = "POLYGON_SEARCH_BUDGET_EXCEEDED"
+
+  constructor(
+    readonly usedWorkUnits: number,
+    readonly maxWorkUnits: number,
+    readonly operation: string,
+  ) {
+    super(`polygon search exhausted ${maxWorkUnits} work units while ${operation}`)
+    this.name = "PolygonSearchBudgetExceeded"
+  }
+}
+
+type PolygonSearchBudget = {
+  readonly maxWorkUnits: number
+  usedWorkUnits: number
+  spend(workUnits: number, operation: string): void
+}
+
+function createPolygonSearchBudget(maxWorkUnits: number): PolygonSearchBudget {
+  const normalizedMaximum = Math.max(1, Math.floor(maxWorkUnits))
+  return {
+    maxWorkUnits: normalizedMaximum,
+    usedWorkUnits: 0,
+    spend(workUnits, operation) {
+      const normalizedWork = Math.max(0, Math.ceil(workUnits))
+      if (this.usedWorkUnits + normalizedWork > this.maxWorkUnits) {
+        throw new PolygonSearchBudgetExceeded(this.usedWorkUnits, this.maxWorkUnits, operation)
+      }
+      this.usedWorkUnits += normalizedWork
+    },
+  }
+}
 
 type PadGeometry = {
   pad: PolygonScenePad
@@ -89,6 +124,14 @@ export type CompactBoundaryOptimizationResult = {
     pad: PolygonScenePad
     nearestPadFreeGapWidths: number
   }>
+  searchWorkUnits: number
+  failure?: {
+    code: "POLYGON_SEARCH_BUDGET_EXCEEDED"
+    message: string
+    usedWorkUnits: number
+    maxWorkUnits: number
+    operation: string
+  }
 }
 
 function signedArea(points: PcbPoint[]) {
@@ -1513,7 +1556,52 @@ function widestCollisionFreeBodyWidth(
   return safeWidthMm
 }
 
-function shortestRectilinearPath(start: PcbPoint, end: PcbPoint, blocked: Bounds[]) {
+type DistanceQueueItem = { key: string; distance: number }
+
+class DistanceMinHeap {
+  private readonly items: DistanceQueueItem[] = []
+
+  get size() { return this.items.length }
+
+  push(item: DistanceQueueItem) {
+    this.items.push(item)
+    let index = this.items.length - 1
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2)
+      if (this.items[parent].distance <= item.distance) break
+      this.items[index] = this.items[parent]
+      index = parent
+    }
+    this.items[index] = item
+  }
+
+  pop(): DistanceQueueItem | undefined {
+    if (!this.items.length) return undefined
+    const first = this.items[0]
+    const last = this.items.pop()!
+    if (!this.items.length) return first
+    let index = 0
+    while (true) {
+      const left = index * 2 + 1
+      if (left >= this.items.length) break
+      const right = left + 1
+      const child = right < this.items.length
+        && this.items[right].distance < this.items[left].distance ? right : left
+      if (this.items[child].distance >= last.distance) break
+      this.items[index] = this.items[child]
+      index = child
+    }
+    this.items[index] = last
+    return first
+  }
+}
+
+function shortestRectilinearPath(
+  start: PcbPoint,
+  end: PcbPoint,
+  blocked: Bounds[],
+  searchBudget: PolygonSearchBudget,
+) {
   const xs = [...new Set([
     start.x,
     end.x,
@@ -1524,6 +1612,10 @@ function shortestRectilinearPath(start: PcbPoint, end: PcbPoint, blocked: Bounds
     end.y,
     ...blocked.flatMap((bounds) => [bounds.top, bounds.bottom]),
   ])].sort((a, b) => a - b)
+  // Bound the whole visibility-graph attempt before allocating its grid.
+  // The multiplier accounts for node filtering, edge construction and path
+  // traversal. This is deterministic and independent of machine speed.
+  searchBudget.spend(xs.length * ys.length * 4, "building a rectilinear visibility graph")
   const key = (xIndex: number, yIndex: number) => `${xIndex}:${yIndex}`
   const nodes = new Map<string, { point: PcbPoint; xIndex: number; yIndex: number }>()
   for (let yIndex = 0; yIndex < ys.length; yIndex += 1) {
@@ -1566,26 +1658,23 @@ function shortestRectilinearPath(start: PcbPoint, end: PcbPoint, blocked: Bounds
 
   const distances = new Map<string, number>([[startKey, 0]])
   const previous = new Map<string, string>()
-  const pending = new Set<string>(nodes.keys())
-  while (pending.size) {
-    let current: string | undefined
-    let best = Infinity
-    for (const candidate of pending) {
-      const distance = distances.get(candidate) ?? Infinity
-      if (distance < best) {
-        best = distance
-        current = candidate
-      }
-    }
-    if (!current || !Number.isFinite(best)) break
-    pending.delete(current)
+  const visited = new Set<string>()
+  const queue = new DistanceMinHeap()
+  queue.push({ key: startKey, distance: 0 })
+  while (queue.size) {
+    const currentItem = queue.pop()!
+    const current = currentItem.key
+    if (visited.has(current)) continue
+    if (currentItem.distance > (distances.get(current) ?? Infinity) + 1e-9) continue
+    visited.add(current)
     if (current === endKey) break
     for (const neighbour of neighbours.get(current) ?? []) {
-      if (!pending.has(neighbour.key)) continue
-      const candidateDistance = best + neighbour.distance
+      if (visited.has(neighbour.key)) continue
+      const candidateDistance = currentItem.distance + neighbour.distance
       if (candidateDistance + 1e-9 >= (distances.get(neighbour.key) ?? Infinity)) continue
       distances.set(neighbour.key, candidateDistance)
       previous.set(neighbour.key, current)
+      queue.push({ key: neighbour.key, distance: candidateDistance })
     }
   }
   if (!distances.has(endKey)) return undefined
@@ -1605,7 +1694,9 @@ function routeEdge(
   padExpansionRatio: number,
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
+  searchBudget: PolygonSearchBudget,
 ): RoutedEdge | undefined {
+  searchBudget.spend(1, "evaluating a pad-pair route")
   const start = geometries[edge.a].pad
   const end = geometries[edge.b].pad
   const widthMm = Math.max(edge.bottleneckWidthMm, minimumCorridorWidthMm)
@@ -1634,7 +1725,7 @@ function routeEdge(
       const lengthDifference = polylineLength(left) - polylineLength(right)
       if (Math.abs(lengthDifference) > 1e-9) return lengthDifference
       return left.length - right.length
-    })[0] ?? shortestRectilinearPath(start, end, blocked)
+    })[0] ?? shortestRectilinearPath(start, end, blocked, searchBudget)
   if (!points) return undefined
   const lengthMm = polylineLength(points)
   const remainingObstacleCount = corridorObstacleHits(points, blocked)
@@ -1792,6 +1883,7 @@ function routedConnectionsForCompactGroup(
   padExpansionRatio: number,
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
+  searchBudget: PolygonSearchBudget,
 ) {
   const { groups, groupForPad } = compactConnectivityGroups(geometries, bankEnvelopes)
   if (groups.length < 2) return []
@@ -1827,6 +1919,7 @@ function routedConnectionsForCompactGroup(
             padExpansionRatio,
             minimumCorridorWidthMm,
             obstacleClearanceMm,
+            searchBudget,
           ) ?? null
           cache.set(key, routed)
         }
@@ -1903,6 +1996,7 @@ function optimizeGroup(
   padExpansionRatio: number,
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
+  searchBudget: PolygonSearchBudget,
 ): CompactBoundaryOptimization | undefined {
   const edges = minimumSpanningTree(geometries)
   const bankEnvelopes = padBankEnvelopes(
@@ -1920,6 +2014,7 @@ function optimizeGroup(
     padExpansionRatio,
     minimumCorridorWidthMm,
     obstacleClearanceMm,
+    searchBudget,
   )
   if (!routes) return undefined
   const corridorWidthMinMm = routes.length ? Math.min(...routes.map((edge) => edge.widthMm)) : 0
@@ -2050,12 +2145,16 @@ export function optimizeCompactBoundaries(
     padExpansionRatio?: number
     minimumCorridorWidthMm?: number
     obstacleClearanceMm?: number
+    maxSearchWorkUnits?: number
   } = {},
 ): CompactBoundaryOptimizationResult {
   const maxPadFreeGapWidths = options.maxPadFreeGapWidths ?? MAX_PAD_FREE_GAP_WIDTHS
   const padExpansionRatio = options.padExpansionRatio ?? PAD_ENVELOPE_EXPANSION_RATIO
   const minimumCorridorWidthMm = options.minimumCorridorWidthMm ?? DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM
   const obstacleClearanceMm = options.obstacleClearanceMm ?? DEFAULT_OBSTACLE_CLEARANCE_MM
+  const searchBudget = createPolygonSearchBudget(
+    options.maxSearchWorkUnits ?? DEFAULT_MAX_POLYGON_SEARCH_WORK_UNITS,
+  )
   const toGeometry = (pad: PolygonScenePad) => {
     const rings = ringsFromPad(pad).filter((ring) => ring.length >= 3)
     const points = rings.flat()
@@ -2076,6 +2175,7 @@ export function optimizeCompactBoundaries(
       maxPadFreeGapMm: 0,
       maxPadFreeGapWidths: 0,
       isolatedPads: geometries.map((geometry) => ({ pad: geometry.pad, nearestPadFreeGapWidths: Infinity })),
+      searchWorkUnits: 0,
     }
   }
   const globalEdges = minimumSpanningTree(geometries)
@@ -2088,23 +2188,42 @@ export function optimizeCompactBoundaries(
       .reduce((nearest, peer) => Math.min(nearest, edgeBetween([geometry, peer], 0, 1).gapWidths), Infinity)
     isolatedPads.push({ pad: geometry.pad, nearestPadFreeGapWidths })
   }
-  for (const group of groups) {
-    const members = group.map((index) => geometries[index])
-    if (members.length < 2) {
-      addIsolated(members[0], geometries)
-      continue
+  try {
+    for (const group of groups) {
+      const members = group.map((index) => geometries[index])
+      if (members.length < 2) {
+        addIsolated(members[0], geometries)
+        continue
+      }
+      const optimized = optimizeGroup(
+        members,
+        obstacles,
+        padExpansionRatio,
+        minimumCorridorWidthMm,
+        obstacleClearanceMm,
+        searchBudget,
+      )
+      if (optimized) {
+        boundaries.push(optimized)
+      } else {
+        for (const geometry of members) addIsolated(geometry, members)
+      }
     }
-    const optimized = optimizeGroup(
-      members,
-      obstacles,
-      padExpansionRatio,
-      minimumCorridorWidthMm,
-      obstacleClearanceMm,
-    )
-    if (optimized) {
-      boundaries.push(optimized)
-    } else {
-      for (const geometry of members) addIsolated(geometry, members)
+  } catch (error) {
+    if (!(error instanceof PolygonSearchBudgetExceeded)) throw error
+    return {
+      boundaries: [],
+      maxPadFreeGapMm: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapMm)) : 0,
+      maxPadFreeGapWidths: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapWidths)) : 0,
+      isolatedPads: [],
+      searchWorkUnits: searchBudget.usedWorkUnits,
+      failure: {
+        code: error.code,
+        message: `polygon search reached its deterministic ${error.maxWorkUnits}-unit limit while ${error.operation}`,
+        usedWorkUnits: error.usedWorkUnits,
+        maxWorkUnits: error.maxWorkUnits,
+        operation: error.operation,
+      },
     }
   }
   return {
@@ -2112,5 +2231,6 @@ export function optimizeCompactBoundaries(
     maxPadFreeGapMm: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapMm)) : 0,
     maxPadFreeGapWidths: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapWidths)) : 0,
     isolatedPads,
+    searchWorkUnits: searchBudget.usedWorkUnits,
   }
 }

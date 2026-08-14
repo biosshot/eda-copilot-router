@@ -100,6 +100,8 @@ export type PolygonGeometryRules = {
   minimumCorridorWidthMm?: number
   /** Clearance around foreign copper used while choosing a corridor path. */
   obstacleClearanceMm?: number
+  /** Deterministic cap on geometric search work for one polygon intent. */
+  maxSearchWorkUnits?: number
 }
 
 export type PolygonPlannerOptions = {
@@ -396,6 +398,9 @@ function planIntent(
       ...options.rulesForNet?.(intent.net),
     },
   )
+  if (optimized.failure) {
+    return [failed(intent, layer, boardAreaMm2, optimized.failure.message, targetPads)]
+  }
   const viableBoundaries = optimized.boundaries.filter((cluster) => {
     const ratio = boardAreaMm2 > 0 ? polygonArea(cluster.boundary) / boardAreaMm2 : Infinity
     return Number.isFinite(ratio) && ratio <= MAX_COMPACT_BOARD_AREA_RATIO
