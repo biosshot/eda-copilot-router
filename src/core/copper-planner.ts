@@ -16,6 +16,18 @@ import type {
 
 const EPSILON = 1e-7
 
+// KiCad zone min_thickness is a fill-detail/manufacturability parameter, not
+// the required current-carrying width of the net.  Feeding a calculated power
+// trace width (for example 1.85 mm) into it can erase narrow but intentional
+// pad entries during refill.  Polygon geometry and routing rules retain their
+// own independent width requirements.
+const ROUTER_ZONE_MIN_THICKNESS_MM = DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM
+
+// Native zone priority zero is reserved for the board-scale GND plane.  This
+// keeps every router-owned compact power zone above the late ground pour even
+// when the DSL leaves both priorities at their default value.
+const ROUTER_COMPACT_ZONE_PRIORITY_BASE = 1
+
 export type PlannedRoutingCopper = Readonly<{
   copper: RoutingCopper
   connectivity: NonNullable<BackendRouteRequest["connectivity"]>
@@ -270,8 +282,8 @@ export function planRoutingCopper(
         net: plan.net,
         layers: [plan.layer],
         outline: { outer: plan.boundary },
-        priority: plan.intent.priority,
-        minThicknessMm: Math.max(0.05, valuesForNet(rules, plan.net).minTrackWidthMm),
+        priority: ROUTER_COMPACT_ZONE_PRIORITY_BASE + plan.intent.priority,
+        minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
         connection: "solid",
       })
       groups.push({
@@ -290,8 +302,10 @@ export function planRoutingCopper(
       net: plane.net,
       layers,
       outline: { outer: board.outline, holes: board.cutouts },
-      priority: plane.priority,
-      minThicknessMm: Math.max(0.05, values.minTrackWidthMm),
+      priority: plane.net.toUpperCase() === "GND"
+        ? 0
+        : ROUTER_COMPACT_ZONE_PRIORITY_BASE + plane.priority,
+      minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
       connection: "solid",
     })
     planeZones += 1

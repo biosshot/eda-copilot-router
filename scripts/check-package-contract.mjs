@@ -55,7 +55,7 @@ const board = {
     { name: "F.Cu", index: 0, side: "top" },
     { name: "B.Cu", index: 1, side: "bottom" },
   ],
-  nets: [{ name: "VCC" }, { name: "USB_DP" }, { name: "USB_DM" }],
+  nets: [{ name: "VCC" }, { name: "GND" }, { name: "USB_DP" }, { name: "USB_DM" }],
   components: [
     { designator: "U1", at: { x: 4, y: 5 }, rotationDeg: 0, side: "top" },
     { designator: "C1", at: { x: 8, y: 5 }, rotationDeg: 0, side: "top" },
@@ -77,7 +77,7 @@ const board = {
   },
   rules: {
     default: ruleValues,
-    nets: ["VCC", "USB_DP", "USB_DM"].map((net) => ({ net, values: ruleValues })),
+    nets: ["VCC", "GND", "USB_DP", "USB_DM"].map((net) => ({ net, values: ruleValues })),
   },
   copper: { fixed: emptyCopper, editable: emptyCopper },
 }
@@ -169,6 +169,8 @@ const polygonResult = await api.run({
 assert.equal(polygonResult.status, "complete")
 assert.equal(polygonResult.copper.zones.length, 1)
 assert.equal(polygonResult.copper.zones[0].net, "VCC")
+assert.equal(polygonResult.copper.zones[0].priority, 1)
+assert.equal(polygonResult.copper.zones[0].minThicknessMm, 0.254)
 assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 1)
 assert.equal(polygonBackendRequest.program.polygons.length, 0)
 assert.equal(polygonBackendRequest.program.planes.length, 0)
@@ -195,8 +197,29 @@ assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 0)
 assert.equal(polygonBackendRequest.program.planes.length, 0)
 assert.equal(planeResult.copper.zones.length, 1)
 assert.deepEqual(planeResult.copper.zones[0].layers, ["F.Cu", "B.Cu"])
+assert.equal(planeResult.copper.zones[0].priority, 1)
+assert.equal(planeResult.copper.zones[0].minThicknessMm, 0.254)
 assert.ok(planeResult.copper.vias.length > 0)
 assert.ok(planeResult.copper.vias.length <= 8)
+
+const groundAndPowerResult = await api.run({
+  board,
+  backend: polygonBackend,
+  dsl: `
+    powerNet("VCC", { minTrackWidthMm: 1.85 })
+    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on(topLayer()).compact()
+    plane({ net: "GND", layers: outerLayers(), region: board(), stitching: false })
+    runRouting()
+  `,
+})
+assert.equal(groundAndPowerResult.status, "complete")
+assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 1.85)
+assert.deepEqual(groundAndPowerResult.copper.zones.map((zone) => ({
+  net: zone.net, priority: zone.priority, minThicknessMm: zone.minThicknessMm,
+})), [
+  { net: "VCC", priority: 1, minThicknessMm: 0.254 },
+  { net: "GND", priority: 0, minThicknessMm: 0.254 },
+])
 
 const weakOnlyRouting = await api.run({
   board,
