@@ -133,16 +133,24 @@ assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
 assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
 const fanoutPolicy = dsl.compileRoutingDsl(`
+  fanout(component("U1"), { method: "underpad", extensionMm: 0.3 })
+  fanout(pad("U2", 4), { method: "stub" })
   disableFanout(component("U3"), pad("U1", 2))
   disableFanout(pad("U1", 2), pad("U1", 3))
   runRouting()
 `)
+assert.deepEqual(fanoutPolicy.fanouts, [
+  { target: { kind: "component", component: "U1" }, method: "underpad", extensionMm: 0.3 },
+  { target: { kind: "pad", component: "U2", pad: "4" }, method: "stub", extensionMm: 0.1 },
+])
 assert.deepEqual(fanoutPolicy.fanoutExclusions, [
   { kind: "component", component: "U3" },
   { kind: "pad", component: "U1", pad: "2" },
   { kind: "pad", component: "U1", pad: "3" },
 ])
 assert.throws(() => dsl.compileRoutingDsl("disableFanout(); runRouting()"), /requires component/i)
+assert.throws(() => dsl.compileRoutingDsl('fanout(component("U1"), { method: "buried" }); runRouting()'), /method must be/i)
+assert.throws(() => dsl.compileRoutingDsl('fanout(component("U1"), { extensionMm: -1 }); runRouting()'), /must be >= 0/i)
 assert.equal(dsl.validateRoutingProgram({
   polygons: [], planes: [], signalNets: [], powerNets: [], differentialPairs: [], matchedGroups: [],
   operation: "route", backend: "easyeda-wasm",
@@ -197,7 +205,11 @@ const denseBoard = {
   }],
   pads: [...board.pads, ...densePads],
 }
-const denseProgram = dsl.compileRoutingDsl(`disableFanout(pad("UQ", 1)); runRouting()`)
+const denseProgram = dsl.compileRoutingDsl(`
+  fanout(component("UQ"), { method: "underpad", extensionMm: 0.3 })
+  disableFanout(pad("UQ", 1))
+  runRouting()
+`)
 const denseRules = dsl.compileRoutingRules(denseBoard, denseProgram)
 const denseFanout = krt.planKrtQfnFanout({
   board: denseBoard,
@@ -209,6 +221,8 @@ assert.equal(denseFanout.length, 1)
 assert.ok(!denseFanout[0].padNumbers.includes("1"), "pad-level fanout opt-out must be exact")
 assert.ok(denseFanout[0].padNumbers.includes("2"), "polygon connectivity must not suppress a useful package escape")
 assert.equal(denseFanout[0].rules.trackWidth, 0.2, "fanout uses the compiled hard neck-down width")
+assert.equal(denseFanout[0].method, "underpad")
+assert.equal(denseFanout[0].extensionMm, 0.3)
 const disabledDenseProgram = dsl.compileRoutingDsl(`disableFanout(component("UQ")); runRouting()`)
 const disabledDenseRules = dsl.compileRoutingRules(denseBoard, disabledDenseProgram)
 assert.equal(krt.planKrtQfnFanout({

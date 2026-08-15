@@ -5,6 +5,7 @@ import type {
   CopperTarget,
   DifferentialPairIntent,
   DrcIntent,
+  FanoutIntent,
   FanoutTarget,
   ImpedanceConstraint,
   LayerSelector,
@@ -210,6 +211,7 @@ class RoutingDslBuilder {
   private readonly differentialPairs: DifferentialPairIntent[] = []
   private readonly matchedGroups: MatchedGroupIntent[] = []
   private readonly viaFences: ViaFenceIntent[] = []
+  private readonly fanouts = new Map<string, FanoutIntent>()
   private readonly fanoutExclusions = new Map<string, FanoutTarget>()
   private readonly netClasses: NetClassIntent[] = []
   private drcIntent: DrcIntent | undefined
@@ -231,6 +233,7 @@ class RoutingDslBuilder {
       diffPair: (id: string, options: unknown) => this.diffPair(id, options),
       matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
       viaFence: (id: string, options: unknown) => this.viaFence(id, options),
+      fanout: (target: FanoutTarget, options: unknown = {}) => this.fanout(target, options),
       disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
       stack: (options: unknown) => this.stack(options),
       quality: (options: unknown) => this.quality(options),
@@ -271,6 +274,7 @@ class RoutingDslBuilder {
       differentialPairs: this.differentialPairs,
       matchedGroups: this.matchedGroups,
       viaFences: this.viaFences,
+      fanouts: [...this.fanouts.values()],
       fanoutExclusions: [...this.fanoutExclusions.values()],
       netClasses: this.netClasses,
       ...(this.drcIntent ? { drc: this.drcIntent } : {}),
@@ -448,24 +452,51 @@ class RoutingDslBuilder {
     return undefined
   }
 
+  private fanout(value: FanoutTarget, input: unknown): undefined {
+    const source = object(input, "fanout options")
+    assertKnownKeys(source, ["method", "extensionMm"], "fanout")
+    const target = this.fanoutTarget(value, "fanout target")
+    const method = source.method === undefined ? "auto" : nonEmpty(source.method, "fanout.method")
+    if (!["auto", "stub", "underpad"].includes(method)) {
+      throw new TypeError("fanout.method must be auto, stub, or underpad")
+    }
+    const key = this.fanoutTargetKey(target)
+    this.fanouts.set(key, {
+      target,
+      method: method as FanoutIntent["method"],
+      extensionMm: source.extensionMm === undefined ? 0.1 : nonNegative(source.extensionMm, "fanout.extensionMm"),
+    })
+    return undefined
+  }
+
+  private fanoutTarget(value: FanoutTarget, label: string): FanoutTarget {
+    const target = object(value, label)
+    if (target.kind === "component") {
+      assertKnownKeys(target, ["kind", "component"], label)
+      return { kind: "component", component: nonEmpty(target.component, `${label}.component`) }
+    }
+    if (target.kind === "pad") {
+      assertKnownKeys(target, ["kind", "component", "pad"], label)
+      return {
+        kind: "pad",
+        component: nonEmpty(target.component, `${label}.component`),
+        pad: nonEmpty(target.pad, `${label}.pad`),
+      }
+    }
+    throw new TypeError(`${label} must be component(...) or pad(...)`)
+  }
+
+  private fanoutTargetKey(target: FanoutTarget) {
+    return target.kind === "component"
+      ? `component\u0000${target.component}`
+      : `pad\u0000${target.component}\u0000${target.pad}`
+  }
+
   private disableFanout(targets: FanoutTarget[]): undefined {
     if (!targets.length) throw new TypeError("disableFanout(...) requires component(...) or pad(...)")
     for (const [index, value] of targets.entries()) {
-      const target = object(value, `disableFanout[${index}]`)
-      if (target.kind === "component") {
-        assertKnownKeys(target, ["kind", "component"], `disableFanout[${index}]`)
-        const component = nonEmpty(target.component, `disableFanout[${index}].component`)
-        this.fanoutExclusions.set(`component\u0000${component}`, { kind: "component", component })
-        continue
-      }
-      if (target.kind === "pad") {
-        assertKnownKeys(target, ["kind", "component", "pad"], `disableFanout[${index}]`)
-        const component = nonEmpty(target.component, `disableFanout[${index}].component`)
-        const pad = nonEmpty(target.pad, `disableFanout[${index}].pad`)
-        this.fanoutExclusions.set(`pad\u0000${component}\u0000${pad}`, { kind: "pad", component, pad })
-        continue
-      }
-      throw new TypeError(`disableFanout[${index}] must be component(...) or pad(...)`)
+      const target = this.fanoutTarget(value, `disableFanout[${index}]`)
+      this.fanoutExclusions.set(this.fanoutTargetKey(target), target)
     }
     return undefined
   }

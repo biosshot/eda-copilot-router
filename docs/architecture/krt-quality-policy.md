@@ -91,11 +91,18 @@ members are still completed by KRT's differential routing path.
 to the ordinary/main KRT pass; only differential pairs, matched groups and
 via-fence source nets belong to the logical special scope.
 
-The DSL is opt-out rather than placement-prescriptive:
+The DSL can select the QFN/QFP escape method without restating DRC geometry:
 
 ```js
+fanout(component("U1"), { method: "auto", extensionMm: 0.2 })
 disableFanout(component("U3"), pad("U1", 14), pad("U1", 15))
 ```
+
+`auto` keeps accepted surface stubs and retries only unescaped nets with the
+under-pad via method. `stub` and `underpad` select one method directly.
+Fanout vias always permit via-in-pad; the fanout subprocess receives the
+explicit KRT `same-net-pad-clearance=-1` sentinel. Via diameter/drill,
+clearance, edge clearance and track width still come from compiled DRC.
 
 A component target suppresses all automatic fanout on that component. A pad
 target suppresses every physical pad sharing that logical component/pad key.

@@ -378,7 +378,10 @@ export function compileRoutingRules(
   for (const net of program.onlyNets ?? []) checkNet(net)
   for (const net of program.ignoreNets) checkNet(net)
   const knownComponents = new Set(board.components.map((component) => component.designator))
-  for (const target of program.fanoutExclusions) {
+  for (const target of [
+    ...(program.fanouts ?? []).map((item) => item.target),
+    ...program.fanoutExclusions,
+  ]) {
     if (!knownComponents.has(target.component)) {
       diagnostics.push(diagnostic("DSL_UNKNOWN_COMPONENT", `Component ${target.component} does not exist.`))
       continue
@@ -388,6 +391,19 @@ export function compileRoutingRules(
     ))) diagnostics.push(diagnostic(
       "DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`,
     ))
+  }
+  const disabledFanoutComponents = new Set(program.fanoutExclusions
+    .filter((target) => target.kind === "component").map((target) => target.component))
+  const disabledFanoutPads = new Set(program.fanoutExclusions
+    .filter((target) => target.kind === "pad").map((target) => `${target.component}\u0000${target.pad}`))
+  for (const intent of program.fanouts ?? []) {
+    if (disabledFanoutComponents.has(intent.target.component)
+      || (intent.target.kind === "pad" && disabledFanoutPads.has(`${intent.target.component}\u0000${intent.target.pad}`))) {
+      diagnostics.push(diagnostic(
+        "DSL_FANOUT_POLICY_CONFLICT",
+        `Fanout for ${intent.target.component}${intent.target.kind === "pad" ? `.${intent.target.pad}` : ""} is both configured and disabled.`,
+      ))
+    }
   }
   if (program.onlyNets?.some((net) => program.ignoreNets.includes(net))) diagnostics.push(diagnostic(
     "DSL_SCOPE_CONFLICT", "The same net cannot appear in onlyNets() and ignoreNets().",

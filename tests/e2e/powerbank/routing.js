@@ -70,6 +70,11 @@ diffPair("USB_A2_DATA", {
   negative: "USB_A2_DM",
 })
 
+fanout(component("U1"), {
+  method: "underpad",
+  extensionMm: 0.3,
+})
+
 polygon("BAT_POS").connect(net("BAT_POS")).on("TOP").compact()
 polygon("VSYS_CONV").connect(net("VSYS_CONV")).on("TOP").compact()
 polygon("VSYS_PORT").connect(net("VSYS_PORT")).on("TOP").compact()

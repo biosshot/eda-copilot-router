@@ -13,6 +13,12 @@ export type ComponentTarget = Readonly<{ kind: "component"; component: string }>
 export type NetTarget = Readonly<{ kind: "net"; net: string }>
 export type CopperTarget = PadTarget | NetTarget
 export type FanoutTarget = ComponentTarget | PadTarget
+export type FanoutMethod = "auto" | "stub" | "underpad"
+export type FanoutIntent = Readonly<{
+  target: FanoutTarget
+  method: FanoutMethod
+  extensionMm: number
+}>
 
 export type RegionSelector =
   | Readonly<{ kind: "board" }>
@@ -195,6 +201,8 @@ export type RoutingProgram = Readonly<{
   differentialPairs: readonly DifferentialPairIntent[]
   matchedGroups: readonly MatchedGroupIntent[]
   viaFences: readonly ViaFenceIntent[]
+  /** Explicit policy overrides for automatic dense-package fanout. */
+  fanouts: readonly FanoutIntent[]
   /** Components or logical pads that automatic dense-package fanout must leave untouched. */
   fanoutExclusions: readonly FanoutTarget[]
   netClasses: readonly NetClassIntent[]

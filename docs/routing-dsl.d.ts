@@ -18,6 +18,13 @@ interface ViaOptions {
   maxCount?: number;
 }
 
+interface FanoutOptions {
+  /** auto tries a surface stub first, then underpad for the remaining nets. */
+  method?: "auto" | "stub" | "underpad";
+  /** Distance past the pad edge before the surface stub bends. Default: 0.1 mm. */
+  extensionMm?: number;
+}
+
 interface RuleOptions {
   trackWidthMm?: number;
   minTrackWidthMm?: number;
@@ -116,6 +123,9 @@ declare function viaFence(id: string, options: {
   stagger?: boolean;
   via?: Omit<ViaOptions, "maxCount">;
 }): void;
+
+/** Configure automatic fanout for a component or one logical pad. */
+declare function fanout(target: FanoutTarget, options?: FanoutOptions): void;
 
 /**
  * Disable automatic dense-package fanout for whole components or individual

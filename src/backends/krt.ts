@@ -11,6 +11,7 @@ import type {
   RoutingDiagnostic,
   RoutingRuleValues,
 } from "../core/contracts.js"
+import type { FanoutIntent } from "../intent/types.js"
 import {
   runKrtRemaining,
   runKrtQfnFanout,
@@ -530,6 +531,8 @@ export type KrtQfnFanoutPlan = Readonly<{
   nets: readonly string[]
   layer: string
   rules: KrtNumericRules
+  method: FanoutIntent["method"]
+  extensionMm: number
 }>
 
 /** Build conservative, backend-neutral QFN/QFP escape batches from physical pad geometry. */
@@ -547,6 +550,12 @@ export function planKrtQfnFanout(
     .filter((target) => target.kind === "component").map((target) => target.component))
   const excludedPads = new Set((request.program.fanoutExclusions ?? [])
     .filter((target) => target.kind === "pad").map((target) => `${target.component}\u0000${target.pad}`))
+  const componentPolicies = new Map<string, FanoutIntent>()
+  const padPolicies = new Map<string, FanoutIntent>()
+  for (const intent of request.program.fanouts ?? []) {
+    if (intent.target.kind === "component") componentPolicies.set(intent.target.component, intent)
+    else padPolicies.set(`${intent.target.component}\u0000${intent.target.pad}`, intent)
+  }
   const output: KrtQfnFanoutPlan[] = []
 
   for (const component of request.board.components) {
@@ -556,19 +565,31 @@ export function planKrtQfnFanout(
     const packagePads = request.board.pads.filter((pad) => (
       pad.component === component.designator && !pad.hole && pad.layers.includes(mountedLayer)
     ))
-    if (!isDensePerimeterPackage(component, packagePads)) continue
+    const dense = isDensePerimeterPackage(component, packagePads)
+    const componentPolicy = componentPolicies.get(component.designator)
+    const explicitlyTargetedPads = packagePads.some((pad) => padPolicies.has(`${pad.component}\u0000${pad.number}`))
+    if (!dense && !componentPolicy && !explicitlyTargetedPads) continue
     const eligible = packagePads.filter((pad) => (
       pad.net
       && scope.has(pad.net)
       && (logicalPadCounts.get(pad.net) ?? 0) >= 2
       && !excludedPads.has(`${pad.component}\u0000${pad.number}`)
+      && (dense || Boolean(componentPolicy) || padPolicies.has(`${pad.component}\u0000${pad.number}`))
       && !padAlreadyHasRoutedCopper(request, pad)
       && (!ruleFor(request, pad.net).allowedLayers?.length
         || ruleFor(request, pad.net).allowedLayers!.includes(mountedLayer))
     ))
-    const groups = new Map<string, { pads: typeof eligible; rules: KrtNumericRules }>()
+    const groups = new Map<string, {
+      pads: typeof eligible
+      rules: KrtNumericRules
+      method: FanoutIntent["method"]
+      extensionMm: number
+    }>()
     for (const pad of eligible) {
       const values = ruleFor(request, pad.net!)
+      const policy = padPolicies.get(`${pad.component}\u0000${pad.number}`) ?? componentPolicy
+      const method = policy?.method ?? "stub"
+      const extensionMm = policy?.extensionMm ?? 0.1
       const width = Math.max(HARD_MIN_TRACK_WIDTH_MM, values.minTrackWidthMm)
       const rules: KrtNumericRules = {
         trackWidth: width,
@@ -580,13 +601,14 @@ export function planKrtQfnFanout(
         holeToHoleClearance: values.holeToHoleClearanceMm ?? values.clearanceMm,
         boardEdgeClearance: values.edgeClearanceMm,
       }
-      const key = [
+      const geometryKey = [
         width, rules.clearance, rules.viaSize, rules.viaDrill,
-        rules.holeToHoleClearance, rules.boardEdgeClearance,
+        rules.holeToHoleClearance, rules.boardEdgeClearance, extensionMm,
       ].map((value) => Number(value).toFixed(9)).join("\u0000")
+      const key = `${geometryKey}\u0000${method}`
       const current = groups.get(key)
       if (current) current.pads.push(pad)
-      else groups.set(key, { pads: [pad], rules })
+      else groups.set(key, { pads: [pad], rules, method, extensionMm })
     }
     for (const group of groups.values()) if (group.pads.length) output.push({
       component: component.designator,
@@ -594,6 +616,8 @@ export function planKrtQfnFanout(
       nets: [...new Set(group.pads.flatMap((pad) => pad.net ? [pad.net] : []))],
       layer: mountedLayer,
       rules: group.rules,
+      method: group.method,
+      extensionMm: group.extensionMm,
     })
   }
   return output
@@ -834,40 +858,72 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             nets: plan.nets,
             layer: plan.layer,
             widthMm: plan.rules.trackWidth,
+            method: plan.method,
+            extensionMm: plan.extensionMm,
           })),
         ))
         for (const [index, plan] of fanoutPlans.entries()) {
           const tag = `${String(index + 1).padStart(2, "0")}-${plan.component.replace(/[^A-Za-z0-9_.-]+/g, "_")}`
           const fanoutFab = join(root, `fanout-${tag}-fab.txt`)
-          const output = join(root, `01-fanout-${tag}.kicad_pcb`)
           await writeFabOverrides(fanoutFab, plan.rules)
-          const fanoutSpec: KrtQfnFanoutSpec = {
-            ...common,
-            layers: [plan.layer],
-            rules: plan.rules,
-            fabOverridesPath: fanoutFab,
-            diffPairs: [],
-            matchedGroups: [],
-            remainingNets: plan.nets,
-            component: plan.component,
-            padNumbers: plan.padNumbers,
-            nets: plan.nets,
-            layer: plan.layer,
-            extension: 0.1,
+          const planInput = current
+          const runFanout = async (
+            method: "stub" | "underpad",
+            nets: readonly string[],
+            input: string,
+            suffix = "",
+          ) => {
+            const attemptTag = suffix ? `${tag}-${suffix}` : tag
+            const output = join(root, `01-fanout-${attemptTag}.kicad_pcb`)
+            const fanoutSpec: KrtQfnFanoutSpec = {
+              ...common,
+              layers: [plan.layer],
+              rules: plan.rules,
+              fabOverridesPath: fanoutFab,
+              diffPairs: [],
+              matchedGroups: [],
+              remainingNets: nets,
+              component: plan.component,
+              padNumbers: plan.padNumbers,
+              nets,
+              layer: plan.layer,
+              extension: plan.extensionMm,
+              method,
+            }
+            const result = await runKrtQfnFanout(
+              input,
+              output,
+              fanoutSpec,
+              join(root, "fanout", attemptTag),
+            )
+            fanoutResults.push(result)
+            // Fanout is an optional search aid. A failed attempt is retained
+            // in diagnostics but never blocks the maze-routing stages.
+            diagnostics.push(...convertDiagnostics(result.diagnostics).map((item) => (
+              item.severity === "error" ? { ...item, severity: "warning" as const } : item
+            )))
+            const accepted = result.status === "completed" && await exists(output)
+            if (accepted) current = output
+            return { result, accepted }
           }
-          const result = await runKrtQfnFanout(
-            current,
-            output,
-            fanoutSpec,
-            join(root, "fanout", tag),
-          )
-          fanoutResults.push(result)
-          // Automatic fanout is an optional search aid. A failed batch is
-          // retained in diagnostics but never blocks the ordinary KRT route.
-          diagnostics.push(...convertDiagnostics(result.diagnostics).map((item) => (
-            item.severity === "error" ? { ...item, severity: "warning" as const } : item
-          )))
-          if (result.status === "completed" && await exists(output)) current = output
+
+          if (plan.method !== "auto") {
+            await runFanout(plan.method, plan.nets, current)
+            continue
+          }
+
+          const surface = await runFanout("stub", plan.nets, current, "stub")
+          const unescaped = surface.accepted
+            ? stringArray(surface.result.jsonSummary?.unescaped_nets)
+            : [...plan.nets]
+          if (unescaped.length) {
+            await runFanout(
+              "underpad",
+              unescaped,
+              surface.accepted ? current : planInput,
+              "underpad",
+            )
+          }
         }
         let specialResult: KrtProcessResult | undefined
         if (allSpecial.size && special.rules) {
