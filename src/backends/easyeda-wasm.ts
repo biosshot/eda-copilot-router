@@ -361,8 +361,12 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
     return id
   })
   const padNets = new Set(board.pads.flatMap((pad) => pad.net ? [pad.net] : []))
-  const routeNets = board.nets.map((net) => net.name).filter((net) => padNets.has(net) && net.toUpperCase() !== "GND")
-  const tables = ruleTables(board, routeNets, routeLayerIds)
+  const visibleNets = board.nets.map((net) => net.name)
+  const routeNets = visibleNets.filter((net) => padNets.has(net) && net.toUpperCase() !== "GND")
+  // Non-routed nets still need an entry and a rule class. In particular, the
+  // worker otherwise sees GND pads/proxy tracks without a known net and may
+  // route straight through them.
+  const tables = ruleTables(board, visibleNets, routeLayerIds)
   const classByNet = new Map(tables.classes.map((item) => [item.net, item.id]))
   const differentialPairs = (board.rules.differentialPairs ?? []).filter((pair) => (
     routeNets.includes(pair.positive) && routeNets.includes(pair.negative)
@@ -440,10 +444,10 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
       ])),
       netClearancesClasses: Object.fromEntries(tables.classes.map((item) => [item.id, [item.net]])),
     },
-    nets: routeNets.map((net) => {
+    nets: visibleNets.map((net) => {
       const id = classByNet.get(net)!
       return {
-        net, routing: true, safeClearance: id, trackWidth: id,
+        net, routing: routeNets.includes(net), safeClearance: id, trackWidth: id,
         viaSize: `via_${id}`,
         differentialPair: pairByNet.get(net) ?? `diff_${id}`,
         trackLength: "netLength",
@@ -468,6 +472,17 @@ function boardToRouterInput(board: RoutingBoard, routeLayers: readonly string[])
         path: closed(keepout.polygon.outer.map((point) => toRouter(point, transform))),
         layers: keepout.layers.map((name) => layers.byName.get(name)).filter((id): id is number => id !== undefined),
       })),
+      // The worker does not treat pads on routing:false nets as obstacles.
+      // Export their copper bodies as ordinary prohibited regions so routed
+      // nets still honor track/via clearance around GND and no-net pads.
+      ...board.pads.filter((pad) => !pad.net || !routeNets.includes(pad.net)).flatMap((pad) => {
+        const padLayers = pad.layers.map((name) => layers.byName.get(name))
+          .filter((id): id is number => id !== undefined)
+        if (!padLayers.length) return []
+        const origin = toRouter(pad.at, transform)
+        const path = closed(padRing(pad).map((point) => [origin[0] + point.x, origin[1] + point.y]))
+        return [{ path, layers: padLayers }]
+      }),
     ],
   }
   return { input, transform, layers, routeNets }

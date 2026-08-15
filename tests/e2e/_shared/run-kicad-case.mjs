@@ -35,11 +35,13 @@ const requireUnroutedFixture = process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED =
   : process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED === "1"
 
 function parseArguments(argv) {
-  const options = { profile: "balanced", maxCandidates: 1 }
+  const options = { backend: "krt", profile: "balanced", maxCandidates: 1 }
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     const value = argv[index + 1]
     if (argument === "--run-id" && value) options.runId = value, index += 1
+    else if (argument === "--backend" && value) options.backend = value, index += 1
+    else if (argument === "--dsl" && value) options.dsl = resolve(value), index += 1
     else if (argument === "--profile" && value) options.profile = value, index += 1
     else if (argument === "--max-candidates" && value) options.maxCandidates = Number(value), index += 1
     else if (argument === "--help") options.help = true
@@ -51,6 +53,9 @@ function parseArguments(argv) {
   if (!["fast", "balanced", "quality-first", "completion-first"].includes(options.profile)) {
     throw new TypeError(`Unknown profile: ${options.profile}`)
   }
+  if (!["krt", "easyeda-wasm"].includes(options.backend)) {
+    throw new TypeError(`Unknown backend: ${options.backend}`)
+  }
   return options
 }
 
@@ -58,7 +63,7 @@ function usage() {
   return [
     `${caseName} copilot-router E2E`,
     "",
-    "Usage: node run.mjs [--run-id NAME] [--profile balanced] [--max-candidates 1]",
+    "Usage: node run.mjs [--run-id NAME] [--backend krt|easyeda-wasm] [--dsl FILE] [--profile balanced] [--max-candidates 1]",
     "",
     "The default is exactly one balanced candidate. Ctrl+C aborts through AbortSignal.",
   ].join("\n")
@@ -262,6 +267,8 @@ function copperMetrics(copper) {
 async function main() {
   const options = parseArguments(process.argv.slice(2))
   if (options.help) return console.log(usage())
+  const selectedDslPath = options.dsl ?? dslPath
+  if (!await exists(selectedDslPath)) throw new Error(`DSL file does not exist: ${selectedDslPath}`)
   const runId = safeRunId(options.runId)
   const artifactStem = safeRunId(caseName)
   const safeSuiteName = safeRunId(suiteName)
@@ -273,7 +280,9 @@ async function main() {
   await mkdir(runDirectory, { recursive: true })
 
   const inputBase = safeSuiteName === "powerbank" ? "Powerbank-input" : `${artifactStem}-input`
-  const outputBase = safeSuiteName === "powerbank" ? `Powerbank-${options.profile}` : `${artifactStem}-${options.profile}`
+  const outputBase = safeSuiteName === "powerbank"
+    ? `Powerbank-${options.backend}-${options.profile}`
+    : `${artifactStem}-${options.backend}-${options.profile}`
   const inputPcb = join(runDirectory, `${inputBase}.kicad_pcb`)
   const inputProject = join(runDirectory, `${inputBase}.kicad_pro`)
   const outputPcb = join(runDirectory, `${outputBase}.kicad_pcb`)
@@ -287,7 +296,7 @@ async function main() {
   await copyFile(fixturePcb, inputPcb)
   if (fixtureProject) await copyFile(fixtureProject, inputProject)
   else await writeFile(inputProject, "{}\n", "utf8")
-  await copyFile(dslPath, copiedDsl)
+  await copyFile(selectedDslPath, copiedDsl)
 
   const abortController = new AbortController()
   const abort = (name) => abortController.abort(new Error(`Received ${name}`))
@@ -309,16 +318,32 @@ async function main() {
     const kicadCli = await resolveKiCadCli()
     console.log(`[e2e] fixture: ${fixturePcb}`)
     console.log(`[e2e] result:  ${runDirectory}`)
-    console.log(`[e2e] profile: ${options.profile}, candidates: ${options.maxCandidates}`)
+    console.log(`[e2e] backend: ${options.backend}, profile: ${options.profile}, candidates: ${options.maxCandidates}`)
     console.log("[e2e] native baseline DRC")
     const baselineDrc = await nativeDrc(kicadCli, inputPcb, baselineReportPath, abortController.signal)
 
-    const dsl = await readFile(dslPath, "utf8")
-    const backend = router.createKrtBackend({
-      transport: createTransport(imported.context, adapter),
-      artifactsDirectory: join(runDirectory, "krt"),
-      keepArtifacts: true,
-    })
+    const dsl = await readFile(selectedDslPath, "utf8")
+    let backend
+    if (options.backend === "easyeda-wasm") {
+      const wasm = await import(pathToFileURL(join(
+        routerDirectory, "package-dist", "backends", "easyeda-wasm.js",
+      )))
+      const assets = join(routerDirectory, "assets", "legacy-easyeda-wasm")
+      const engine = wasm.createEasyEdaWasmWorkerEngine({
+        workerPath: join(assets, "pcbRouterWorker.js"),
+        wasmPath: join(assets, "PCBRouter-YFDILLBW-YFDILLBW.wasm"),
+      })
+      backend = wasm.createEasyEdaWasmBackend({
+        engine,
+        onProgress: (progress) => console.log(`[easyeda-wasm] ${(progress * 100).toFixed(1)}%`),
+      })
+    } else {
+      backend = router.createKrtBackend({
+        transport: createTransport(imported.context, adapter),
+        artifactsDirectory: join(runDirectory, "krt"),
+        keepArtifacts: true,
+      })
+    }
     console.log("[e2e] routing")
     const result = await router.run({
       board: imported.board,
@@ -346,6 +371,7 @@ async function main() {
       suite: safeSuiteName,
       case: caseName,
       runId,
+      backend: options.backend,
       profile: options.profile,
       maxCandidates: options.maxCandidates,
       fixture: {
@@ -353,7 +379,7 @@ async function main() {
         project: fixtureProject ?? null,
         sha256: fixtureAfter,
       },
-      dsl: dslPath,
+      dsl: selectedDslPath,
       result: {
         status: result.status,
         operation: result.operation,

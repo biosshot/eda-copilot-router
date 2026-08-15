@@ -103,6 +103,7 @@ const board = {
   pads: [
     { component: "U1", number: "1", net: "VCC", at: { x: 4, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
     { component: "C1", number: "1", net: "VCC", at: { x: 8, y: 5 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 1, heightMm: 1 } },
+    { component: "C1", number: "2", net: "GND", at: { x: 8, y: 6 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "circle", diameterMm: 1 } },
     { component: "U1", number: "2", net: "USB_DP", at: { x: 4, y: 6 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 0.5, heightMm: 0.5 } },
     { component: "U1", number: "3", net: "USB_DM", at: { x: 4, y: 7 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 0.5, heightMm: 0.5 } },
   ],
@@ -561,7 +562,12 @@ assert.equal(wasmRouted.status, "complete")
 assert.equal(wasmCalls, 1)
 assert.equal(wasmInput.boardOutline.bbox.length, 4)
 assert.equal(Object.keys(wasmInput.components).length, board.pads.length)
-assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC", "USB_DP", "USB_DM"])
+assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC", "GND", "USB_DP", "USB_DM"])
+assert.equal(wasmInput.nets.find((item) => item.net === "GND").routing, false)
+assert.ok(wasmInput.nets.filter((item) => item.net !== "GND").every((item) => item.routing === true))
+assert.ok(wasmInput.prohibitedRegions.some((item) => (
+  item.layers.includes(1) && item.path.some((point) => Math.abs(point[0] + 2) < 1e-6 && Math.abs(point[1] + 1.5) < 1e-6)
+)), "GND pad copper must remain an obstacle even though GND is not routed")
 assert.deepEqual(wasmRouted.copper.tracks[0].points, [{ x: 4, y: 5 }, { x: 8, y: 5 }])
 
 await api.run({
