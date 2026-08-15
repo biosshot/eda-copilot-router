@@ -31,7 +31,7 @@ const KRT_RELEASE = Object.freeze({
   sizeBytes: 5_924_458,
   archive: "zip" as const,
   rootDirectory: "plugins",
-  markers: ["py_router/route.py", "py_router/route_diff.py", "requirements.txt", "LICENSE"],
+  markers: ["py_router/route.py", "py_router/route_diff.py", "py_router/qfn_fanout.py", "requirements.txt", "LICENSE"],
 })
 
 export type KrtRuntimeOptions = Readonly<{
@@ -71,6 +71,7 @@ async function validKrtDirectory(path: string | undefined) {
   if (!path) return false
   return await readable(join(path, "py_router", "route.py"))
     && await readable(join(path, "py_router", "route_diff.py"))
+    && await readable(join(path, "py_router", "qfn_fanout.py"))
 }
 
 async function packagedPatchDirectory() {
@@ -106,7 +107,7 @@ export async function discoverKrtOverride(explicit?: string) {
     if (await validKrtDirectory(candidate)) return candidate
     throw new RouterAssetError(
       "KRT_OVERRIDE_INVALID",
-      "The configured KRT development override does not contain py_router/route.py and route_diff.py.",
+      "The configured KRT development override does not contain route.py, route_diff.py, and qfn_fanout.py.",
       { directory: candidate },
     )
   }

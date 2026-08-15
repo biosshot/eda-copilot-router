@@ -101,7 +101,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   if (!program || typeof program !== "object") return { valid: false, diagnostics: [error("DSL_PROGRAM_REQUIRED", "Routing program is required.")] }
   exactKeys(program, [
     "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaFences",
-    "netClasses", "drc", "stack", "quality", "onlyNets", "ignoreNets", "clearRouting", "operation",
+    "fanoutExclusions", "netClasses", "drc", "stack", "quality", "onlyNets", "ignoreNets", "clearRouting", "operation",
   ], diagnostics, "program")
   if (!["apply-drc", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
   const polygons = array(program.polygons, "polygons", diagnostics)
@@ -111,6 +111,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   const pairs = array(program.differentialPairs, "differentialPairs", diagnostics)
   const groups = array(program.matchedGroups, "matchedGroups", diagnostics)
   const fences = array(program.viaFences, "viaFences", diagnostics)
+  const fanoutExclusions = array(program.fanoutExclusions, "fanoutExclusions", diagnostics)
   const classes = array(program.netClasses, "netClasses", diagnostics)
   array(program.ignoreNets, "ignoreNets", diagnostics)
   const ids = new Set<string>()
@@ -193,6 +194,28 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (item.rowSpacingMm !== undefined && !positive(item.rowSpacingMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rowSpacingMm must be > 0.`, `${path}.rowSpacingMm`))
     if (item.stagger !== undefined && typeof item.stagger !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.stagger must be boolean.`, `${path}.stagger`))
     via(item.via, `${path}.via`, diagnostics, false)
+  })
+
+  fanoutExclusions.forEach((raw, index) => {
+    const path = `fanoutExclusions[${index}]`
+    const item = object(raw) ? raw : {}
+    if (item.kind === "component") {
+      exactKeys(item, ["kind", "component"], diagnostics, path)
+      if (typeof item.component !== "string" || !item.component) diagnostics.push(error(
+        "DSL_FANOUT_TARGET_INVALID", `${path} must identify a component.`, path,
+      ))
+      return
+    }
+    if (item.kind === "pad") {
+      exactKeys(item, ["kind", "component", "pad"], diagnostics, path)
+      if (typeof item.component !== "string" || !item.component || typeof item.pad !== "string" || !item.pad) diagnostics.push(error(
+        "DSL_FANOUT_TARGET_INVALID", `${path} must identify a logical pad.`, path,
+      ))
+      return
+    }
+    diagnostics.push(error(
+      "DSL_FANOUT_TARGET_INVALID", `${path} must be component(...) or pad(...).`, path,
+    ))
   })
 
   classes.forEach((raw, index) => {

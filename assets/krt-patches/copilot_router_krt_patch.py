@@ -463,3 +463,45 @@ def _build_base_obstacle_map(
 
 obstacle_cache.precompute_net_obstacles = _precompute_net_obstacles
 obstacle_map.build_base_obstacle_map = _build_base_obstacle_map
+
+
+def _install_qfn_pad_allowlist():
+    """Keep QFN geometry intact while suppressing explicitly excluded pads.
+
+    KRT's CLI can filter nets but not individual logical pads.  The router DSL
+    needs both component- and pad-level fanout opt-outs, so the adapter passes a
+    JSON allowlist.  Disabled pads retain their physical geometry for layout
+    analysis and collision checks; only their copied net identity is cleared.
+    """
+    raw = os.environ.get("COPILOT_ROUTER_QFN_PAD_ALLOWLIST")
+    if not raw:
+        return
+    import json
+    import qfn_fanout
+
+    parsed = json.loads(raw)
+    allowlists = {
+        str(component): {str(number) for number in numbers}
+        for component, numbers in parsed.items()
+        if isinstance(numbers, list)
+    }
+    original = qfn_fanout.generate_qfn_fanout
+
+    def filtered(footprint, pcb_data, *args, **kwargs):
+        allowed = allowlists.get(str(getattr(footprint, "reference", "")))
+        if allowed is None:
+            return original(footprint, pcb_data, *args, **kwargs)
+        filtered_footprint = copy.copy(footprint)
+        filtered_footprint.pads = []
+        for source_pad in footprint.pads:
+            pad = copy.copy(source_pad)
+            if str(getattr(pad, "pad_number", "")) not in allowed:
+                pad.net_id = 0
+                pad.net_name = ""
+            filtered_footprint.pads.append(pad)
+        return original(filtered_footprint, pcb_data, *args, **kwargs)
+
+    qfn_fanout.generate_qfn_fanout = filtered
+
+
+_install_qfn_pad_allowlist()

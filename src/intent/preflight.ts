@@ -377,6 +377,18 @@ export function compileRoutingRules(
 
   for (const net of program.onlyNets ?? []) checkNet(net)
   for (const net of program.ignoreNets) checkNet(net)
+  const knownComponents = new Set(board.components.map((component) => component.designator))
+  for (const target of program.fanoutExclusions) {
+    if (!knownComponents.has(target.component)) {
+      diagnostics.push(diagnostic("DSL_UNKNOWN_COMPONENT", `Component ${target.component} does not exist.`))
+      continue
+    }
+    if (target.kind === "pad" && !board.pads.some((pad) => (
+      pad.component === target.component && pad.number === target.pad
+    ))) diagnostics.push(diagnostic(
+      "DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`,
+    ))
+  }
   if (program.onlyNets?.some((net) => program.ignoreNets.includes(net))) diagnostics.push(diagnostic(
     "DSL_SCOPE_CONFLICT", "The same net cannot appear in onlyNets() and ignoreNets().",
   ))

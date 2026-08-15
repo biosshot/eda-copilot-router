@@ -8,6 +8,8 @@ import {
   findChild,
   listChildren,
   parsePcbSource,
+  printSExpression,
+  token,
   type SExpression,
 } from "../internal/kicad-sexpr.js"
 
@@ -126,6 +128,15 @@ export type KrtStageSpec = {
   signal?: AbortSignal
 }
 
+export type KrtQfnFanoutSpec = KrtStageSpec & Readonly<{
+  component: string
+  /** Exact logical pad numbers; duplicate physical pads with the same number are treated together. */
+  padNumbers: readonly string[]
+  nets: readonly string[]
+  layer: string
+  extension?: number
+}>
+
 export type KrtProcessStatus =
   | "completed"
   | "skipped"
@@ -133,7 +144,7 @@ export type KrtProcessStatus =
   | "process_failed"
 
 export type KrtProcessResult = {
-  stage: "special" | "remaining"
+  stage: "fanout" | "special" | "remaining"
   backend: "krt"
   status: KrtProcessStatus
   attempted: boolean
@@ -276,10 +287,45 @@ async function changedCopperGeometryNets(
   ))
 }
 
+function canonicalCopperSignature(value: SExpression) {
+  return JSON.stringify(canonicalCopperNode(value))
+}
+
+/** Lock only copper added by a fanout subprocess, preserving all source nodes byte-semantically. */
+async function lockAddedCopper(inputPath: string, outputPath: string) {
+  const before = parsePcbSource(await readFile(inputPath, "utf8"))
+  const after = parsePcbSource(await readFile(outputPath, "utf8"))
+  const available = new Map<string, number>()
+  for (const head of ["segment", "arc", "via"] as const) for (const node of listChildren(before, head)) {
+    const signature = `${head}:${canonicalCopperSignature(node)}`
+    available.set(signature, (available.get(signature) ?? 0) + 1)
+  }
+  let locked = 0
+  for (const head of ["segment", "arc", "via"] as const) for (const node of listChildren(after, head)) {
+    const signature = `${head}:${canonicalCopperSignature(node)}`
+    const count = available.get(signature) ?? 0
+    if (count > 0) {
+      available.set(signature, count - 1)
+      continue
+    }
+    if (!findChild(node, "locked")) node.push([token("locked"), token("yes")])
+    locked += 1
+  }
+  if (locked) await writeFile(outputPath, `${printSExpression(after)}\n`, "utf8")
+  return locked
+}
+
 function jsonObject(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+function fanoutDrcGrazeCount(summary: Record<string, unknown> | undefined) {
+  const grazes = jsonObject(summary?.drc_grazes)
+  if (!grazes || typeof grazes.error === "string") return undefined
+  return ["pad_via", "via_segment", "pad_segment", "segment_segment"]
+    .reduce((total, key) => total + Math.max(0, Number(grazes[key]) || 0), 0)
 }
 
 /**
@@ -806,7 +852,7 @@ async function commonPreflight(
   inputBoard: string,
   outputBoard: string,
   spec: KrtStageSpec,
-  scriptName: "route_diff.py" | "route.py",
+  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
   diagnostics: KrtDiagnostic[],
 ) {
   if (resolve(inputBoard).toLowerCase() === resolve(outputBoard).toLowerCase()) {
@@ -1165,6 +1211,51 @@ function remainingArgs(
   return args
 }
 
+function qfnFanoutArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtQfnFanoutSpec,
+  diagnostics: KrtDiagnostic[],
+) {
+  const component = spec.component.trim()
+  const pads = unique(spec.padNumbers)
+  const nets = unique(spec.nets)
+  if (!component) diagnostics.push(diagnostic(
+    "KRT_INVALID_FANOUT_SCOPE", "error", "QFN fanout requires one exact component designator.",
+  ))
+  if (!pads.length) diagnostics.push(diagnostic(
+    "KRT_INVALID_FANOUT_SCOPE", "error", "QFN fanout requires at least one exact logical pad number.",
+  ))
+  validateExactNetNames(nets, "fanout nets", diagnostics)
+  if (!nets.length) diagnostics.push(diagnostic(
+    "KRT_INVALID_FANOUT_SCOPE", "error", "QFN fanout requires at least one exact net name.",
+  ))
+  if (!spec.layer.trim() || !spec.layers.includes(spec.layer)) diagnostics.push(diagnostic(
+    "KRT_INVALID_FANOUT_LAYER",
+    "error",
+    "QFN fanout layer must be one of the compiled routing layers.",
+    { layer: spec.layer, layers: spec.layers },
+  ))
+  validateNonNegativeNumber(spec.extension, "fanout extension", diagnostics)
+  if (diagnostics.some((item) => item.severity === "error")) return undefined
+
+  const args = [resolve(inputBoard), "--output", resolve(outputBoard)]
+  args.push("--component", component)
+  args.push("--layer", spec.layer)
+  args.push("--width", numberArg(spec.rules.trackWidth))
+  args.push("--extension", numberArg(spec.extension ?? 0.1))
+  args.push("--clearance", numberArg(spec.rules.clearance))
+  args.push("--nets", ...nets)
+  pushNumericArg(args, "--grid-step", spec.rules.gridStep)
+  args.push("--escape-method", "stub")
+  args.push("--via-size", numberArg(spec.rules.viaSize))
+  args.push("--via-drill", numberArg(spec.rules.viaDrill))
+  pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
+  pushNumericArg(args, "--same-net-pad-clearance", spec.rules.sameNetPadClearance)
+  args.push("--fab-overrides", resolve(spec.fabOverridesPath), "--no-fix-drc-settings")
+  return args
+}
+
 function dynamicIterationsEnvironment(spec: KrtStageSpec): Record<string, string> {
   return spec.dynamicIterations === undefined
     ? {}
@@ -1172,14 +1263,15 @@ function dynamicIterationsEnvironment(spec: KrtStageSpec): Record<string, string
 }
 
 async function executeStage(
-  stage: "special" | "remaining",
+  stage: "fanout" | "special" | "remaining",
   inputBoard: string,
   outputBoard: string,
   spec: KrtStageSpec,
   artifactsDir: string,
-  scriptName: "route_diff.py" | "route.py",
+  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
   buildArgs: (diagnostics: KrtDiagnostic[]) => string[] | undefined,
-  summaryKind: "special" | "remaining" = stage,
+  summaryKind: "fanout" | "special" | "remaining" = stage,
+  extraEnvironment: Readonly<Record<string, string>> = {},
 ) : Promise<KrtProcessResult> {
   const diagnostics: KrtDiagnostic[] = []
   const normalizedInput = resolve(inputBoard)
@@ -1282,6 +1374,7 @@ async function executeStage(
         // KRT otherwise performs a second bare-BGA "direct first" partition
         // after MPS. Disable it so MPS remains the actual final order.
         KICAD_DIRECT_FIRST: "0",
+        ...extraEnvironment,
       },
     }, null, 2)}\n`, diagnostics)
 
@@ -1299,6 +1392,7 @@ async function executeStage(
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
         ...dynamicIterationsEnvironment(spec),
+        ...extraEnvironment,
       },
       spec.signal,
     )
@@ -1350,13 +1444,28 @@ async function executeStage(
     else if (summaryKind === "special") addSpecialSummaryDiagnostics(
       result.jsonSummary, spec.rules, diagnostics,
     )
-    else addRemainingSummaryDiagnostics(
+    else if (summaryKind === "remaining") addRemainingSummaryDiagnostics(
       result.jsonSummary,
       spec.rules,
       diagnostics,
       spec.ripExistingNets,
       spec.enableTerminalEscalation,
     )
+    else {
+      const unescaped = stringArray(result.jsonSummary.unescaped_nets)
+      if (unescaped.length) diagnostics.push(diagnostic(
+        "KRT_FANOUT_PARTIAL",
+        "warning",
+        `KRT could not place a legal fanout stub for ${unescaped.length} net(s).`,
+        { component: result.jsonSummary.component, unescapedNets: unescaped },
+      ))
+      const grazes = jsonObject(result.jsonSummary.drc_grazes)
+      if (typeof grazes?.error === "string") diagnostics.push(diagnostic(
+        "KRT_FANOUT_DRC_CHECK_FAILED",
+        "warning",
+        `KRT's built-in post-fanout DRC check could not complete: ${grazes.error}`,
+      ))
+    }
 
     if (!(await exists(normalizedOutput))) diagnostics.push(diagnostic(
       "KRT_OUTPUT_MISSING",
@@ -1434,6 +1543,65 @@ async function persistResultArtifacts(result: KrtProcessResult, artifactsDir: st
     `${JSON.stringify(serializable, null, 2)}\n`,
     result.diagnostics,
   )
+}
+
+/** Run KRT's own geometry-aware QFN/QFP surface fanout for one compatible pad subset. */
+export async function runKrtQfnFanout(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtQfnFanoutSpec,
+  artifactsDir: string,
+): Promise<KrtProcessResult> {
+  const allowlist = JSON.stringify({ [spec.component]: unique(spec.padNumbers) })
+  const result = await executeStage(
+    "fanout",
+    inputBoard,
+    outputBoard,
+    spec,
+    artifactsDir,
+    "qfn_fanout.py",
+    (diagnostics) => qfnFanoutArgs(inputBoard, outputBoard, spec, diagnostics),
+    "fanout",
+    { COPILOT_ROUTER_QFN_PAD_ALLOWLIST: allowlist },
+  )
+  const grazeCount = fanoutDrcGrazeCount(result.jsonSummary)
+  const drcCheckFailed = typeof jsonObject(result.jsonSummary?.drc_grazes)?.error === "string"
+  if (result.status === "completed" && (drcCheckFailed || (grazeCount ?? 0) > 0)) {
+    result.status = "process_failed"
+    result.diagnostics.push(diagnostic(
+      "KRT_FANOUT_DRC_REJECTED",
+      "warning",
+      drcCheckFailed
+        ? "KRT's built-in post-fanout DRC check failed; the optional fanout board was rejected."
+        : `KRT's built-in post-fanout DRC check reported ${grazeCount} copper graze(s); the optional fanout board was rejected.`,
+      result.jsonSummary?.drc_grazes,
+    ))
+    await persistResultArtifacts(result, resolve(artifactsDir)).catch(() => undefined)
+    return result
+  }
+  if (result.status === "completed" && await exists(result.outputBoard)) {
+    try {
+      const locked = await lockAddedCopper(result.inputBoard, result.outputBoard)
+      result.diagnostics.push(diagnostic(
+        "KRT_FANOUT_COPPER_LOCKED",
+        "info",
+        `Locked ${locked} fanout copper item(s) so later KRT routing cannot rip the accepted escape geometry.`,
+        { component: spec.component, pads: unique(spec.padNumbers), locked },
+      ))
+      await saveOutputArtifact(result, resolve(artifactsDir))
+      await persistResultArtifacts(result, resolve(artifactsDir))
+    } catch (error) {
+      result.status = "process_failed"
+      result.diagnostics.push(diagnostic(
+        "KRT_FANOUT_LOCK_FAILED",
+        "error",
+        `Could not lock generated fanout copper: ${errorText(error)}`,
+        { component: spec.component },
+      ))
+      await persistResultArtifacts(result, resolve(artifactsDir)).catch(() => undefined)
+    }
+  }
+  return result
 }
 
 export async function runKrtSpecial(

@@ -13,10 +13,12 @@ import type {
 } from "../core/contracts.js"
 import {
   runKrtRemaining,
+  runKrtQfnFanout,
   runKrtSpecial,
   type KrtDiagnostic,
   type KrtNumericRules,
   type KrtProcessResult,
+  type KrtQfnFanoutSpec,
   type KrtStageSpec,
 } from "./krt-adapter.js"
 import { RouterAssetError, type RouterAssetPolicy } from "./assets.js"
@@ -412,6 +414,179 @@ function padMinimumDimensionMm(pad: BackendRouteRequest["board"]["pads"][number]
   }
 }
 
+function padAspectRatio(pad: BackendRouteRequest["board"]["pads"][number]) {
+  switch (pad.shape.kind) {
+    case "circle": return 1
+    case "rect":
+    case "round-rect":
+    case "oval": return Math.max(pad.shape.widthMm, pad.shape.heightMm)
+      / Math.max(Math.min(pad.shape.widthMm, pad.shape.heightMm), 1e-9)
+    case "polygon": {
+      const points = pad.shape.polygon.outer
+      if (!points.length) return 1
+      const xs = points.map((point) => point.x)
+      const ys = points.map((point) => point.y)
+      const width = Math.max(...xs) - Math.min(...xs)
+      const height = Math.max(...ys) - Math.min(...ys)
+      return Math.max(width, height) / Math.max(Math.min(width, height), 1e-9)
+    }
+  }
+}
+
+function pointSegmentDistance(
+  point: Readonly<{ x: number; y: number }>,
+  start: Readonly<{ x: number; y: number }>,
+  end: Readonly<{ x: number; y: number }>,
+) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const denominator = dx * dx + dy * dy
+  const t = denominator <= 1e-18
+    ? 0
+    : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / denominator))
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+}
+
+function padAlreadyHasRoutedCopper(request: BackendRouteRequest, pad: BackendRouteRequest["board"]["pads"][number]) {
+  if (!pad.net) return false
+  const copper = [request.board.copper.fixed, request.board.copper.editable]
+  const radius = padMinimumDimensionMm(pad) / 2
+  if (copper.some((set) => set.vias.some((via) => (
+    via.net === pad.net && Math.hypot(via.at.x - pad.at.x, via.at.y - pad.at.y) <= radius + via.diameterMm / 2 + 1e-6
+  )))) return true
+  return copper.some((set) => set.tracks.some((track) => (
+    track.net === pad.net
+    && pad.layers.includes(track.layer)
+    && track.points.slice(1).some((point, index) => (
+      pointSegmentDistance(pad.at, track.points[index], point) <= radius + track.widthMm / 2 + 1e-6
+    ))
+  )))
+}
+
+function componentLocalPoint(
+  component: BackendRouteRequest["board"]["components"][number],
+  point: Readonly<{ x: number; y: number }>,
+) {
+  const angle = -component.rotationDeg * Math.PI / 180
+  const dx = point.x - component.at.x
+  const dy = point.y - component.at.y
+  return {
+    x: dx * Math.cos(angle) - dy * Math.sin(angle),
+    y: dx * Math.sin(angle) + dy * Math.cos(angle),
+  }
+}
+
+function isDensePerimeterPackage(
+  component: BackendRouteRequest["board"]["components"][number],
+  pads: readonly BackendRouteRequest["board"]["pads"][number][],
+) {
+  if (pads.length < 8) return false
+  const local = pads.map((pad) => componentLocalPoint(component, pad.at))
+  const xs = local.map((point) => point.x)
+  const ys = local.map((point) => point.y)
+  const minX = Math.min(...xs); const maxX = Math.max(...xs)
+  const minY = Math.min(...ys); const maxY = Math.max(...ys)
+  const spanX = maxX - minX; const spanY = maxY - minY
+  if (spanX <= 1e-6 || spanY <= 1e-6) return false
+  const tolerance = Math.max(0.15, Math.min(spanX, spanY) * 0.12)
+  const sides = new Set<string>()
+  let perimeter = 0
+  for (const point of local) {
+    const on = [
+      ["left", point.x - minX], ["right", maxX - point.x],
+      ["top", point.y - minY], ["bottom", maxY - point.y],
+    ] as const
+    const close = on.filter(([, distance]) => distance <= tolerance + 1e-9)
+    if (close.length) perimeter += 1
+    for (const [side] of close) sides.add(side)
+  }
+  const finePitch = pads.some((pad) => padMinimumDimensionMm(pad) + 1e-9 < KRT_FINE_PITCH_MIN_PAD_DIMENSION_MM)
+    || pads.some((pad, index) => pads.slice(index + 1).some((other) => (
+      Math.hypot(other.at.x - pad.at.x, other.at.y - pad.at.y)
+        <= KRT_FINE_PITCH_NEIGHBOR_DISTANCE_MM + 0.001
+    )))
+  const elongated = pads.filter((pad) => padAspectRatio(pad) >= 1.2).length
+  return finePitch && sides.size >= 3 && perimeter / pads.length >= 0.8 && elongated / pads.length >= 0.5
+}
+
+export type KrtQfnFanoutPlan = Readonly<{
+  component: string
+  padNumbers: readonly string[]
+  nets: readonly string[]
+  layer: string
+  rules: KrtNumericRules
+}>
+
+/** Build conservative, backend-neutral QFN/QFP escape batches from physical pad geometry. */
+export function planKrtQfnFanout(
+  request: BackendRouteRequest,
+  routeNets: readonly string[],
+  gridStep: number,
+): readonly KrtQfnFanoutPlan[] {
+  const scope = new Set(routeNets.filter((net) => net.toUpperCase() !== "GND"))
+  const logicalPadCounts = new Map<string, number>()
+  for (const pad of request.board.pads) if (pad.net) {
+    logicalPadCounts.set(pad.net, (logicalPadCounts.get(pad.net) ?? 0) + 1)
+  }
+  const excludedComponents = new Set((request.program.fanoutExclusions ?? [])
+    .filter((target) => target.kind === "component").map((target) => target.component))
+  const excludedPads = new Set((request.program.fanoutExclusions ?? [])
+    .filter((target) => target.kind === "pad").map((target) => `${target.component}\u0000${target.pad}`))
+  const preconnected = new Set((request.connectivity?.preconnectedPadGroups ?? [])
+    .flatMap((group) => group.pads.map((pad) => `${pad.component}\u0000${pad.pad}`)))
+  const output: KrtQfnFanoutPlan[] = []
+
+  for (const component of request.board.components) {
+    if (excludedComponents.has(component.designator)) continue
+    const mountedLayer = request.board.layers.find((layer) => layer.side === component.side)?.name
+    if (!mountedLayer) continue
+    const packagePads = request.board.pads.filter((pad) => (
+      pad.component === component.designator && !pad.hole && pad.layers.includes(mountedLayer)
+    ))
+    if (!isDensePerimeterPackage(component, packagePads)) continue
+    const eligible = packagePads.filter((pad) => (
+      pad.net
+      && scope.has(pad.net)
+      && (logicalPadCounts.get(pad.net) ?? 0) >= 2
+      && !excludedPads.has(`${pad.component}\u0000${pad.number}`)
+      && !preconnected.has(`${pad.component}\u0000${pad.number}`)
+      && !padAlreadyHasRoutedCopper(request, pad)
+      && (!ruleFor(request, pad.net).allowedLayers?.length
+        || ruleFor(request, pad.net).allowedLayers!.includes(mountedLayer))
+    ))
+    const groups = new Map<string, { pads: typeof eligible; rules: KrtNumericRules }>()
+    for (const pad of eligible) {
+      const values = ruleFor(request, pad.net!)
+      const width = Math.max(HARD_MIN_TRACK_WIDTH_MM, values.minTrackWidthMm)
+      const rules: KrtNumericRules = {
+        trackWidth: width,
+        hardTrackWidth: width,
+        clearance: values.clearanceMm,
+        viaSize: values.via.minDiameterMm,
+        viaDrill: values.via.minDrillMm,
+        gridStep,
+        holeToHoleClearance: values.holeToHoleClearanceMm ?? values.clearanceMm,
+        boardEdgeClearance: values.edgeClearanceMm,
+      }
+      const key = [
+        width, rules.clearance, rules.viaSize, rules.viaDrill,
+        rules.holeToHoleClearance, rules.boardEdgeClearance,
+      ].map((value) => Number(value).toFixed(9)).join("\u0000")
+      const current = groups.get(key)
+      if (current) current.pads.push(pad)
+      else groups.set(key, { pads: [pad], rules })
+    }
+    for (const group of groups.values()) if (group.pads.length) output.push({
+      component: component.designator,
+      padNumbers: [...new Set(group.pads.map((pad) => pad.number))],
+      nets: [...new Set(group.pads.flatMap((pad) => pad.net ? [pad.net] : []))],
+      layer: mountedLayer,
+      rules: group.rules,
+    })
+  }
+  return output
+}
+
 /**
  * Keep the common fast/balanced case on KRT's general-purpose 0.1 mm grid,
  * but do not quantize away a dense-pad escape. These thresholds deliberately
@@ -636,6 +811,53 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           signal: request.signal,
         }
         let current = prepared.inputBoard
+        const fanoutResults: KrtProcessResult[] = []
+        const fanoutPlans = planKrtQfnFanout(request, remainingNets, remainingGridStep)
+        if (fanoutPlans.length) diagnostics.push(diagnostic(
+          "KRT_AUTOMATIC_FANOUT_PLANNED",
+          "info",
+          `KRT will attempt ${fanoutPlans.length} automatic QFN/QFP fanout batch(es) before maze routing.`,
+          fanoutPlans.map((plan) => ({
+            component: plan.component,
+            pads: plan.padNumbers,
+            nets: plan.nets,
+            layer: plan.layer,
+            widthMm: plan.rules.trackWidth,
+          })),
+        ))
+        for (const [index, plan] of fanoutPlans.entries()) {
+          const tag = `${String(index + 1).padStart(2, "0")}-${plan.component.replace(/[^A-Za-z0-9_.-]+/g, "_")}`
+          const fanoutFab = join(root, `fanout-${tag}-fab.txt`)
+          const output = join(root, `01-fanout-${tag}.kicad_pcb`)
+          await writeFabOverrides(fanoutFab, plan.rules)
+          const fanoutSpec: KrtQfnFanoutSpec = {
+            ...common,
+            layers: [plan.layer],
+            rules: plan.rules,
+            fabOverridesPath: fanoutFab,
+            diffPairs: [],
+            matchedGroups: [],
+            remainingNets: plan.nets,
+            component: plan.component,
+            padNumbers: plan.padNumbers,
+            nets: plan.nets,
+            layer: plan.layer,
+            extension: 0.1,
+          }
+          const result = await runKrtQfnFanout(
+            current,
+            output,
+            fanoutSpec,
+            join(root, "fanout", tag),
+          )
+          fanoutResults.push(result)
+          // Automatic fanout is an optional search aid. A failed batch is
+          // retained in diagnostics but never blocks the ordinary KRT route.
+          diagnostics.push(...convertDiagnostics(result.diagnostics).map((item) => (
+            item.severity === "error" ? { ...item, severity: "warning" as const } : item
+          )))
+          if (result.status === "completed" && await exists(output)) current = output
+        }
         let specialResult: KrtProcessResult | undefined
         if (allSpecial.size && special.rules) {
           const output = join(root, "02-special.kicad_pcb")
@@ -712,6 +934,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
               },
               special: specialResult?.jsonSummary,
               remaining: remainingResult?.jsonSummary,
+              fanout: fanoutResults.map((result) => ({
+                status: result.status,
+                elapsedMs: result.elapsedMs,
+                summary: result.jsonSummary,
+              })),
             },
           },
         }

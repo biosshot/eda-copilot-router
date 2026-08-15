@@ -8,6 +8,7 @@ type PhysicalLayer = "TOP" | "BOTTOM" | `INNER_${number}`;
 type LayerSelector = PhysicalLayer | "OUTER" | "ALL" | PhysicalLayer[];
 type CopperTarget = object;
 type RegionSelector = object;
+type FanoutTarget = object;
 
 interface ViaOptions {
   diameterMm?: number;
@@ -38,6 +39,8 @@ interface ImpedanceOptions {
 }
 
 declare function pad(component: string, pad: string | number): CopperTarget;
+/** Select an entire component for component-scoped routing policy. */
+declare function component(designator: string): FanoutTarget;
 declare function net(name: string): CopperTarget;
 declare function board(): RegionSelector;
 /** Reserved and rejected until component-bounded regions are implemented. */
@@ -113,6 +116,12 @@ declare function viaFence(id: string, options: {
   stagger?: boolean;
   via?: Omit<ViaOptions, "maxCount">;
 }): void;
+
+/**
+ * Disable automatic dense-package fanout for whole components or individual
+ * logical pads. This does not exclude their nets from normal routing.
+ */
+declare function disableFanout(...targets: FanoutTarget[]): void;
 
 declare function stack(options: {
   boardThicknessMm?: number;

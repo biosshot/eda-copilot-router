@@ -429,7 +429,9 @@ available in KRT and meaningful for other backends:
 - AC-coupled differential-pair matching;
 - automatic return vias near differential-pair signal vias, distinct from the
   explicit net-assigned `viaFence(...)` statement;
-- component fanout intent (`auto`, `bga`, or `qfn`);
+- explicit fanout method selection (`bga`, `qfn`, `stub`, or `underpad`); the
+  current contract deliberately exposes only `disableFanout(component(...),
+  pad(...))`, while KRT selects conservative QFN/QFP fanout automatically;
 - teardrop post-processing;
 - `onlyComponents(...)` as a portable scope selector.
 

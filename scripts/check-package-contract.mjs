@@ -132,6 +132,17 @@ if (commandResult !== undefined) throw new Error("terminal command returned a va
 assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
 assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
+const fanoutPolicy = dsl.compileRoutingDsl(`
+  disableFanout(component("U3"), pad("U1", 2))
+  disableFanout(pad("U1", 2), pad("U1", 3))
+  runRouting()
+`)
+assert.deepEqual(fanoutPolicy.fanoutExclusions, [
+  { kind: "component", component: "U3" },
+  { kind: "pad", component: "U1", pad: "2" },
+  { kind: "pad", component: "U1", pad: "3" },
+])
+assert.throws(() => dsl.compileRoutingDsl("disableFanout(); runRouting()"), /requires component/i)
 assert.equal(dsl.validateRoutingProgram({
   polygons: [], planes: [], signalNets: [], powerNets: [], differentialPairs: [], matchedGroups: [],
   operation: "route", backend: "easyeda-wasm",
@@ -168,6 +179,41 @@ assert.equal(
   0.05,
   "fast/balanced must automatically use the fine grid for a physical fine-pitch terminal",
 )
+
+const densePads = [
+  [-0.6, -1, 0.28, 0.7], [0.6, -1, 0.28, 0.7],
+  [-0.6, 1, 0.28, 0.7], [0.6, 1, 0.28, 0.7],
+  [-1, -0.6, 0.7, 0.28], [-1, 0.6, 0.7, 0.28],
+  [1, -0.6, 0.7, 0.28], [1, 0.6, 0.7, 0.28],
+].map(([x, y, widthMm, heightMm], index) => ({
+  component: "UQ", number: String(index + 1), net: "VCC",
+  at: { x: 10 + x, y: 10 + y }, rotationDeg: 0,
+  layers: ["F.Cu"], shape: { kind: "rect", widthMm, heightMm },
+}))
+const denseBoard = {
+  ...board,
+  components: [...board.components, {
+    designator: "UQ", at: { x: 10, y: 10 }, rotationDeg: 0, side: "top",
+  }],
+  pads: [...board.pads, ...densePads],
+}
+const denseProgram = dsl.compileRoutingDsl(`disableFanout(pad("UQ", 1)); runRouting()`)
+const denseRules = dsl.compileRoutingRules(denseBoard, denseProgram)
+const denseFanout = krt.planKrtQfnFanout({
+  board: denseBoard,
+  program: denseProgram,
+  rules: denseRules.effective,
+  connectivity: { preconnectedPadGroups: [{ net: "VCC", pads: [{ component: "UQ", pad: "2" }] }] },
+}, ["VCC"], 0.05)
+assert.equal(denseFanout.length, 1)
+assert.ok(!denseFanout[0].padNumbers.includes("1"), "pad-level fanout opt-out must be exact")
+assert.ok(!denseFanout[0].padNumbers.includes("2"), "polygon-preconnected pads must not be fanned again")
+assert.equal(denseFanout[0].rules.trackWidth, 0.2, "fanout uses the compiled hard neck-down width")
+const disabledDenseProgram = dsl.compileRoutingDsl(`disableFanout(component("UQ")); runRouting()`)
+const disabledDenseRules = dsl.compileRoutingRules(denseBoard, disabledDenseProgram)
+assert.equal(krt.planKrtQfnFanout({
+  board: denseBoard, program: disabledDenseProgram, rules: disabledDenseRules.effective,
+}, ["VCC"], 0.05).length, 0)
 
 const applyResult = await api.run({
   board,

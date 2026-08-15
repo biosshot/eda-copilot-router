@@ -77,12 +77,25 @@ after those stubs took 37.4 seconds and reduced the result from 10 open
 non-GND nets to five: `USB_A1_DP`, `USB_A1_VBUS`, `USB_DM`, `VREG_3V1`, and
 `VSYS_PORT`.
 
-The next minimal integration should therefore orchestrate the existing KRT
-fanout rather than add a second escape geometry engine. It must run on a
-temporary board, use compiled per-board geometry, preserve accepted stubs as
-input copper, and gate every component with native DRC. Differential/matched
-members need an atomic pair/group policy before their independent fanout is
-enabled; ordinary and power-pad escapes can be integrated first.
+The router therefore orchestrates the existing KRT fanout rather than adding a
+second escape geometry engine. It runs inside the KRT backend before maze
+routing, uses compiled per-board geometry, and preserves accepted stubs as
+locked input copper. KRT's own `qfn_fanout.py` post-fanout DRC summary is
+retained; there is no separate native fanout checkpoint. Native DRC remains the
+final board-level authority. Differential/matched members use KRT's coupled
+routing path rather than independent QFN stubs; ordinary and power-pad escapes
+are eligible for the automatic pass.
+
+The DSL is opt-out rather than placement-prescriptive:
+
+```js
+disableFanout(component("U3"), pad("U1", 14), pad("U1", 15))
+```
+
+A component target suppresses all automatic fanout on that component. A pad
+target suppresses every physical pad sharing that logical component/pad key.
+Neither form disables normal routing. Pads already connected by generated
+polygon copper, or already touching routed copper, are not fanned again.
 
 The candidate cascade degrades toward completion, not away from it:
 

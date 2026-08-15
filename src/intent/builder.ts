@@ -1,9 +1,11 @@
 import { Script, createContext } from "node:vm"
 import type {
   ClearRoutingIntent,
+  ComponentTarget,
   CopperTarget,
   DifferentialPairIntent,
   DrcIntent,
+  FanoutTarget,
   ImpedanceConstraint,
   LayerSelector,
   MatchedGroupIntent,
@@ -208,6 +210,7 @@ class RoutingDslBuilder {
   private readonly differentialPairs: DifferentialPairIntent[] = []
   private readonly matchedGroups: MatchedGroupIntent[] = []
   private readonly viaFences: ViaFenceIntent[] = []
+  private readonly fanoutExclusions = new Map<string, FanoutTarget>()
   private readonly netClasses: NetClassIntent[] = []
   private drcIntent: DrcIntent | undefined
   private stackIntent: StackIntent | undefined
@@ -228,6 +231,7 @@ class RoutingDslBuilder {
       diffPair: (id: string, options: unknown) => this.diffPair(id, options),
       matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
       viaFence: (id: string, options: unknown) => this.viaFence(id, options),
+      disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
       stack: (options: unknown) => this.stack(options),
       quality: (options: unknown) => this.quality(options),
       onlyNets: (...nets: string[]) => this.onlyNets(nets),
@@ -235,6 +239,9 @@ class RoutingDslBuilder {
       clearRouting: (options: unknown = {}) => this.clearRouting(options),
       pad: (component: string, number: string | number): PadTarget => ({
         kind: "pad", component: nonEmpty(component, "pad component"), pad: nonEmpty(number, "pad number"),
+      }),
+      component: (designator: string): ComponentTarget => ({
+        kind: "component", component: nonEmpty(designator, "component designator"),
       }),
       net: (name: string) => ({ kind: "net" as const, net: nonEmpty(name, "net") }),
       board: (): RegionSelector => ({ kind: "board" }),
@@ -264,6 +271,7 @@ class RoutingDslBuilder {
       differentialPairs: this.differentialPairs,
       matchedGroups: this.matchedGroups,
       viaFences: this.viaFences,
+      fanoutExclusions: [...this.fanoutExclusions.values()],
       netClasses: this.netClasses,
       ...(this.drcIntent ? { drc: this.drcIntent } : {}),
       ...(this.stackIntent ? { stack: this.stackIntent } : {}),
@@ -437,6 +445,28 @@ class RoutingDslBuilder {
       ...optionalPositive(source, "rowSpacingMm"), ...optionalBoolean(source, "stagger"),
       ...(via ? { via } : {}),
     })
+    return undefined
+  }
+
+  private disableFanout(targets: FanoutTarget[]): undefined {
+    if (!targets.length) throw new TypeError("disableFanout(...) requires component(...) or pad(...)")
+    for (const [index, value] of targets.entries()) {
+      const target = object(value, `disableFanout[${index}]`)
+      if (target.kind === "component") {
+        assertKnownKeys(target, ["kind", "component"], `disableFanout[${index}]`)
+        const component = nonEmpty(target.component, `disableFanout[${index}].component`)
+        this.fanoutExclusions.set(`component\u0000${component}`, { kind: "component", component })
+        continue
+      }
+      if (target.kind === "pad") {
+        assertKnownKeys(target, ["kind", "component", "pad"], `disableFanout[${index}]`)
+        const component = nonEmpty(target.component, `disableFanout[${index}].component`)
+        const pad = nonEmpty(target.pad, `disableFanout[${index}].pad`)
+        this.fanoutExclusions.set(`pad\u0000${component}\u0000${pad}`, { kind: "pad", component, pad })
+        continue
+      }
+      throw new TypeError(`disableFanout[${index}] must be component(...) or pad(...)`)
+    }
     return undefined
   }
 

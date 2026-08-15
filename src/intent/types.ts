@@ -9,8 +9,10 @@ export type LayerSelector =
   | Readonly<{ kind: "named"; names: readonly string[] }>
 
 export type PadTarget = Readonly<{ kind: "pad"; component: string; pad: string }>
+export type ComponentTarget = Readonly<{ kind: "component"; component: string }>
 export type NetTarget = Readonly<{ kind: "net"; net: string }>
 export type CopperTarget = PadTarget | NetTarget
+export type FanoutTarget = ComponentTarget | PadTarget
 
 export type RegionSelector =
   | Readonly<{ kind: "board" }>
@@ -193,6 +195,8 @@ export type RoutingProgram = Readonly<{
   differentialPairs: readonly DifferentialPairIntent[]
   matchedGroups: readonly MatchedGroupIntent[]
   viaFences: readonly ViaFenceIntent[]
+  /** Components or logical pads that automatic dense-package fanout must leave untouched. */
+  fanoutExclusions: readonly FanoutTarget[]
   netClasses: readonly NetClassIntent[]
   drc?: DrcIntent
   stack?: StackIntent
