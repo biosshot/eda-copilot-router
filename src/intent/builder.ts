@@ -416,7 +416,7 @@ class RoutingDslBuilder {
 
   private viaFence(id: string, input: unknown): undefined {
     const source = object(input, "viaFence options")
-    assertKnownKeys(source, ["along", "net", "pitchMm", "offsetMm", "via"], "viaFence")
+    assertKnownKeys(source, ["along", "net", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], "viaFence")
     if (!Array.isArray(source.along) || !source.along.length) throw new TypeError("viaFence.along must be a non-empty net array")
     let via: ViaGeometryIntent | undefined
     if (source.via !== undefined) {
@@ -432,7 +432,10 @@ class RoutingDslBuilder {
       kind: "via-fence", id: nonEmpty(id, "viaFence id"),
       along: [...new Set(source.along.map((item, index) => nonEmpty(item, `viaFence.along[${index}]`)))],
       net: nonEmpty(source.net, "viaFence.net"), ...optionalPositive(source, "pitchMm"),
-      ...optionalPositive(source, "offsetMm"), ...(via ? { via } : {}),
+      ...optionalPositive(source, "offsetMm"),
+      ...(source.rows === undefined ? {} : { rows: integer(source.rows, "viaFence.rows", 1, 8) }),
+      ...optionalPositive(source, "rowSpacingMm"), ...optionalBoolean(source, "stagger"),
+      ...(via ? { via } : {}),
     })
     return undefined
   }

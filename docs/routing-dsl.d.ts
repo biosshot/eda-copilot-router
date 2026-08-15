@@ -105,6 +105,12 @@ declare function viaFence(id: string, options: {
   net: string;
   pitchMm?: number;
   offsetMm?: number;
+  /** Rows on each side of the trace. Default: 2; range: 1..8. */
+  rows?: number;
+  /** Lateral center-to-center row spacing. Default: triangular pitch. */
+  rowSpacingMm?: number;
+  /** Shift every second row by pitchMm / 2. Default: true. */
+  stagger?: boolean;
   via?: Omit<ViaOptions, "maxCount">;
 }): void;
 

@@ -135,6 +135,12 @@ export type ViaFenceIntent = Readonly<{
   net: string
   pitchMm?: number
   offsetMm?: number
+  /** Number of rows on each side of the routed centerline. Default: 2. */
+  rows?: number
+  /** Lateral center-to-center distance between adjacent rows. */
+  rowSpacingMm?: number
+  /** Shift every second row by half a pitch to form a triangular lattice. Default: true. */
+  stagger?: boolean
   via?: ViaGeometryIntent
 }>
 

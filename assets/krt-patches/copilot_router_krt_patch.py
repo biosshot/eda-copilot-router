@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import math
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -19,6 +20,7 @@ import numpy as np
 import kicad_exact_fill
 import obstacle_cache
 import obstacle_map
+import single_ended_routing
 from routing_config import GridCoord
 from routing_utils import build_layer_map
 
@@ -28,6 +30,55 @@ _ORIGINAL_PRECOMPUTE = obstacle_cache.precompute_net_obstacles
 _CACHE_ATTRIBUTE = "_copilot_router_exact_filled_copper"
 _ROUTER_PLANE_PREFIX = "copilot-router:plane:"
 _ZONE_NAME_RE = re.compile(r'\(name\s+"((?:[^"\\]|\\.)*)"\)')
+
+# Copilot Router policy: neck-down is always allowed, including short routes.
+# Upstream KRT otherwise treats <=10 mm power/impedance connections as one
+# uniformly narrowed segment, so a legal wide middle can never recover its
+# requested width.  Sending every connection through the normal two-ended
+# neck-down pass keeps dense pad escapes narrow and restores the requested
+# width everywhere the wide swept-copper check succeeds.
+single_ended_routing.SHORT_POWER_EDGE_MM = 0.0
+
+_ORIGINAL_APPLY_NECKDOWN = single_ended_routing._apply_neckdown_widths
+_NECKDOWN_CHECK_INTERVAL_MM = 0.5
+
+
+def _apply_local_neckdown_widths(segments, config, net_id, obstacles, coord,
+                                 layer_names, track_margin, neck_start=False):
+    """Make KRT's wide-fit decision local instead of segment-wide.
+
+    KRT simplifies a straight route into very long segments.  Its native
+    neck-down pass then narrows a whole segment when only a few millimetres at
+    one end collide with a dense pad bank.  Re-segmenting only this fallback
+    path gives the existing swept-copper check enough resolution to restore
+    the requested width in free space.  The later authoritative terminal-graze
+    pass still narrows the pieces touching pads.
+    """
+    pieces = []
+    for segment in segments:
+        length = math.hypot(segment.end_x - segment.start_x,
+                            segment.end_y - segment.start_y)
+        count = max(1, int(math.ceil(length / _NECKDOWN_CHECK_INTERVAL_MM)))
+        width = config.get_net_track_width(net_id, segment.layer)
+        for index in range(count):
+            t0 = index / count
+            t1 = (index + 1) / count
+            pieces.append(single_ended_routing.Segment(
+                start_x=segment.start_x + (segment.end_x - segment.start_x) * t0,
+                start_y=segment.start_y + (segment.end_y - segment.start_y) * t0,
+                end_x=segment.start_x + (segment.end_x - segment.start_x) * t1,
+                end_y=segment.start_y + (segment.end_y - segment.start_y) * t1,
+                width=width,
+                layer=segment.layer,
+                net_id=segment.net_id,
+            ))
+    return _ORIGINAL_APPLY_NECKDOWN(
+        pieces, config, net_id, obstacles, coord, layer_names, track_margin,
+        neck_start=neck_start,
+    )
+
+
+single_ended_routing._apply_neckdown_widths = _apply_local_neckdown_widths
 
 
 def _parse_obstacle_fills(text: str):

@@ -99,6 +99,22 @@ function ruleFor(request: BackendRouteRequest, net: string) {
   return request.rules.nets.find((item) => item.net === net)?.values ?? request.rules.default
 }
 
+function orderedScopeNets(request: BackendRouteRequest) {
+  const boardNets = request.board.nets.map((item) => item.name)
+  if (!request.program.onlyNets) return boardNets
+  const known = new Set(boardNets)
+  return request.program.onlyNets.filter((net) => known.has(net))
+}
+
+function routeLayersFor(request: BackendRouteRequest, nets: readonly string[]) {
+  const constrained = nets
+    .map((net) => ruleFor(request, net).allowedLayers)
+    .filter((layers): layers is readonly string[] => Boolean(layers?.length))
+  if (constrained.length !== nets.length) return request.board.layers.map((item) => item.name)
+  const allowed = new Set(constrained.flat())
+  return request.board.layers.map((item) => item.name).filter((layer) => allowed.has(layer))
+}
+
 function sameNumber(values: readonly number[], epsilon = 1e-9) {
   return !values.length || values.every((value) => Math.abs(value - values[0]) <= epsilon)
 }
@@ -321,7 +337,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     capabilities: {
       supported: [
         "ordinary-routing", "vias", "differential-pairs", "matched-length",
-        "preserve-fixed-copper", "fixed-zone-obstacles", "preconnected-pad-groups", "parallel-vias",
+        "impedance-controlled", "preserve-fixed-copper", "fixed-zone-obstacles",
+        "preconnected-pad-groups", "parallel-vias",
       ],
       maxCopperLayers: 32,
     },
@@ -347,8 +364,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         return { status: "error", copper: EMPTY_COPPER, diagnostics: [runtimeDiagnostic(error)] }
       }
       const krtDirectory = managed.directory
+      const specialStage = request.program.differentialPairs.length > 0
+        || request.program.matchedGroups.length > 0
+        || request.program.viaFences.length > 0
       const root = options.artifactsDirectory
-        ? join(resolve(options.artifactsDirectory), request.policy?.profile ?? "default")
+        ? join(resolve(options.artifactsDirectory), request.policy?.profile ?? "default", specialStage ? "special" : "remaining")
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
       const ownedTemporary = !options.artifactsDirectory
       await mkdir(root, { recursive: true })
@@ -373,7 +393,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           && !request.program.ignoreNets.includes(net)
         )
         const preconnected = fullyPreconnectedNets(request)
-        const remainingNets = request.board.nets.map((item) => item.name).filter((net) => (
+        const remainingNets = orderedScopeNets(request).filter((net) => (
           net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net) && !preconnected.has(net)
           && request.board.pads.filter((pad) => pad.net === net).length >= 2
         ))
@@ -383,15 +403,22 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         const remainingFab = join(root, "remaining-fab.txt")
         if (special.rules) await writeFabOverrides(specialFab, special.rules)
         await writeFabOverrides(remainingFab, remainingRules)
+        const routedLayers = routeLayersFor(request, [...allSpecial, ...remainingNets])
         const common: Omit<KrtStageSpec, "rules" | "fabOverridesPath"> = {
           pythonPath: managed.pythonPath,
           pythonPathEntries: managed.pythonPathEntries,
           krtDirectory,
-          layers: request.board.layers.map((item) => item.name),
+          layers: routedLayers,
           diffPairs: request.program.differentialPairs.map((pair) => [pair.positive, pair.negative] as const),
           matchedGroups: request.program.matchedGroups.map((group) => group.nets),
           remainingNets,
-          ordering: "mps",
+          ordering: request.program.onlyNets ? "original" : "mps",
+          preserveNetOrder: Boolean(request.program.onlyNets),
+          // A dense pad escape may need the fixed 0.127 mm hard floor even
+          // when the ordinary preferred width cannot leave the footprint.
+          // This is a completion mechanism, never a reason to weaken via or
+          // clearance rules.
+          enableTerminalEscalation: true,
           ...routeQuality(request),
           collectStats: true,
           debugMemory: true,
@@ -415,14 +442,18 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         let remainingResult: KrtProcessResult | undefined
         if (remainingNets.length) {
           const output = join(root, "03-remaining.kicad_pcb")
+          const preferredWidthNets = new Set([
+            ...request.program.powerNets.map((intent) => intent.net),
+            ...request.program.signalNets.filter((intent) => intent.impedance).map((intent) => intent.net),
+          ])
           remainingResult = await runKrtRemaining(current, output, {
             ...common,
             rules: remainingRules,
             fabOverridesPath: remainingFab,
-            powerNets: request.program.powerNets.map((intent) => ({
-              net: intent.net,
-              width: ruleFor(request, intent.net).preferredTrackWidthMm,
-            })).filter((item) => remainingNets.includes(item.net)),
+            powerNets: remainingNets.filter((net) => preferredWidthNets.has(net)).map((net) => ({
+              net,
+              width: ruleFor(request, net).preferredTrackWidthMm,
+            })),
           }, join(root, "remaining"))
           diagnostics.push(...convertDiagnostics(remainingResult.diagnostics))
           if (remainingResult.status === "completed") current = output

@@ -221,6 +221,8 @@ assert.equal(fenced.status, "complete")
 assert.ok(fenced.copper.vias.length >= 2)
 assert.ok(fenced.copper.vias.every((via) => via.net === "GND"))
 assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:")))
+const fenceBands = new Set(fenced.copper.vias.map((via) => Math.abs(via.at.y - 5).toFixed(3)))
+assert.ok(fenceBands.size >= 2, "default viaFence must create multiple lateral rows")
 
 let remainingSawFence = false
 const stagedFenceBackend = {
@@ -273,7 +275,7 @@ const oneViaFence = api.planViaFences(
     tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 0.8, y: 0.8 }, { x: 0.81, y: 0.8 }] }],
     vias: [], zones: [],
   },
-  [{ kind: "via-fence", id: "ONE_IS_NOT_A_FENCE", along: ["VCC"], net: "GND", pitchMm: 1.5 }],
+  [{ kind: "via-fence", id: "ONE_IS_NOT_A_FENCE", along: ["VCC"], net: "GND", pitchMm: 1.5, rows: 1 }],
   board.rules,
   { completedNets: ["VCC"] },
 )

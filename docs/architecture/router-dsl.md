@@ -371,13 +371,21 @@ viaFence("RF_FENCE", {
   net: "GND",
   pitchMm: 0.8,
   offsetMm: 0.6,
+  rows: 2,
+  rowSpacingMm: 0.7,
+  stagger: true,
   via: { diameterMm: 0.5, drillMm: 0.25 },
 })
 ```
 
-- the first contract always places candidates on both sides of the retained
-  routed path. There is no `sides` option until a portable directed-path
-  selector can define left and right without ambiguity;
+- candidates are always placed on both sides of the retained routed path.
+  There is no `sides` option until a portable directed-path selector can
+  define left and right without ambiguity;
+- omitted `rows` means two rows per side. Every second row is shifted by half
+  a pitch by default, forming a triangular lattice that covers the gaps in the
+  preceding row; `rows` is limited to 1..8;
+- omitted `rowSpacingMm` uses the triangular-lattice spacing
+  `pitchMm * sqrt(3) / 2`; `stagger: false` disables the half-pitch shift;
 - omitted via geometry is inherited from effective DRC for the fence net;
 - omitted `offsetMm` is the closest DRC-correct offset derived from the routed
   signal width, effective clearance, and via diameter;
@@ -403,8 +411,8 @@ Placement is best-effort without weakening DRC:
 
 - a candidate that conflicts with pads, tracks, vias, zones, keepouts, the
   board edge, or effective via rules is skipped;
-- an incomplete `along` net produces a fence only on available retained track
-  segments and records a diagnostic;
+- if any `along` net is incomplete, no fence is emitted and
+  `VIA_FENCE_SOURCE_INCOMPLETE` records the exact missing nets;
 - if no candidate can be placed, the statement records
   `VIA_FENCE_NOT_PLACED` and remaining routing still runs;
 - intermediate fence diagnostics do not decide board validity; the final

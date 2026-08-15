@@ -183,12 +183,15 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   })
 
   fences.forEach((raw, index) => {
-    const path = `viaFences[${index}]`; exactKeys(raw, ["kind", "id", "along", "net", "pitchMm", "offsetMm", "via"], diagnostics, path)
+    const path = `viaFences[${index}]`; exactKeys(raw, ["kind", "id", "along", "net", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], diagnostics, path)
     const item = object(raw) ? raw : {}; const id = typeof item.id === "string" ? item.id : ""
     if (!id || item.kind !== "via-fence" || !Array.isArray(item.along) || !item.along.length || !item.along.every((net) => typeof net === "string" && net) || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_VIA_FENCE_INVALID", `${path} is incomplete.`, path))
     if (id && ids.has(id)) diagnostics.push(error("DSL_DUPLICATE_ID", `Duplicate special id ${id}.`, `${path}.id`)); if (id) ids.add(id)
     if (item.pitchMm !== undefined && !positive(item.pitchMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.pitchMm must be > 0.`, `${path}.pitchMm`))
     if (item.offsetMm !== undefined && !positive(item.offsetMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.offsetMm must be > 0.`, `${path}.offsetMm`))
+    if (item.rows !== undefined && (!Number.isInteger(item.rows) || Number(item.rows) < 1 || Number(item.rows) > 8)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rows must be an integer from 1 to 8.`, `${path}.rows`))
+    if (item.rowSpacingMm !== undefined && !positive(item.rowSpacingMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rowSpacingMm must be > 0.`, `${path}.rowSpacingMm`))
+    if (item.stagger !== undefined && typeof item.stagger !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.stagger must be boolean.`, `${path}.stagger`))
     via(item.via, `${path}.via`, diagnostics, false)
   })
 

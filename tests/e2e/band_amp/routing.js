@@ -25,7 +25,52 @@ plane({
   },
 })
 
-signalNet("RF_IN_AC", {
+powerNet("VIN_6_12V", {
+  minTrackWidthMm: 0.8,
+  tapWidthMm: "drc-min",
+  allowedLayers: "TOP",
+})
+
+powerNet("VCC5", {
+  minTrackWidthMm: 0.8,
+  tapWidthMm: "drc-min",
+  allowedLayers: "TOP",
+})
+
+powerNet("VBIAS", {
+  minTrackWidthMm: 0.3,
+  tapWidthMm: "drc-min",
+  allowedLayers: "TOP",
+})
+
+polygon("VIN_6_12V")
+  .connect(pad("J3", 1), pad("C6", 1))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+polygon("VIN_6_12V")
+  .connect(pad("C6", 1), pad("U2", 3))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+
+polygon("VCC5")
+  .connect(pad("U2", 2), pad("C7", 1))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+polygon("VCC5")
+  .connect(pad("U2", 2), pad("C3", 1))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+polygon("VCC5")
+  .connect(pad("C3", 1), pad("C4", 1), pad("L1", 1))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+
+polygon("VBIAS")
+  .connect(pad("U1", 1), pad("C2", 1), pad("R1", 1))
+  .on("TOP")
+  .compact({ maxPadFreeGapWidths: 20 })
+
+signalNet("Net-(C1-Pad1)", {
   allowedLayers: "TOP",
   impedance: {
     targetOhm: 50,
@@ -35,7 +80,17 @@ signalNet("RF_IN_AC", {
   },
 })
 
+signalNet("RF_IN_AC", {
+  allowedLayers: "TOP",
+  minTrackWidthMm: 0.127,
+})
+
 signalNet("RF_OUT_DC", {
+  allowedLayers: "TOP",
+  minTrackWidthMm: 0.127,
+})
+
+signalNet("Net-(C5-Pad2)", {
   allowedLayers: "TOP",
   impedance: {
     targetOhm: 50,
@@ -46,10 +101,13 @@ signalNet("RF_OUT_DC", {
 })
 
 viaFence("RF_GROUND_FENCE", {
-  along: ["RF_IN_AC", "RF_OUT_DC"],
+  // Route the dense amplifier connections before the wide 50-ohm trunks.
+  along: ["RF_IN_AC", "RF_OUT_DC", "Net-(C1-Pad1)", "Net-(C5-Pad2)"],
   net: "GND",
-  pitchMm: 1.5,
+  pitchMm: 1,
+  rows: 2,
+  stagger: true,
 })
 
-quality({ profile: "fast", maxCandidates: 1 })
+quality({ profile: "balanced", maxCandidates: 1 })
 runAll()

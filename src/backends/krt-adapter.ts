@@ -519,6 +519,7 @@ function addRemainingSummaryDiagnostics(
   rules: KrtNumericRules,
   diagnostics: KrtDiagnostic[],
   authorizedRipNets: readonly string[] = [],
+  terminalEscalationAllowed = false,
 ) {
   const failed = stringArray(summary.failed_single)
   const open = stringArray(summary.open_single)
@@ -585,8 +586,10 @@ function addRemainingSummaryDiagnostics(
   if (summary.terminal_escalations && Object.keys(summary.terminal_escalations as object).length) {
     diagnostics.push(diagnostic(
       "KRT_GEOMETRY_ESCALATION_USED",
-      "error",
-      "KRT reported terminal geometry escalation despite the adapter kill switch.",
+      terminalEscalationAllowed ? "warning" : "error",
+      terminalEscalationAllowed
+        ? "KRT used an allowed local terminal neck-down to complete a dense pad escape."
+        : "KRT reported terminal geometry escalation despite the adapter kill switch.",
       summary.terminal_escalations,
     ))
   }
@@ -1238,6 +1241,7 @@ async function executeStage(
       spec.rules,
       diagnostics,
       spec.ripExistingNets,
+      spec.enableTerminalEscalation,
     )
 
     if (!(await exists(normalizedOutput))) diagnostics.push(diagnostic(

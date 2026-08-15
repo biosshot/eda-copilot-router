@@ -68,7 +68,14 @@ function physicalLayers(board: RoutingBoard, fence: ViaFenceIntent) {
   return from && to ? [from, to] as const : undefined
 }
 
-function segmentSamples(track: RoutedTrack, pitch: number, offset: number) {
+function segmentSamples(
+  track: RoutedTrack,
+  pitch: number,
+  offset: number,
+  rows: number,
+  rowSpacing: number,
+  stagger: boolean,
+) {
   const output: PointMm[] = []
   for (let index = 1; index < track.points.length; index += 1) {
     const start = track.points[index - 1]
@@ -79,14 +86,21 @@ function segmentSamples(track: RoutedTrack, pitch: number, offset: number) {
     if (length <= EPSILON) continue
     const nx = -dy / length
     const ny = dx / length
-    const count = Math.max(1, Math.floor(length / pitch))
-    for (let sample = 0; sample <= count; sample += 1) {
-      const distance = Math.min(length, sample * length / count)
-      const center = { x: start.x + dx * distance / length, y: start.y + dy * distance / length }
-      output.push(
-        { x: center.x + nx * offset, y: center.y + ny * offset },
-        { x: center.x - nx * offset, y: center.y - ny * offset },
-      )
+    for (const side of [-1, 1]) {
+      for (let row = 0; row < rows; row += 1) {
+        const lateral = offset + row * rowSpacing
+        const phase = stagger && row % 2 === 1 ? pitch / 2 : 0
+        const distances: number[] = []
+        for (let distance = phase; distance <= length + EPSILON; distance += pitch) {
+          distances.push(Math.min(length, distance))
+        }
+        if (!distances.length) distances.push(length / 2)
+        else if (row === 0 && length - distances.at(-1)! > pitch / 2) distances.push(length)
+        for (const distance of distances) output.push({
+          x: start.x + dx * distance / length + nx * lateral * side,
+          y: start.y + dy * distance / length + ny * lateral * side,
+        })
+      }
     }
   }
   return output
@@ -102,7 +116,7 @@ export type ViaFenceSourceCompletion = Readonly<{
   completedNets: readonly string[]
 }>
 
-/** Materialize two-sided via fences around the retained routed centerlines. */
+/** Materialize staggered, multi-row, two-sided via fences around retained routed centerlines. */
 export function planViaFences(
   board: RoutingBoard,
   routed: RoutingCopper,
@@ -145,12 +159,15 @@ export function planViaFences(
     const drillMm = fence.via?.drillMm ?? value.via.minDrillMm
     const radius = diameterMm / 2
     const pitch = fence.pitchMm ?? Math.max(diameterMm * 2, diameterMm + value.clearanceMm)
+    const rows = fence.rows ?? 2
+    const rowSpacing = fence.rowSpacingMm ?? pitch * Math.sqrt(3) / 2
+    const stagger = fence.stagger ?? true
     const fenceVias: RoutedVia[] = []
     const accepted = [...existingVias, ...vias]
     for (const track of source) {
       const sourceRules = rulesForNet(rules, track.net)
       const offset = fence.offsetMm ?? track.widthMm / 2 + radius + Math.max(value.clearanceMm, sourceRules.clearanceMm)
-      for (const point of segmentSamples(track, pitch, offset)) {
+      for (const point of segmentSamples(track, pitch, offset, rows, rowSpacing, stagger)) {
         if (!pointInRing(point, board.outline) || board.cutouts.some((ring) => pointInRing(point, ring))) continue
         if (distanceToRingBoundary(point, board.outline) < radius + value.edgeClearanceMm - EPSILON) continue
         if (board.cutouts.some((ring) => distanceToRingBoundary(point, ring) < radius + value.edgeClearanceMm - EPSILON)) continue
@@ -164,8 +181,11 @@ export function planViaFences(
         if (tracks.some((other) => other.net !== fence.net && layers.includes(other.layer)
           && other.points.slice(1).some((end, index) => distanceToSegment(point, other.points[index], end)
             < radius + other.widthMm / 2 + value.clearanceMm - EPSILON))) continue
-        if (accepted.some((other) => Math.hypot(point.x - other.at.x, point.y - other.at.y)
-          < radius + other.diameterMm / 2 + (other.net === fence.net ? 0 : value.clearanceMm) - EPSILON)) continue
+        if (accepted.some((other) => {
+          const copperSpacing = radius + other.diameterMm / 2 + (other.net === fence.net ? 0 : value.clearanceMm)
+          const holeSpacing = drillMm / 2 + other.drillMm / 2 + (value.holeToHoleClearanceMm ?? 0)
+          return Math.hypot(point.x - other.at.x, point.y - other.at.y) < Math.max(copperSpacing, holeSpacing) - EPSILON
+        })) continue
         const via: RoutedVia = {
           id: `via-fence:${fence.id}:${vias.length + fenceVias.length}`,
           net: fence.net, at: point, diameterMm, drillMm,
