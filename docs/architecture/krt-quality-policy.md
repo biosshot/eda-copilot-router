@@ -87,6 +87,10 @@ the complete routing scope before power, differential, matched, or ordinary
 maze routing. The generated stubs remain independent local escapes; coupled
 members are still completed by KRT's differential routing path.
 
+`powerNet(...)` does not make a net special. It supplies electrical geometry
+to the ordinary/main KRT pass; only differential pairs, matched groups and
+via-fence source nets belong to the logical special scope.
+
 The DSL is opt-out rather than placement-prescriptive:
 
 ```js

@@ -967,7 +967,6 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     },
   }
   const specialMembers = (request: BackendRouteRequest) => [...new Set([
-    ...request.program.powerNets.map((intent) => intent.net),
     ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
     ...request.program.matchedGroups.flatMap((group) => group.nets),
     ...request.program.viaFences.flatMap((fence) => fence.along),

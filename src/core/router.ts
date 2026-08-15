@@ -153,7 +153,7 @@ async function routeCandidate(
     ...request,
     policy: { ...policy, profile, maxCandidates: 1 },
   }
-  const needsSpecialStage = request.program.powerNets.length > 0 || request.program.viaFences.length > 0
+  const needsSpecialStage = request.program.viaFences.length > 0
   if (!needsSpecialStage || !backend.routeSpecial || !backend.routeRemaining) {
     return await backend.route(scoped)
   }
