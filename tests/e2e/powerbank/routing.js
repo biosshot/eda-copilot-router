@@ -37,7 +37,7 @@ powerNet("USB_A2_VBUS", {
 powerNet("Net-(C2-Pad2)", {
   maxCurrentA: 5,
   maxTempRiseC: 20,
-  allowedLayers: "TOP",
+  allowedLayers: "ALL",
 })
 
 // Native DRC supplies width, gap, via, and skew defaults for special nets.
