@@ -25,6 +25,10 @@ assert.deepEqual({
   heuristicWeight: 1,
 })
 assert.equal(buildPortfolioCandidates(64).length, 32)
+assert.ok(
+  buildPortfolioCandidates(32).every((candidate) => candidate.variant.ordering === "mps"),
+  "every KRT portfolio candidate must retain MPS ordering",
+)
 assert.equal(buildPortfolioCandidates(1)[0].variant.name, "incumbent-global-mps")
 
 const small = buildPortfolioCandidates(4)

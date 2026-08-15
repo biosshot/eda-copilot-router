@@ -44,7 +44,7 @@ const BLOCKER_REPAIR_QUALITY = Object.freeze({
 export type CompletionProfile = {
   name: string
   scheduling: "global" | "singleton"
-  ordering: "inside_out" | "mps" | "original"
+  ordering: "mps"
   preserveNetOrder: boolean
   enableNetRescue: boolean
   viaCost: number
@@ -294,7 +294,7 @@ function profileFromQuality(
     name,
     scheduling,
     ordering,
-    preserveNetOrder: ordering === "original",
+    preserveNetOrder: true,
     enableNetRescue,
     viaCost: quality.viaCost,
     viaProximityCost: quality.viaProximityCost,
@@ -313,10 +313,10 @@ export function buildCompletionProfiles(requestedRuns: number): CompletionProfil
   const [max, high, medium, low] = QUALITY_PRESETS
   return [
     profileFromQuality("max-global-mps", max, "mps", false),
-    profileFromQuality("high-escape-order", high, "original", false),
+    profileFromQuality("high-escape-order", high, "mps", false),
     profileFromQuality("medium-global-mps-rescue", medium, "mps", true),
-    profileFromQuality("low-singleton-inside-out-rescue", low, "inside_out", true, "singleton"),
-    profileFromQuality("low-singleton-escape-rescue", low, "original", true, "singleton"),
+    profileFromQuality("low-singleton-mps-rescue", low, "mps", true, "singleton"),
+    profileFromQuality("low-singleton-escape-rescue", low, "mps", true, "singleton"),
   ].slice(0, count)
 }
 
@@ -531,8 +531,8 @@ export async function runKrtCompletionPortfolio(
         remainingNets: candidateTargets,
         ripExistingNets: candidateBlockers,
         powerNets: request.krtSpec.powerNets?.filter((item) => candidateTargets.includes(item.net)),
-        ordering: blockerProfile ? "original" : profile.ordering,
-        preserveNetOrder: blockerProfile ? true : profile.preserveNetOrder,
+        ordering: "mps",
+        preserveNetOrder: true,
         enableNetRescue: blockerProfile ? false : profile.enableNetRescue,
         enableTerminalEscalation: false,
         viaCost: blockerProfile ? quality.viaCost : profile.viaCost,

@@ -19,7 +19,7 @@ import { kicadToRawPcb } from "./polygon/kicad-adapter"
 
 type QualityName = "incumbent" | "max" | "high" | "medium" | "low"
 type SchedulingMode = "diagnostic" | "ordered" | "batched" | "singleton"
-type KrtOrdering = "mps" | "inside_out" | "original"
+type KrtOrdering = "mps"
 
 export type QualityPreset = {
   name: QualityName
@@ -140,14 +140,14 @@ export const QUALITY_PRESETS: readonly QualityPreset[] = [
 ] as const
 
 const ROUTE_VARIANTS: readonly RouteVariant[] = [
-  { name: "escape-first", scheduling: "ordered", ordering: "original", netRescue: false },
+  { name: "escape-first", scheduling: "ordered", ordering: "mps", netRescue: false },
   { name: "global-mps", scheduling: "diagnostic", ordering: "mps", netRescue: false },
-  { name: "escape-first-rescue", scheduling: "ordered", ordering: "original", netRescue: true },
+  { name: "escape-first-rescue", scheduling: "ordered", ordering: "mps", netRescue: true },
   { name: "global-mps-rescue", scheduling: "diagnostic", ordering: "mps", netRescue: true },
-  { name: "escape-batches-rescue", scheduling: "batched", ordering: "original", netRescue: true },
-  { name: "global-inside-out", scheduling: "diagnostic", ordering: "inside_out", netRescue: false },
-  { name: "global-original", scheduling: "diagnostic", ordering: "original", netRescue: false },
-  { name: "escape-singletons-rescue", scheduling: "singleton", ordering: "original", netRescue: true },
+  { name: "escape-batches-rescue", scheduling: "batched", ordering: "mps", netRescue: true },
+  { name: "global-mps-repeat-a", scheduling: "diagnostic", ordering: "mps", netRescue: false },
+  { name: "global-mps-repeat-b", scheduling: "diagnostic", ordering: "mps", netRescue: false },
+  { name: "escape-singletons-rescue", scheduling: "singleton", ordering: "mps", netRescue: true },
 ] as const
 
 const INCUMBENT_VARIANT: RouteVariant = {
@@ -158,9 +158,8 @@ const INCUMBENT_VARIANT: RouteVariant = {
 }
 
 const VARIANTS_BY_QUALITY: Readonly<Record<Exclude<QualityName, "incumbent">, readonly RouteVariant[]>> = {
-  // With a tiny 3-5 run budget, do not spend every quality tier on the same
-  // ordering.  MPS is the strongest global baseline, while later tiers trade
-  // aesthetics for the escape scheduler and additive rescue.
+  // MPS is the single ordering policy. Variants may still change scheduling
+  // granularity and additive rescue without silently changing net ordering.
   max: [
     ROUTE_VARIANTS[1], ROUTE_VARIANTS[0], ROUTE_VARIANTS[5], ROUTE_VARIANTS[6],
     ROUTE_VARIANTS[3], ROUTE_VARIANTS[2], ROUTE_VARIANTS[4], ROUTE_VARIANTS[7],

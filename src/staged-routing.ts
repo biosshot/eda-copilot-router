@@ -180,7 +180,7 @@ type WorkflowConfig = {
   krtMaxIterations: number
   krtMaxProbeIterations: number
   krtHeuristicWeight: number
-  krtOrdering: "inside_out" | "mps" | "original"
+  krtOrdering: "mps"
   netScheduling: "diagnostic" | "ordered" | "batched" | "singleton"
   krtNetRescue: boolean
   completionRuns: number
@@ -510,7 +510,7 @@ async function buildKrtRemainingSpec(
       return power ? [{ net, width: power.requiredTrackWidthMm }] : []
     }),
     ordering: config.krtOrdering,
-    preserveNetOrder: false,
+    preserveNetOrder: true,
     enableNetRescue: config.krtNetRescue,
     enableTerminalEscalation: false,
     maxIterations: config.krtMaxIterations,
@@ -556,8 +556,9 @@ function readRemainingBackend(value: string | undefined): WorkflowConfig["remain
 }
 
 function readKrtOrdering(value: string | undefined): WorkflowConfig["krtOrdering"] {
-  const normalized = String(value ?? "mps").trim().toLowerCase()
-  if (normalized === "inside_out" || normalized === "mps" || normalized === "original") return normalized
+  // Retain the legacy environment reader without allowing it to change the
+  // single managed ordering policy.
+  void value
   return "mps"
 }
 
@@ -1090,6 +1091,7 @@ async function main() {
           matchedGroups: config.skipSpecial ? [] : specialIntent.matchedGroups,
           remainingNets: [],
           ordering: config.krtOrdering,
+          preserveNetOrder: true,
           maxIterations: config.krtMaxIterations,
           maxProbeIterations: config.krtMaxProbeIterations,
           maxRipup: config.krtMaxRipup,
@@ -1316,7 +1318,7 @@ async function main() {
         )
         const powerNets = krtSpec.powerNets ?? []
         if (config.netScheduling === "ordered" || config.netScheduling === "batched") {
-          krtSpec.ordering = "original"
+          krtSpec.ordering = "mps"
           krtSpec.preserveNetOrder = true
         }
         const priorityNets = netSchedule.tiers

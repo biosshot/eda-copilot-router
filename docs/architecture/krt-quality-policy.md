@@ -61,6 +61,29 @@ Dynamic search extension is allowed only in `completion-first`. Production
 does not use `--stats` or `--debug-memory`; KRT's stats path can repeat routing
 work after a successful search.
 
+## Dense-package escape audit
+
+Managed KRT `0.20.4` already ships a separate `qfn_fanout.py`. It detects
+QFN/QFP geometry and emits short outward surface stubs, or an optional
+under-pad via escape. `route.py` does not invoke this tool automatically, so
+terminal escalation currently starts from the original pad even though the
+fanout implementation is available.
+
+A controlled PowerBank smoke test on U1 (QFN-40, 0.50 mm pitch) used the
+compiled `0.20 mm` clearance, `0.127 mm` hard width, and `0.05 mm` grid. The
+surface fanout escaped 20 of 25 non-GND nets and rejected five obstructed nets;
+native KiCad DRC found no new errors. Running the unchanged balanced MPS route
+after those stubs took 37.4 seconds and reduced the result from 10 open
+non-GND nets to five: `USB_A1_DP`, `USB_A1_VBUS`, `USB_DM`, `VREG_3V1`, and
+`VSYS_PORT`.
+
+The next minimal integration should therefore orchestrate the existing KRT
+fanout rather than add a second escape geometry engine. It must run on a
+temporary board, use compiled per-board geometry, preserve accepted stubs as
+input copper, and gate every component with native DRC. Differential/matched
+members need an atomic pair/group policy before their independent fanout is
+enabled; ordinary and power-pad escapes can be integrated first.
+
 The candidate cascade degrades toward completion, not away from it:
 
 - `fast` and `completion-first`: selected profile only;
@@ -72,6 +95,10 @@ The first candidate with zero open nets wins. Although the DSL accepts up to
 
 ## Argument rules
 
+- Every KRT subprocess uses `--ordering mps`, including scoped `onlyNets`,
+  differential, matched, power, completion, and legacy staged calls.
+  `KICAD_DIRECT_FIRST=0` prevents KRT from repartitioning bare-BGA nets after
+  MPS; scope selection is not an implicit priority override.
 - `route.py`-only neck-down and rip-up-abandon options are never sent to
   `route_diff.py`.
 - Differential intra-pair matching is enabled only when a skew limit was

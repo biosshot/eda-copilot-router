@@ -620,8 +620,10 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           // A viaFence is generated only after its source routing succeeds, so
           // a planned fence cannot safely replace KRT's native return vias.
           suppressGroundReturnVias: false,
-          ordering: request.program.onlyNets ? "original" : "mps",
-          preserveNetOrder: Boolean(request.program.onlyNets),
+          // onlyNets controls scope, never priority. All KRT subprocesses use
+          // the same MPS ordering without direct-first resorting.
+          ordering: "mps",
+          preserveNetOrder: true,
           // A dense pad escape may need the fixed 0.127 mm hard floor even
           // when the ordinary preferred width cannot leave the footprint.
           // This is a completion mechanism, never a reason to weaken via or

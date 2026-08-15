@@ -14,9 +14,10 @@ assert.deepEqual(buildCompletionProfiles(5).map((profile) => profile.name), [
   "max-global-mps",
   "high-escape-order",
   "medium-global-mps-rescue",
-  "low-singleton-inside-out-rescue",
+  "low-singleton-mps-rescue",
   "low-singleton-escape-rescue",
 ])
+assert.ok(buildCompletionProfiles(5).every((profile) => profile.ordering === "mps"))
 assert.equal(buildCompletionProfiles(99).length, 5)
 assert.equal(buildCompletionProfiles(0).length, 0)
 assert.equal(buildCompletionProfiles(5)[0].enableTerminalEscalation, undefined)

@@ -257,7 +257,6 @@ is never modified. Useful overrides are:
 - `COPILOT_ROUTER_KRT_DIR` optionally overrides the managed KRT cache for development;
   normal users do not set it
 - `COPILOT_ROUTER_CACHE_DIR` optionally relocates the verified backend cache
-- `COPILOT_ROUTER_KRT_ORDERING=inside_out|mps|original`
 - `COPILOT_ROUTER_KRT_NET_RESCUE=1` enables KRT's additive, native-clearance rescue pass
 - `COPILOT_ROUTER_KRT_MAX_ITERATIONS` and `COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS`
   control search depth without weakening native geometry rules
@@ -291,7 +290,7 @@ is never modified. Useful overrides are:
 `npm run route:portfolio` first runs an incumbent candidate using the exact
 best-known global MPS profile (`20/3/250/50`, rip-up 5, no rescue), then runs
 isolated experimental candidates in descending quality tiers: `max`, `high`,
-`medium`, then `low`. It varies KRT ordering,
+`medium`, then `low`. Every KRT subprocess uses MPS ordering; candidates vary
 escape-risk scheduling, batching, singleton escape probes, and the additive net
 rescue pass. Track width, clearance, via diameter, and drill remain fixed to
 the compiled native rules in every tier; lower quality only reduces aesthetic

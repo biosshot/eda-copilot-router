@@ -92,8 +92,9 @@ export type KrtStageSpec = {
   /** Exact pre-existing nets KRT may rip only when they block remainingNets. */
   ripExistingNets?: readonly string[]
   powerNets?: readonly { net: string; width: number }[]
-  ordering?: "inside_out" | "mps" | "original"
-  /** Disable KRT's secondary bare-ball repartition when testing an external exact order. */
+  /** Managed KRT routing has one crossing-aware ordering policy. */
+  ordering?: "mps"
+  /** Legacy compatibility only; managed MPS ordering is always preserved. */
   preserveNetOrder?: boolean
   /** Allow KRT's additive rescue pass without relaxing native clearance. */
   enableNetRescue?: boolean
@@ -1078,7 +1079,9 @@ function commonArgs(
   pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
   pushNumericArg(args, "--same-net-pad-clearance", spec.rules.sameNetPadClearance)
   pushNumericArg(args, "--routing-clearance-margin", spec.rules.routingClearanceMargin)
-  if (spec.ordering) args.push("--ordering", spec.ordering)
+  // Scope selectors such as onlyNets must never implicitly change routing
+  // order. Keep one crossing-aware policy for every KRT subprocess.
+  args.push("--ordering", "mps")
   pushNumericArg(args, "--max-iterations", spec.maxIterations)
   pushNumericArg(args, "--max-probe-iterations", spec.maxProbeIterations)
   pushNumericArg(args, "--max-ripup", spec.maxRipup)
@@ -1276,7 +1279,9 @@ async function executeStage(
         ...dynamicIterationsEnvironment(spec),
         PYTHONDONTWRITEBYTECODE: "1",
         ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
-        ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
+        // KRT otherwise performs a second bare-BGA "direct first" partition
+        // after MPS. Disable it so MPS remains the actual final order.
+        KICAD_DIRECT_FIRST: "0",
       },
     }, null, 2)}\n`, diagnostics)
 
@@ -1290,7 +1295,7 @@ async function executeStage(
         ...(spec.pythonPathEntries?.length
           ? { PYTHONPATH: [...spec.pythonPathEntries, ...(process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [])].join(delimiter) }
           : {}),
-        ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
+        KICAD_DIRECT_FIRST: "0",
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
         ...dynamicIterationsEnvironment(spec),
