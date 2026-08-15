@@ -1,6 +1,6 @@
 """Make native KiCad filled copper a net-aware KRT obstacle.
 
-KRT 0.20.2 parses zone outlines for connectivity, but its ordinary maze map
+KRT parses zone outlines for connectivity, but its ordinary maze map
 does not stamp the actual ``filled_polygon`` copper.  This packaged patch uses
 the already-refilled board written by the host and augments KRT's existing
 per-net obstacle caches.  The cache for the net currently being routed is
@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import math
+import copy
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -41,6 +42,184 @@ single_ended_routing.SHORT_POWER_EDGE_MM = 0.0
 
 _ORIGINAL_APPLY_NECKDOWN = single_ended_routing._apply_neckdown_widths
 _NECKDOWN_CHECK_INTERVAL_MM = 0.5
+_TAPER_MIN_STEPS = 4
+_TAPER_MAX_STEPS = 16
+_TAPER_LENGTH_STEP_TARGET_MM = 0.1
+_TAPER_WIDTH_STEP_TARGET_MM = 0.25
+
+
+def _without_neckdown_taper(config):
+    """Return an isolated config clone for the binary wide-fit pass."""
+    clone = copy.copy(config)
+    clone.neckdown_taper_length = 0.0
+    return clone
+
+
+def _is_wide(segment, config, net_id):
+    narrow = single_ended_routing._neck_width_for_net(config, net_id, segment.layer)
+    return segment.width > narrow + 1e-9
+
+
+def _suppress_short_wide_islands(segments, config, net_id):
+    """Preserve upstream's noise filter while delaying taper construction."""
+    minimum = 2.0 * config.neckdown_taper_length
+    if minimum <= 0:
+        return segments
+    wide = [_is_wide(segment, config, net_id) for segment in segments]
+    index = 0
+    while index < len(segments):
+        if not wide[index]:
+            index += 1
+            continue
+        end = index
+        length = 0.0
+        while end < len(segments) and wide[end]:
+            length += single_ended_routing._seg_length(segments[end])
+            end += 1
+        if index > 0 and end < len(segments) and length <= minimum + 1e-9:
+            for item in range(index, end):
+                segments[item].width = single_ended_routing._neck_width_for_net(
+                    config, net_id, segments[item].layer,
+                )
+                wide[item] = False
+        index = end
+    return segments
+
+
+def _collinear_forward(first, second):
+    ax = first.end_x - first.start_x
+    ay = first.end_y - first.start_y
+    bx = second.end_x - second.start_x
+    by = second.end_y - second.start_y
+    scale = max(1.0, math.hypot(ax, ay) * math.hypot(bx, by))
+    return abs(ax * by - ay * bx) <= 1e-9 * scale and ax * bx + ay * by > 0
+
+
+def _merge_collinear_same_width(segments):
+    """Undo sampling splits without crossing a corner, layer, net or width."""
+    merged = []
+    for segment in segments:
+        if merged:
+            previous = merged[-1]
+            connected = (
+                abs(previous.end_x - segment.start_x) <= 1e-9
+                and abs(previous.end_y - segment.start_y) <= 1e-9
+            )
+            compatible = (
+                previous.layer == segment.layer
+                and previous.net_id == segment.net_id
+                and abs(previous.width - segment.width) <= 1e-9
+            )
+            if connected and compatible and _collinear_forward(previous, segment):
+                merged[-1] = single_ended_routing.Segment(
+                    start_x=previous.start_x,
+                    start_y=previous.start_y,
+                    end_x=segment.end_x,
+                    end_y=segment.end_y,
+                    width=previous.width,
+                    layer=previous.layer,
+                    net_id=previous.net_id,
+                )
+                continue
+        merged.append(segment)
+    return merged
+
+
+def _segment_piece(segment, start_fraction, end_fraction, width):
+    dx = segment.end_x - segment.start_x
+    dy = segment.end_y - segment.start_y
+    return single_ended_routing.Segment(
+        start_x=segment.start_x + dx * start_fraction,
+        start_y=segment.start_y + dy * start_fraction,
+        end_x=segment.start_x + dx * end_fraction,
+        end_y=segment.start_y + dy * end_fraction,
+        width=width,
+        layer=segment.layer,
+        net_id=segment.net_id,
+    )
+
+
+def _taper_step_count(length, width_delta):
+    return max(_TAPER_MIN_STEPS, min(
+        _TAPER_MAX_STEPS,
+        int(math.ceil(max(
+            length / _TAPER_LENGTH_STEP_TARGET_MM,
+            width_delta / _TAPER_WIDTH_STEP_TARGET_MM,
+        ))),
+    ))
+
+
+def _taper_wide_segment(segment, narrow_width, taper_length,
+                        narrow_before=False, narrow_after=False):
+    """Carve bounded width steps from the already-proven wide envelope."""
+    length = single_ended_routing._seg_length(segment)
+    if length <= 1e-12 or taper_length <= 0 or not (narrow_before or narrow_after):
+        return [segment]
+
+    sides = int(narrow_before) + int(narrow_after)
+    available_per_side = length / sides
+    used = min(taper_length, available_per_side)
+    if used <= 1e-12:
+        return [segment]
+
+    wide_width = segment.width
+    delta = max(0.0, wide_width - narrow_width)
+    if delta <= 1e-12:
+        return [segment]
+    steps = _taper_step_count(used, delta)
+    start_length = used if narrow_before else 0.0
+    end_length = used if narrow_after else 0.0
+    output = []
+
+    if narrow_before:
+        for index in range(steps):
+            start = (start_length * index / steps) / length
+            end = (start_length * (index + 1) / steps) / length
+            width = narrow_width + delta * (index + 1) / (steps + 1)
+            output.append(_segment_piece(segment, start, end, width))
+
+    body_start = start_length / length
+    body_end = 1.0 - end_length / length
+    if body_end - body_start > 1e-12:
+        output.append(_segment_piece(segment, body_start, body_end, wide_width))
+
+    if narrow_after:
+        for index in range(steps):
+            start = body_end + (end_length * index / steps) / length
+            end = body_end + (end_length * (index + 1) / steps) / length
+            width = wide_width - delta * (index + 1) / (steps + 1)
+            output.append(_segment_piece(segment, start, end, width))
+    return output
+
+
+def _apply_full_run_tapers(segments, config, net_id):
+    if config.neckdown_taper_length <= 0:
+        return segments
+    wide = [_is_wide(segment, config, net_id) for segment in segments]
+    output = []
+    for index, segment in enumerate(segments):
+        if not wide[index]:
+            output.append(segment)
+            continue
+        narrow_before = (
+            index > 0 and not wide[index - 1]
+            and segments[index - 1].layer == segment.layer
+        )
+        narrow_after = (
+            index + 1 < len(segments) and not wide[index + 1]
+            and segments[index + 1].layer == segment.layer
+        )
+        narrow_width = single_ended_routing._neck_width_for_net(
+            config, net_id, segment.layer,
+        )
+        output.extend(_taper_wide_segment(
+            segment,
+            narrow_width,
+            config.neckdown_taper_length,
+            narrow_before=narrow_before,
+            narrow_after=narrow_after,
+        ))
+    return output
 
 
 def _apply_local_neckdown_widths(segments, config, net_id, obstacles, coord,
@@ -72,10 +251,21 @@ def _apply_local_neckdown_widths(segments, config, net_id, obstacles, coord,
                 layer=segment.layer,
                 net_id=segment.net_id,
             ))
-    return _ORIGINAL_APPLY_NECKDOWN(
-        pieces, config, net_id, obstacles, coord, layer_names, track_margin,
+    # Upstream constructs its taper immediately. Since every sampling piece is
+    # <=0.5 mm and upstream caps a taper to one third of its host segment, the
+    # nominal 0.5 mm taper collapsed to <=0.1667 mm. First ask upstream only for
+    # its proven binary wide/narrow classification, then restore its short-wide-
+    # island filter, merge sampling cuts, and finally build the taper over the
+    # full available collinear run. Every emitted taper width stays inside the
+    # already-clear wide envelope.
+    classified = _ORIGINAL_APPLY_NECKDOWN(
+        pieces, _without_neckdown_taper(config), net_id, obstacles, coord,
+        layer_names, track_margin,
         neck_start=neck_start,
     )
+    classified = _suppress_short_wide_islands(classified, config, net_id)
+    merged = _merge_collinear_same_width(classified)
+    return _apply_full_run_tapers(merged, config, net_id)
 
 
 single_ended_routing._apply_neckdown_widths = _apply_local_neckdown_widths

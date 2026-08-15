@@ -36,8 +36,24 @@ export type KrtMatchedGroup =
   | readonly string[]
   | { nets: readonly string[] }
 
+/** Exact argparse choices in KiCadRoutingTools 0.20.4. */
+export const KRT_RIPUP_BLOCKER_SELECT_CHOICES = Object.freeze([
+  "count", "near-target", "bidir", "mincut", "cost",
+] as const)
+
+/** Exact route.py argparse choices in KiCadRoutingTools 0.20.4. */
+export const KRT_RIPUP_ABANDON_METRIC_CHOICES = Object.freeze([
+  "stranded", "total-pads", "complete-nets", "congestion",
+  "history", "weighted", "probe", "weighted-probe",
+] as const)
+
+export type KrtRipupBlockerSelect = typeof KRT_RIPUP_BLOCKER_SELECT_CHOICES[number]
+export type KrtRipupAbandonMetric = typeof KRT_RIPUP_ABANDON_METRIC_CHOICES[number]
+
 export type KrtNumericRules = {
+  /** Nominal CLI width. KRT may neck down only to hardTrackWidth. */
   trackWidth: number
+  hardTrackWidth?: number
   clearance: number
   viaSize: number
   viaDrill: number
@@ -49,6 +65,7 @@ export type KrtNumericRules = {
   routingClearanceMargin?: number
   lengthMatchTolerance?: number
   meanderAmplitude?: number
+  /** KRT centre-to-centre meander pitch, expressed as a track-width multiplier. */
   meanderSpacing?: number
 }
 
@@ -68,6 +85,10 @@ export type KrtStageSpec = {
   diffPairs: readonly KrtDiffPair[]
   matchedGroups: readonly KrtMatchedGroup[]
   remainingNets: readonly string[]
+  /** Match P/N inside each pair only when native DRC or DSL requested skew. */
+  matchDifferentialPairLengths?: boolean
+  /** A later explicit viaFence owns return vias for every routed pair. */
+  suppressGroundReturnVias?: boolean
   /** Exact pre-existing nets KRT may rip only when they block remainingNets. */
   ripExistingNets?: readonly string[]
   powerNets?: readonly { net: string; width: number }[]
@@ -82,6 +103,13 @@ export type KrtStageSpec = {
   maxProbeIterations?: number
   maxRipup?: number
   heuristicWeight?: number
+  /** KRT full-search tranche extension. Undefined preserves the upstream default. */
+  dynamicIterations?: boolean
+  ripupBlockerSelect?: KrtRipupBlockerSelect
+  /** route.py only; route_diff.py has no abandon-metric phase. */
+  ripupAbandonMetric?: KrtRipupAbandonMetric
+  neckdownLength?: number
+  neckdownTaperLength?: number
   /** Route-quality costs only; these never weaken DRC geometry. */
   viaCost?: number
   viaProximityCost?: number
@@ -730,6 +758,49 @@ function validateNonNegativeNumber(
   ))
 }
 
+function validatePositiveInteger(
+  value: number | undefined,
+  field: string,
+  diagnostics: KrtDiagnostic[],
+) {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value <= 0) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    `${field} must be a positive safe integer.`,
+    { field, value },
+  ))
+}
+
+function validateNonNegativeInteger(
+  value: number | undefined,
+  field: string,
+  diagnostics: KrtDiagnostic[],
+) {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value < 0) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    `${field} must be a non-negative safe integer.`,
+    { field, value },
+  ))
+}
+
+function validateChoice(
+  value: string | undefined,
+  field: string,
+  choices: readonly string[],
+  diagnostics: KrtDiagnostic[],
+) {
+  if (value === undefined) return
+  if (!choices.includes(value)) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    `${field} must be one of: ${choices.join(", ")}.`,
+    { field, value, choices },
+  ))
+}
+
 async function commonPreflight(
   inputBoard: string,
   outputBoard: string,
@@ -764,6 +835,7 @@ async function commonPreflight(
   ))
 
   validatePositiveNumber(spec.rules.trackWidth, "rules.trackWidth", diagnostics, true)
+  validatePositiveNumber(spec.rules.hardTrackWidth, "rules.hardTrackWidth", diagnostics)
   validatePositiveNumber(spec.rules.clearance, "rules.clearance", diagnostics, true)
   validatePositiveNumber(spec.rules.viaSize, "rules.viaSize", diagnostics, true)
   validatePositiveNumber(spec.rules.viaDrill, "rules.viaDrill", diagnostics, true)
@@ -776,14 +848,30 @@ async function commonPreflight(
   validatePositiveNumber(spec.rules.lengthMatchTolerance, "rules.lengthMatchTolerance", diagnostics)
   validatePositiveNumber(spec.rules.meanderAmplitude, "rules.meanderAmplitude", diagnostics)
   validatePositiveNumber(spec.rules.meanderSpacing, "rules.meanderSpacing", diagnostics)
-  validatePositiveNumber(spec.maxIterations, "maxIterations", diagnostics)
-  validatePositiveNumber(spec.maxProbeIterations, "maxProbeIterations", diagnostics)
-  validatePositiveNumber(spec.maxRipup, "maxRipup", diagnostics)
+  validateNonNegativeNumber(spec.neckdownLength, "neckdownLength", diagnostics)
+  validateNonNegativeNumber(spec.neckdownTaperLength, "neckdownTaperLength", diagnostics)
+  validatePositiveInteger(spec.maxIterations, "maxIterations", diagnostics)
+  validatePositiveInteger(spec.maxProbeIterations, "maxProbeIterations", diagnostics)
+  validateNonNegativeInteger(spec.maxRipup, "maxRipup", diagnostics)
   validatePositiveNumber(spec.heuristicWeight, "heuristicWeight", diagnostics)
-  validatePositiveNumber(spec.viaCost, "viaCost", diagnostics)
-  validateNonNegativeNumber(spec.viaProximityCost, "viaProximityCost", diagnostics)
-  validateNonNegativeNumber(spec.turnCost, "turnCost", diagnostics)
-  validateNonNegativeNumber(spec.directionPreferenceCost, "directionPreferenceCost", diagnostics)
+  validateNonNegativeInteger(spec.viaCost, "viaCost", diagnostics)
+  validateNonNegativeInteger(spec.viaProximityCost, "viaProximityCost", diagnostics)
+  validateNonNegativeInteger(spec.turnCost, "turnCost", diagnostics)
+  validateNonNegativeInteger(spec.directionPreferenceCost, "directionPreferenceCost", diagnostics)
+  validateChoice(spec.ripupBlockerSelect, "ripupBlockerSelect", KRT_RIPUP_BLOCKER_SELECT_CHOICES, diagnostics)
+  validateChoice(spec.ripupAbandonMetric, "ripupAbandonMetric", KRT_RIPUP_ABANDON_METRIC_CHOICES, diagnostics)
+  if (spec.dynamicIterations !== undefined && typeof spec.dynamicIterations !== "boolean") diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC", "error", "dynamicIterations must be a boolean.",
+    { field: "dynamicIterations", value: spec.dynamicIterations },
+  ))
+
+  const hardTrackWidth = spec.rules.hardTrackWidth ?? spec.rules.trackWidth
+  if (hardTrackWidth > spec.rules.trackWidth + EPSILON) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    "rules.hardTrackWidth must not exceed the nominal rules.trackWidth.",
+    { hardTrackWidth, trackWidth: spec.rules.trackWidth },
+  ))
 
   if (spec.rules.viaDrill >= spec.rules.viaSize) diagnostics.push(diagnostic(
     "KRT_INVALID_SPEC",
@@ -800,11 +888,14 @@ async function commonPreflight(
   } else {
     try {
       const values = await readFabOverrides(spec.fabOverridesPath)
+      const holeToHoleClearance = spec.rules.holeToHoleClearance ?? spec.rules.clearance
       const required: Array<[string, number]> = [
-        ["track_width", spec.rules.trackWidth],
+        ["track_width", hardTrackWidth],
         ["clearance", spec.rules.clearance],
         ["via_diameter", spec.rules.viaSize],
         ["via_drill", spec.rules.viaDrill],
+        ["hole_to_hole", holeToHoleClearance],
+        ["pad_hole_to_hole", holeToHoleClearance],
       ]
       for (const [key, expected] of required) {
         const actual = values.get(key)
@@ -991,6 +1082,7 @@ function commonArgs(
   pushNumericArg(args, "--max-iterations", spec.maxIterations)
   pushNumericArg(args, "--max-probe-iterations", spec.maxProbeIterations)
   pushNumericArg(args, "--max-ripup", spec.maxRipup)
+  if (spec.ripupBlockerSelect) args.push("--ripup-blocker-select", spec.ripupBlockerSelect)
   pushNumericArg(args, "--heuristic-weight", spec.heuristicWeight)
   pushNumericArg(args, "--via-cost", spec.viaCost)
   pushNumericArg(args, "--via-proximity-cost", spec.viaProximityCost)
@@ -1000,6 +1092,12 @@ function commonArgs(
   args.push("--keep-input-copper", "--no-fix-drc-settings")
   args.push("--fab-overrides", resolve(spec.fabOverridesPath))
   return args
+}
+
+function appendRoutePyQualityArgs(args: string[], spec: KrtStageSpec) {
+  if (spec.ripupAbandonMetric) args.push("--ripup-abandon-metric", spec.ripupAbandonMetric)
+  pushNumericArg(args, "--neckdown-length", spec.neckdownLength)
+  pushNumericArg(args, "--neckdown-taper-length", spec.neckdownTaperLength)
 }
 
 function specialArgs(
@@ -1014,7 +1112,8 @@ function specialArgs(
   const nets = unique(pairs.flatMap((pair) => [pair.positive, pair.negative]))
   args.push("--nets", ...nets)
   args.push("--diff-pair-gap", numberArg(spec.rules.diffPairGap!))
-  args.push("--diff-pair-intra-match", "--no-gnd-vias")
+  if (spec.matchDifferentialPairLengths) args.push("--diff-pair-intra-match")
+  if (spec.suppressGroundReturnVias) args.push("--no-gnd-vias")
   for (const group of groups) args.push("--length-match-group", ...group.nets)
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
@@ -1037,6 +1136,7 @@ function matchedOrdinaryArgs(
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
   pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
+  appendRoutePyQualityArgs(args, spec)
   return args
 }
 
@@ -1054,11 +1154,18 @@ function remainingArgs(
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
   if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets)
   if (spec.collectStats) args.push("--stats")
+  appendRoutePyQualityArgs(args, spec)
   if (spec.powerNets?.length) {
     args.push("--power-nets", ...spec.powerNets.map((item) => item.net))
     args.push("--power-nets-widths", ...spec.powerNets.map((item) => numberArg(item.width)))
   }
   return args
+}
+
+function dynamicIterationsEnvironment(spec: KrtStageSpec): Record<string, string> {
+  return spec.dynamicIterations === undefined
+    ? {}
+    : { KICAD_DYNAMIC_ITERATIONS: spec.dynamicIterations ? "1" : "0" }
 }
 
 async function executeStage(
@@ -1166,6 +1273,7 @@ async function executeStage(
         KICAD_FINALIZE_RIP: "0",
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
+        ...dynamicIterationsEnvironment(spec),
         PYTHONDONTWRITEBYTECODE: "1",
         ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
         ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
@@ -1185,6 +1293,7 @@ async function executeStage(
         ...(spec.preserveNetOrder ? { KICAD_DIRECT_FIRST: "0" } : {}),
         KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
         KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
+        ...dynamicIterationsEnvironment(spec),
       },
       spec.signal,
     )

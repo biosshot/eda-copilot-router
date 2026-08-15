@@ -85,12 +85,13 @@ function profileCascade(policy: RoutingPolicy | undefined): RoutingProfile[] {
   const requested = Number.isFinite(candidateLimit)
     ? Math.max(1, Math.min(16, Math.trunc(candidateLimit)))
     : 1
-  if (requested === 1 || selected === "fast") return [selected]
-  const profiles: RoutingProfile[] = selected === "balanced"
-    ? ["fast", "balanced"]
-    : requested >= 3
-      ? ["fast", "balanced", selected]
-      : ["fast", selected]
+  if (requested === 1 || selected === "fast" || selected === "completion-first") return [selected]
+  // A portfolio is ordered from the best quality the caller requested toward
+  // progressively more permissive completion. Stop at the first zero-open
+  // candidate; never spend the first slot on a lower-quality route.
+  const profiles: RoutingProfile[] = selected === "quality-first"
+    ? ["quality-first", "balanced", "completion-first"]
+    : ["balanced", "completion-first"]
   return profiles.slice(0, requested)
 }
 

@@ -21,14 +21,14 @@ import {
   type RouterAssetPolicy,
 } from "./assets.js"
 
-export const KRT_MANAGED_VERSION = "0.20.2"
+export const KRT_MANAGED_VERSION = "0.20.4"
 
 const KRT_RELEASE = Object.freeze({
   backend: "krt",
   version: KRT_MANAGED_VERSION,
-  url: "https://github.com/drandyhaas/KiCadRoutingTools/releases/download/v0.20.2/KiCadRoutingTools-0.20.2.zip",
-  sha256: "f314ffc3ac2cbe90a0a559cb8d1adff12b9e136406c18e1e29100536f869efac",
-  sizeBytes: 5_838_700,
+  url: "https://github.com/drandyhaas/KiCadRoutingTools/releases/download/v0.20.4/KiCadRoutingTools-0.20.4.zip",
+  sha256: "a989af2fa719c3b8d0763cae73dc0be5738a4c3e73c64741a7baaf0c4730c60c",
+  sizeBytes: 5_924_458,
   archive: "zip" as const,
   rootDirectory: "plugins",
   markers: ["py_router/route.py", "py_router/route_diff.py", "requirements.txt", "LICENSE"],
@@ -109,14 +109,6 @@ export async function discoverKrtOverride(explicit?: string) {
       "The configured KRT development override does not contain py_router/route.py and route_diff.py.",
       { directory: candidate },
     )
-  }
-  const candidates = [
-    join(process.cwd(), "KiCadRoutingTools"),
-    join(process.cwd(), "vendor", "KiCadRoutingTools"),
-  ]
-  for (const value of candidates) {
-    const candidate = resolve(value)
-    if (await validKrtDirectory(candidate)) return candidate
   }
   return undefined
 }
@@ -246,13 +238,18 @@ async function probeKrtPython(
   krtDirectory: string,
   dependencies: readonly string[],
   signal?: AbortSignal,
+  verifyPatch = false,
 ) {
-  const entries = [...dependencies, join(krtDirectory, "rust_router")]
+  const entries = [
+    ...dependencies,
+    join(krtDirectory, "rust_router"),
+    ...(verifyPatch ? [join(krtDirectory, "py_router")] : []),
+  ]
   return runProcess(
     pythonPath,
     [
       "-c",
-      `import sys; sys.path[:0]=${JSON.stringify(entries)}; import numpy,scipy,shapely,grid_router; print('ok')`,
+      `import sys; sys.dont_write_bytecode=True; sys.path[:0]=${JSON.stringify(entries)}; import numpy,scipy,shapely,grid_router${verifyPatch ? ",copilot_router_krt_patch" : ""}; print('ok')`,
     ],
     pythonEnvironment([]),
     signal,
@@ -343,6 +340,7 @@ export async function prepareKrtRuntime(options: KrtRuntimeOptions = {}): Promis
     asset.directory,
     pythonPathEntries,
     options.assets?.signal,
+    true,
   )
   if (finalProbe.exitCode !== 0 || finalProbe.error) throw new RouterAssetError(
     "KRT_RUNTIME_INVALID",

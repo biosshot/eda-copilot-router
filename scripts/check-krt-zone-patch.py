@@ -22,6 +22,7 @@ sys.path[:0] = [
 import copilot_router_krt_patch as patch  # noqa: E402
 import obstacle_cache  # noqa: E402
 import obstacle_map  # noqa: E402
+import single_ended_routing  # noqa: E402
 
 
 class Config:
@@ -60,6 +61,71 @@ assert not len(patch._zone_obstacles(pcb, 2, Config())[0]), "wrong net inherited
 assert obstacle_map.build_base_obstacle_map.__module__ == "copilot_router_krt_patch"
 assert obstacle_cache.precompute_net_obstacles.__module__ == "copilot_router_krt_patch"
 
+
+class NeckdownConfig:
+    grid_step = 0.1
+    layers = ["F.Cu"]
+    track_width = 0.127
+    neckdown_length = 0.5
+    neckdown_taper_length = 0.5
+
+    @staticmethod
+    def get_track_width(_layer):
+        return 0.127
+
+    @staticmethod
+    def get_net_track_width(_net_id, _layer):
+        return 3.0
+
+
+class EmptyObstacles:
+    @staticmethod
+    def segment_blocked(*_args):
+        return False
+
+    @staticmethod
+    def is_blocked(*_args):
+        return False
+
+
+def neckdown_signature():
+    routed = patch._apply_local_neckdown_widths(
+        [single_ended_routing.Segment(
+            start_x=0.0,
+            start_y=0.0,
+            end_x=4.0,
+            end_y=0.0,
+            width=3.0,
+            layer="F.Cu",
+            net_id=1,
+        )],
+        NeckdownConfig(),
+        1,
+        EmptyObstacles(),
+        patch.GridCoord(0.1),
+        ["F.Cu"],
+        0.0,
+    )
+    return routed, [(
+        round(item.start_x, 9), round(item.start_y, 9),
+        round(item.end_x, 9), round(item.end_y, 9), round(item.width, 9),
+    ) for item in routed]
+
+
+neckdown, first_signature = neckdown_signature()
+_, second_signature = neckdown_signature()
+assert first_signature == second_signature, "neckdown taper is not deterministic"
+narrow = NeckdownConfig.track_width
+wide = NeckdownConfig.get_net_track_width(1, "F.Cu")
+taper = [item for item in neckdown if narrow + 1e-9 < item.width < wide - 1e-9]
+taper_length = sum(single_ended_routing._seg_length(item) for item in taper)
+assert abs(taper_length - NeckdownConfig.neckdown_taper_length) <= 1e-9, (
+    f"0.5 mm taper collapsed to {taper_length:.6f} mm"
+)
+assert 4 <= len(taper) <= 16, f"unexpected taper step count: {len(taper)}"
+assert all(narrow <= item.width <= wide for item in neckdown), "taper width overshoot"
+assert any(abs(item.width - wide) <= 1e-9 for item in neckdown), "wide run was not restored"
+
 parsed = patch._parse_obstacle_fills("""
 (kicad_pcb (version 20260206)
   (net 1 \"VCC\")
@@ -73,4 +139,7 @@ parsed = patch._parse_obstacle_fills("""
 assert ("VCC", "F.Cu") in parsed
 assert ("VCC", "B.Cu") not in parsed, "cuttable DSL plane became a fixed obstacle"
 
-print(f"KRT exact-filled-zone patch: {len(cells)} track cells, {len(vias)} via cells")
+print(
+    f"KRT exact-filled-zone patch: {len(cells)} track cells, {len(vias)} via cells; "
+    f"neckdown taper {taper_length:.3f} mm in {len(taper)} steps"
+)

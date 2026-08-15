@@ -26,14 +26,45 @@ assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
 assert.equal(typeof krt.createKrtBackend, "function")
 assert.equal(typeof krt.prepareKrtRuntime, "function")
-assert.deepEqual(krt.KRT_QUALITY_PROFILES.fast, {
-  maxIterations: 120_000,
-  maxProbeIterations: 8_000,
-  maxRipup: 2,
-  heuristicWeight: 1.8,
+assert.deepEqual(krt.KRT_QUALITY_PROFILES, {
+  fast: {
+    gridStep: 0.1,
+    maxIterations: 120_000, maxProbeIterations: 5_000, maxRipup: 2, heuristicWeight: 2,
+    viaCost: 50, viaProximityCost: 10, turnCost: 1_000, directionPreferenceCost: 250,
+    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "stranded",
+    neckdownLength: 0.5, neckdownTaperLength: 0.5,
+  },
+  balanced: {
+    gridStep: 0.1,
+    maxIterations: 300_000, maxProbeIterations: 5_000, maxRipup: 4, heuristicWeight: 1.8,
+    viaCost: 50, viaProximityCost: 10, turnCost: 1_000, directionPreferenceCost: 250,
+    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "complete-nets",
+    neckdownLength: 0.5, neckdownTaperLength: 0.5,
+  },
+  "quality-first": {
+    gridStep: 0.05,
+    maxIterations: 600_000, maxProbeIterations: 10_000, maxRipup: 5, heuristicWeight: 1.3,
+    viaCost: 80, viaProximityCost: 16, turnCost: 1_500, directionPreferenceCost: 400,
+    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "complete-nets",
+    neckdownLength: 0.5, neckdownTaperLength: 0.5,
+  },
+  "completion-first": {
+    gridStep: 0.05,
+    maxIterations: 750_000, maxProbeIterations: 10_000, maxRipup: 5, heuristicWeight: 1.9,
+    viaCost: 10, viaProximityCost: 0, turnCost: 250, directionPreferenceCost: 0,
+    dynamicIterations: true, ripupBlockerSelect: "mincut", ripupAbandonMetric: "weighted-probe",
+    neckdownLength: 0.5, neckdownTaperLength: 0.5,
+  },
 })
+assert.deepEqual(krt.KRT_RIPUP_BLOCKER_SELECT_CHOICES, [
+  "count", "near-target", "bidir", "mincut", "cost",
+])
+assert.deepEqual(krt.KRT_RIPUP_ABANDON_METRIC_CHOICES, [
+  "stranded", "total-pads", "complete-nets", "congestion",
+  "history", "weighted", "probe", "weighted-probe",
+])
 assert.equal(typeof freerouting.prepareFreeroutingRuntime, "function")
-assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.2\.zip$/)
+assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.4\.zip$/)
 assert.deepEqual(krt.KRT_REQUIRED_NECKDOWN_ENVIRONMENT, {
   KICAD_IMPEDANCE_NECKDOWN: "1",
 }, "KRT impedance neck-down must never be disabled by the adapter")
@@ -113,6 +144,29 @@ const specialRules = dsl.compileRoutingRules(board, specialProgram)
 assert.deepEqual(specialRules.effective.differentialPairs, [{
   id: "usb", positive: "USB_DP", negative: "USB_DM",
 }])
+assert.equal(krt.selectKrtGridStep({ board, program: specialProgram, rules: specialRules.effective }, 0.1), 0.1)
+
+const finePitchProgram = dsl.compileRoutingDsl(`
+  signalNet("VCC", { minTrackWidthMm: 0.127 })
+  runRouting()
+`)
+const finePitchRules = dsl.compileRoutingRules(board, finePitchProgram)
+assert.equal(
+  krt.selectKrtGridStep({ board, program: finePitchProgram, rules: finePitchRules.effective }, 0.1),
+  0.1,
+  "the universal 0.127 mm neck-down floor must not slow routing around ordinary large pads",
+)
+const finePitchBoard = {
+  ...board,
+  pads: board.pads.map((pad, index) => index === 0
+    ? { ...pad, shape: { kind: "rect", widthMm: 0.28, heightMm: 0.5 } }
+    : pad),
+}
+assert.equal(
+  krt.selectKrtGridStep({ board: finePitchBoard, program: finePitchProgram, rules: finePitchRules.effective }, 0.1),
+  0.05,
+  "fast/balanced must automatically use the fine grid for a physical fine-pitch terminal",
+)
 
 const applyResult = await api.run({
   board,
@@ -300,7 +354,7 @@ const cascadeBackend = {
   ...backend,
   async route(request) {
     cascadeProfiles.push(request.policy.profile)
-    const complete = request.policy.profile === "balanced"
+    const complete = request.policy.profile === "completion-first"
     return {
       status: complete ? "complete" : "partial",
       copper: {
@@ -317,13 +371,26 @@ const cascadeResult = await api.run({
   board, dsl: "runRouting()", backend: cascadeBackend,
   policy: { profile: "balanced", maxCandidates: 2 },
 })
-assert.deepEqual(cascadeProfiles, ["fast", "balanced"])
+assert.deepEqual(cascadeProfiles, ["balanced", "completion-first"])
 assert.equal(cascadeResult.status, "complete")
 assert.equal(cascadeResult.copper.tracks.length, 1)
 assert.equal(cascadeResult.metrics.candidateCount, 2)
 assert.ok(cascadeResult.diagnostics.some((item) => (
-  item.code === "ROUTING_PORTFOLIO_SELECTED" && item.details.selectedProfile === "balanced"
+  item.code === "ROUTING_PORTFOLIO_SELECTED" && item.details.selectedProfile === "completion-first"
 )))
+
+const qualityCascadeProfiles = []
+const qualityCascadeBackend = {
+  ...backend,
+  async route(request) {
+    qualityCascadeProfiles.push(request.policy.profile)
+    return { status: "partial", copper: emptyCopper, metrics: { openNetCount: 1 } }
+  },
+}
+await api.run({
+  board, dsl: `quality({ profile: "quality-first", maxCandidates: 3 }); runRouting()`, backend: qualityCascadeBackend,
+})
+assert.deepEqual(qualityCascadeProfiles, ["quality-first", "balanced", "completion-first"])
 
 let earlyStopCalls = 0
 const earlyStopBackend = {

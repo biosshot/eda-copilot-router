@@ -25,7 +25,13 @@ import {
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
 
-export { KRT_REQUIRED_NECKDOWN_ENVIRONMENT } from "./krt-adapter.js"
+export {
+  KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
+  KRT_RIPUP_ABANDON_METRIC_CHOICES,
+  KRT_RIPUP_BLOCKER_SELECT_CHOICES,
+  type KrtRipupAbandonMetric,
+  type KrtRipupBlockerSelect,
+} from "./krt-adapter.js"
 
 export {
   KRT_MANAGED_VERSION,
@@ -106,12 +112,38 @@ function orderedScopeNets(request: BackendRouteRequest) {
   return request.program.onlyNets.filter((net) => known.has(net))
 }
 
+function normalizedLayerSet(layers: readonly string[]) {
+  return [...new Set(layers)].sort()
+}
+
+function routeLayerDiagnostics(request: BackendRouteRequest, nets: readonly string[]) {
+  const constrained = nets.flatMap((net) => {
+    const layers = ruleFor(request, net).allowedLayers
+    return layers?.length ? [{ net, layers: normalizedLayerSet(layers) }] : []
+  })
+  const sets = new Map<string, { layers: readonly string[]; nets: string[] }>()
+  for (const item of constrained) {
+    const key = item.layers.join("\u0000")
+    const current = sets.get(key)
+    if (current) current.nets.push(item.net)
+    else sets.set(key, { layers: item.layers, nets: [item.net] })
+  }
+  return sets.size <= 1 ? [] : [diagnostic(
+    "KRT_PER_NET_LAYER_SCOPE_UNSUPPORTED",
+    "error",
+    "One KRT process cannot preserve incompatible per-net allowedLayers; split the routing scope into compatible calls.",
+    { groups: [...sets.values()] },
+  )]
+}
+
 function routeLayersFor(request: BackendRouteRequest, nets: readonly string[]) {
   const constrained = nets
     .map((net) => ruleFor(request, net).allowedLayers)
-    .filter((layers): layers is readonly string[] => Boolean(layers?.length))
-  if (constrained.length !== nets.length) return request.board.layers.map((item) => item.name)
-  const allowed = new Set(constrained.flat())
+    .find((layers): layers is readonly string[] => Boolean(layers?.length))
+  if (!constrained) return request.board.layers.map((item) => item.name)
+  const allowed = new Set(constrained)
+  // Unconstrained nets in this call inherit the one explicit safe subset. This
+  // may reduce routability, but it can never violate another net's layer rule.
   return request.board.layers.map((item) => item.name).filter((layer) => allowed.has(layer))
 }
 
@@ -119,7 +151,7 @@ function sameNumber(values: readonly number[], epsilon = 1e-9) {
   return !values.length || values.every((value) => Math.abs(value - values[0]) <= epsilon)
 }
 
-function specialRules(request: BackendRouteRequest): { rules?: KrtNumericRules; diagnostics: RoutingDiagnostic[] } {
+function specialRules(request: BackendRouteRequest, gridStep = 0.05): { rules?: KrtNumericRules; diagnostics: RoutingDiagnostic[] } {
   const specialNets = new Set([
     ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
     ...request.program.matchedGroups.flatMap((group) => group.nets),
@@ -143,37 +175,77 @@ function specialRules(request: BackendRouteRequest): { rules?: KrtNumericRules; 
       { widths, clearances, viaSizes, viaDrills, gaps },
     )],
   }
-  const tolerance = request.program.matchedGroups.length
-    ? Math.min(...request.program.matchedGroups.map((group) => (
-      request.rules.matchedGroups?.find((item) => item.id === group.id)?.toleranceMm ?? 0.1
-    )))
-    : Math.min(...values.map((item) => item.differential?.maxSkewMm ?? 0.1))
+  const pairTolerances = request.program.differentialPairs.map((pair) => {
+    const positive = ruleFor(request, pair.positive).differential?.maxSkewMm
+    const negative = ruleFor(request, pair.negative).differential?.maxSkewMm
+    return positive === undefined && negative === undefined
+      ? undefined
+      : Math.min(positive ?? Number.POSITIVE_INFINITY, negative ?? Number.POSITIVE_INFINITY)
+  })
+  const diagnostics: RoutingDiagnostic[] = []
+  if (pairTolerances.some((value) => value !== undefined)
+    && pairTolerances.some((value) => value === undefined)) diagnostics.push(diagnostic(
+    "KRT_MIXED_DIFF_SKEW_POLICY_UNSUPPORTED",
+    "error",
+    "One KRT differential invocation cannot match only a subset of its pairs; split constrained and unconstrained pairs.",
+  ))
+  const tolerances = [
+    ...request.program.matchedGroups.flatMap((group) => {
+      const value = request.rules.matchedGroups?.find((item) => item.id === group.id)?.toleranceMm
+      return value === undefined ? [] : [value]
+    }),
+    ...pairTolerances.flatMap((value) => value === undefined ? [] : [value]),
+  ]
+  if (!sameNumber(tolerances)) diagnostics.push(diagnostic(
+    "KRT_SPECIAL_LENGTH_TOLERANCE_CONFLICT",
+    "error",
+    "One KRT special invocation cannot preserve different length-match tolerances; split those groups.",
+    { tolerances },
+  ))
+  const tolerance = tolerances.length ? Math.min(...tolerances) : undefined
+  const trackWidth = Math.max(HARD_MIN_TRACK_WIDTH_MM, widths[0])
+  const meander = request.policy?.meander
+  if (meander?.spacingMm !== undefined && meander.spacingMm + 1e-9 < trackWidth + clearances[0]) diagnostics.push(diagnostic(
+    "KRT_MEANDER_SPACING_BELOW_CLEARANCE",
+    "error",
+    "Meander spacingMm is centre-to-centre spacing and must include one routed width plus clearance.",
+    { spacingMm: meander.spacingMm, minimumMm: trackWidth + clearances[0], trackWidth, clearance: clearances[0] },
+  ))
   return {
-    diagnostics: [],
+    diagnostics,
     rules: {
-      trackWidth: Math.max(HARD_MIN_TRACK_WIDTH_MM, widths[0]),
+      trackWidth,
+      hardTrackWidth: Math.max(
+        HARD_MIN_TRACK_WIDTH_MM,
+        Math.min(...values.map((item) => item.minTrackWidthMm)),
+      ),
       clearance: clearances[0],
       viaSize: viaSizes[0],
       viaDrill: viaDrills[0],
       diffPairGap: gaps[0] ?? clearances[0],
-      gridStep: 0.05,
-      lengthMatchTolerance: tolerance,
-      meanderAmplitude: request.policy?.meander?.amplitudeMm ?? 0.2,
-      meanderSpacing: request.policy?.meander?.spacingMm ?? Math.max(widths[0] * 2, 0.2),
+      gridStep,
+      holeToHoleClearance: Math.max(...values.map((item) => item.holeToHoleClearanceMm ?? item.clearanceMm)),
+      ...(tolerance === undefined ? {} : { lengthMatchTolerance: tolerance }),
+      ...(meander?.amplitudeMm === undefined ? {} : { meanderAmplitude: meander.amplitudeMm }),
+      ...(meander?.spacingMm === undefined ? {} : { meanderSpacing: meander.spacingMm / trackWidth }),
     },
   }
 }
 
-function minimumRules(values: readonly RoutingRuleValues[]): KrtNumericRules {
+function minimumRules(values: readonly RoutingRuleValues[], gridStep = 0.05): KrtNumericRules {
   const source = values.length ? values : []
-  const first = source[0]
+  const hardTrackWidth = Math.max(HARD_MIN_TRACK_WIDTH_MM, Math.min(...source.map((item) => item.minTrackWidthMm)))
   return {
-    trackWidth: Math.max(HARD_MIN_TRACK_WIDTH_MM, Math.min(...source.map((item) => item.minTrackWidthMm))),
+    trackWidth: hardTrackWidth,
+    hardTrackWidth,
     clearance: Math.min(...source.map((item) => item.clearanceMm)),
-    viaSize: Math.min(...source.map((item) => item.via.minDiameterMm)),
-    viaDrill: Math.min(...source.map((item) => item.via.minDrillMm)),
-    gridStep: 0.05,
-    boardEdgeClearance: first?.edgeClearanceMm,
+    // route.py accepts one global via geometry. Use the strictest minima so a
+    // permissive class cannot make another class fail native DRC.
+    viaSize: Math.max(...source.map((item) => item.via.minDiameterMm)),
+    viaDrill: Math.max(...source.map((item) => item.via.minDrillMm)),
+    gridStep,
+    holeToHoleClearance: Math.max(...source.map((item) => item.holeToHoleClearanceMm ?? item.clearanceMm)),
+    boardEdgeClearance: Math.max(...source.map((item) => item.edgeClearanceMm)),
   }
 }
 
@@ -196,6 +268,12 @@ function routedCopperRuleDiagnostics(request: BackendRouteRequest, copper: Routi
       }]
       : []
   })
+  const forbiddenLayers = copper.tracks.flatMap((track) => {
+    const allowed = ruleFor(request, track.net).allowedLayers
+    return allowed?.length && !allowed.includes(track.layer)
+      ? [{ net: track.net, actualLayer: track.layer, allowedLayers: allowed }]
+      : []
+  })
   const diagnostics: RoutingDiagnostic[] = []
   if (narrowTracks.length) diagnostics.push(diagnostic(
     "KRT_TRACK_WIDTH_BELOW_HARD_MINIMUM",
@@ -209,14 +287,21 @@ function routedCopperRuleDiagnostics(request: BackendRouteRequest, copper: Routi
     `KRT produced ${undersizedVias.length} via(s) below the compiled hard minimum; the routed delta was rejected.`,
     { samples: undersizedVias.slice(0, 16) },
   ))
+  if (forbiddenLayers.length) diagnostics.push(diagnostic(
+    "KRT_TRACK_ON_FORBIDDEN_LAYER",
+    "error",
+    `KRT produced ${forbiddenLayers.length} track segment(s) outside their compiled allowedLayers; the routed delta was rejected.`,
+    { samples: forbiddenLayers.slice(0, 16) },
+  ))
   return diagnostics
 }
 
 async function writeFabOverrides(path: string, values: KrtNumericRules) {
   const annular = Math.max((values.viaSize - values.viaDrill) / 2, 0.001)
-  const hole = Math.max(values.clearance, 0.001)
+  const hardTrackWidth = Math.max(values.hardTrackWidth ?? values.trackWidth, HARD_MIN_TRACK_WIDTH_MM)
+  const hole = Math.max(values.holeToHoleClearance ?? values.clearance, 0.001)
   await writeFile(path, [
-    `track_width = ${values.trackWidth}`,
+    `track_width = ${hardTrackWidth}`,
     `clearance = ${values.clearance}`,
     `via_diameter = ${values.viaSize}`,
     `via_drill = ${values.viaDrill}`,
@@ -240,28 +325,68 @@ function fullyPreconnectedNets(request: BackendRouteRequest) {
 
 export const KRT_QUALITY_PROFILES = Object.freeze({
   fast: Object.freeze({
+    gridStep: 0.1,
     maxIterations: 120_000,
-    maxProbeIterations: 8_000,
+    maxProbeIterations: 5_000,
     maxRipup: 2,
-    heuristicWeight: 1.8,
+    heuristicWeight: 2,
+    viaCost: 50,
+    viaProximityCost: 10,
+    turnCost: 1_000,
+    directionPreferenceCost: 250,
+    dynamicIterations: false,
+    ripupBlockerSelect: "cost" as const,
+    ripupAbandonMetric: "stranded" as const,
+    neckdownLength: 0.5,
+    neckdownTaperLength: 0.5,
   }),
   balanced: Object.freeze({
-    maxIterations: 350_000,
-    maxProbeIterations: 20_000,
-    maxRipup: 5,
-    heuristicWeight: 1.6,
+    gridStep: 0.1,
+    maxIterations: 300_000,
+    maxProbeIterations: 5_000,
+    maxRipup: 4,
+    heuristicWeight: 1.8,
+    viaCost: 50,
+    viaProximityCost: 10,
+    turnCost: 1_000,
+    directionPreferenceCost: 250,
+    dynamicIterations: false,
+    ripupBlockerSelect: "cost" as const,
+    ripupAbandonMetric: "complete-nets" as const,
+    neckdownLength: 0.5,
+    neckdownTaperLength: 0.5,
   }),
   "quality-first": Object.freeze({
-    maxIterations: 1_000_000,
-    maxProbeIterations: 50_000,
+    gridStep: 0.05,
+    maxIterations: 600_000,
+    maxProbeIterations: 10_000,
     maxRipup: 5,
-    heuristicWeight: 1.2,
+    heuristicWeight: 1.3,
+    viaCost: 80,
+    viaProximityCost: 16,
+    turnCost: 1_500,
+    directionPreferenceCost: 400,
+    dynamicIterations: false,
+    ripupBlockerSelect: "cost" as const,
+    ripupAbandonMetric: "complete-nets" as const,
+    neckdownLength: 0.5,
+    neckdownTaperLength: 0.5,
   }),
   "completion-first": Object.freeze({
-    maxIterations: 1_500_000,
-    maxProbeIterations: 100_000,
-    maxRipup: 12,
-    heuristicWeight: 1.5,
+    gridStep: 0.05,
+    maxIterations: 750_000,
+    maxProbeIterations: 10_000,
+    maxRipup: 5,
+    heuristicWeight: 1.9,
+    viaCost: 10,
+    viaProximityCost: 0,
+    turnCost: 250,
+    directionPreferenceCost: 0,
+    dynamicIterations: true,
+    ripupBlockerSelect: "mincut" as const,
+    ripupAbandonMetric: "weighted-probe" as const,
+    neckdownLength: 0.5,
+    neckdownTaperLength: 0.5,
   }),
 } as const)
 
@@ -272,6 +397,70 @@ function routeQuality(request: BackendRouteRequest) {
     case "completion-first": return KRT_QUALITY_PROFILES["completion-first"]
     default: return KRT_QUALITY_PROFILES.balanced
   }
+}
+
+const KRT_FINE_PITCH_NEIGHBOR_DISTANCE_MM = 0.65
+const KRT_FINE_PITCH_MIN_PAD_DIMENSION_MM = 0.35
+
+function padMinimumDimensionMm(pad: BackendRouteRequest["board"]["pads"][number]) {
+  switch (pad.shape.kind) {
+    case "circle": return pad.shape.diameterMm
+    case "rect":
+    case "round-rect":
+    case "oval": return Math.min(pad.shape.widthMm, pad.shape.heightMm)
+    case "polygon": {
+      const points = pad.shape.polygon.outer
+      if (!points.length) return Number.POSITIVE_INFINITY
+      const xs = points.map((point) => point.x)
+      const ys = points.map((point) => point.y)
+      return Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+    }
+  }
+}
+
+/**
+ * Keep the common fast/balanced case on KRT's general-purpose 0.1 mm grid,
+ * but do not quantize away a dense-pad escape. These thresholds deliberately
+ * match KRT's own fine-tap detector. The universal 0.127 mm neck-down floor is
+ * not itself a fine-grid trigger: large power pads still use the faster grid.
+ */
+export function selectKrtGridStep(
+  request: BackendRouteRequest,
+  requestedGridStep: number,
+  routeNets: readonly string[] = orderedScopeNets(request),
+) {
+  if (requestedGridStep <= 0.05 + 1e-9) return requestedGridStep
+  const scope = new Set(routeNets.filter((net) => (
+    net.toUpperCase() !== "GND" && !request.program.ignoreNets.includes(net)
+  )))
+  const fineNominalFeature = [...scope].some((net) => {
+    const values = ruleFor(request, net)
+    return [
+      values.preferredTrackWidthMm,
+      ...(values.differential ? [values.differential.trackWidthMm, values.differential.gapMm] : []),
+    ].some((value) => value + 1e-9 < requestedGridStep * 2)
+  })
+  const terminals = request.board.pads.filter((pad) => pad.net && scope.has(pad.net))
+  const finePad = terminals.some((pad) => (
+    padMinimumDimensionMm(pad) + 1e-9 < KRT_FINE_PITCH_MIN_PAD_DIMENSION_MM
+  ))
+  const padsByComponent = new Map<string, typeof request.board.pads>()
+  for (const pad of request.board.pads) {
+    const current = padsByComponent.get(pad.component) ?? []
+    padsByComponent.set(pad.component, [...current, pad])
+  }
+  const closeNeighbor = terminals.some((pad) => (
+    (padsByComponent.get(pad.component) ?? []).some((other) => (
+      other !== pad
+      && other.number !== pad.number
+      && Math.hypot(other.at.x - pad.at.x, other.at.y - pad.at.y) > 1e-9
+      && Math.hypot(other.at.x - pad.at.x, other.at.y - pad.at.y)
+        <= KRT_FINE_PITCH_NEIGHBOR_DISTANCE_MM + 0.001
+    ))
+  ))
+  return fineNominalFeature || finePad || closeNeighbor
+    ? Math.min(requestedGridStep, 0.05)
+    : requestedGridStep
 }
 
 function recordArray(value: unknown) {
@@ -353,6 +542,21 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         "KRT_LAYER_LIMIT", "error", "KRT supports at most 32 copper layers.",
       ))
       diagnostics.push(...specialRules(request).diagnostics)
+      const specialNets = [
+        ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
+        ...request.program.matchedGroups.flatMap((group) => group.nets),
+      ]
+      const special = new Set(specialNets)
+      const preconnected = fullyPreconnectedNets(request)
+      const remaining = orderedScopeNets(request).filter((net) => (
+        net.toUpperCase() !== "GND"
+        && !special.has(net)
+        && !request.program.ignoreNets.includes(net)
+        && !preconnected.has(net)
+        && request.board.pads.filter((pad) => pad.net === net).length >= 2
+      ))
+      diagnostics.push(...routeLayerDiagnostics(request, specialNets))
+      diagnostics.push(...routeLayerDiagnostics(request, remaining))
       return diagnostics
     },
     async route(request): Promise<BackendRouteResult> {
@@ -379,11 +583,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         if (diagnostics.some((item) => item.severity === "error")) return {
           status: "error", copper: EMPTY_COPPER, diagnostics,
         }
-        const special = specialRules(request)
-        diagnostics.push(...special.diagnostics)
-        if (special.diagnostics.some((item) => item.severity === "error")) return {
-          status: "error", copper: EMPTY_COPPER, diagnostics,
-        }
+        const quality = routeQuality(request)
+        const { gridStep: requestedGridStep, ...stageQuality } = quality
         const allSpecial = new Set([
           ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
           ...request.program.matchedGroups.flatMap((group) => group.nets),
@@ -397,21 +598,37 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net) && !preconnected.has(net)
           && request.board.pads.filter((pad) => pad.net === net).length >= 2
         ))
+        const specialGridStep = selectKrtGridStep(request, requestedGridStep, [...allSpecial])
+        const remainingGridStep = selectKrtGridStep(request, requestedGridStep, remainingNets)
+        const special = specialRules(request, specialGridStep)
+        diagnostics.push(...special.diagnostics)
+        if (special.diagnostics.some((item) => item.severity === "error")) return {
+          status: "error", copper: EMPTY_COPPER, diagnostics,
+        }
         const remainingValues = remainingNets.map((net) => ruleFor(request, net))
-        const remainingRules = minimumRules(remainingValues.length ? remainingValues : [request.rules.default])
+        const remainingRules = minimumRules(
+          remainingValues.length ? remainingValues : [request.rules.default],
+          remainingGridStep,
+        )
         const specialFab = join(root, "special-fab.txt")
         const remainingFab = join(root, "remaining-fab.txt")
         if (special.rules) await writeFabOverrides(specialFab, special.rules)
         await writeFabOverrides(remainingFab, remainingRules)
-        const routedLayers = routeLayersFor(request, [...allSpecial, ...remainingNets])
         const common: Omit<KrtStageSpec, "rules" | "fabOverridesPath"> = {
           pythonPath: managed.pythonPath,
           pythonPathEntries: managed.pythonPathEntries,
           krtDirectory,
-          layers: routedLayers,
+          layers: request.board.layers.map((item) => item.name),
           diffPairs: request.program.differentialPairs.map((pair) => [pair.positive, pair.negative] as const),
           matchedGroups: request.program.matchedGroups.map((group) => group.nets),
           remainingNets,
+          matchDifferentialPairLengths: request.program.differentialPairs.some((pair) => (
+            ruleFor(request, pair.positive).differential?.maxSkewMm !== undefined
+            || ruleFor(request, pair.negative).differential?.maxSkewMm !== undefined
+          )),
+          // A viaFence is generated only after its source routing succeeds, so
+          // a planned fence cannot safely replace KRT's native return vias.
+          suppressGroundReturnVias: false,
           ordering: request.program.onlyNets ? "original" : "mps",
           preserveNetOrder: Boolean(request.program.onlyNets),
           // A dense pad escape may need the fixed 0.127 mm hard floor even
@@ -419,9 +636,9 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           // This is a completion mechanism, never a reason to weaken via or
           // clearance rules.
           enableTerminalEscalation: true,
-          ...routeQuality(request),
-          collectStats: true,
-          debugMemory: true,
+          ...stageQuality,
+          collectStats: false,
+          debugMemory: false,
           exactFilledZoneObstacles: true,
           signal: request.signal,
         }
@@ -431,6 +648,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           const output = join(root, "02-special.kicad_pcb")
           specialResult = await runKrtSpecial(current, output, {
             ...common,
+            layers: routeLayersFor(request, [...allSpecial]),
             rules: special.rules,
             fabOverridesPath: specialFab,
             ordinaryMatchedRules: special.rules,
@@ -448,6 +666,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           ])
           remainingResult = await runKrtRemaining(current, output, {
             ...common,
+            layers: routeLayersFor(request, remainingNets),
             rules: remainingRules,
             fabOverridesPath: remainingFab,
             powerNets: remainingNets.filter((net) => preferredWidthNets.has(net)).map((net) => ({
