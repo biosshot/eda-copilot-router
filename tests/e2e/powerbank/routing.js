@@ -66,7 +66,12 @@ plane({
   net: "GND",
   layers: "OUTER",
   region: board(),
-  stitching: false,
+  stitching: {
+    gridMm: 5,
+    maxVisibleViaDistanceMm: 10,
+    via: "drc-min",
+    viaInPad: true,
+  },
 })
 
 runAll()
