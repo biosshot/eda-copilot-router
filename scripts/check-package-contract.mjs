@@ -207,7 +207,7 @@ const denseFanout = krt.planKrtQfnFanout({
 }, ["VCC"], 0.05)
 assert.equal(denseFanout.length, 1)
 assert.ok(!denseFanout[0].padNumbers.includes("1"), "pad-level fanout opt-out must be exact")
-assert.ok(!denseFanout[0].padNumbers.includes("2"), "polygon-preconnected pads must not be fanned again")
+assert.ok(denseFanout[0].padNumbers.includes("2"), "polygon connectivity must not suppress a useful package escape")
 assert.equal(denseFanout[0].rules.trackWidth, 0.2, "fanout uses the compiled hard neck-down width")
 const disabledDenseProgram = dsl.compileRoutingDsl(`disableFanout(component("UQ")); runRouting()`)
 const disabledDenseRules = dsl.compileRoutingRules(denseBoard, disabledDenseProgram)

@@ -118,6 +118,21 @@ function orderedScopeNets(request: BackendRouteRequest) {
   return request.program.onlyNets.filter((net) => known.has(net))
 }
 
+function routableScopeNets(request: BackendRouteRequest) {
+  return orderedScopeNets(request).filter((net) => (
+    net.toUpperCase() !== "GND"
+    && !request.program.ignoreNets.includes(net)
+    && request.board.pads.filter((pad) => pad.net === net).length >= 2
+  ))
+}
+
+type KrtInternalRouteRequest = BackendRouteRequest & Readonly<{
+  /** Full original scope used only by the first automatic component fanout pass. */
+  krtAutomaticFanoutNets?: readonly string[]
+  /** A preceding KRT stage already performed component-wide fanout. */
+  krtSkipAutomaticFanout?: boolean
+}>
+
 function normalizedLayerSet(layers: readonly string[]) {
   return [...new Set(layers)].sort()
 }
@@ -532,8 +547,6 @@ export function planKrtQfnFanout(
     .filter((target) => target.kind === "component").map((target) => target.component))
   const excludedPads = new Set((request.program.fanoutExclusions ?? [])
     .filter((target) => target.kind === "pad").map((target) => `${target.component}\u0000${target.pad}`))
-  const preconnected = new Set((request.connectivity?.preconnectedPadGroups ?? [])
-    .flatMap((group) => group.pads.map((pad) => `${pad.component}\u0000${pad.pad}`)))
   const output: KrtQfnFanoutPlan[] = []
 
   for (const component of request.board.components) {
@@ -549,7 +562,6 @@ export function planKrtQfnFanout(
       && scope.has(pad.net)
       && (logicalPadCounts.get(pad.net) ?? 0) >= 2
       && !excludedPads.has(`${pad.component}\u0000${pad.number}`)
-      && !preconnected.has(`${pad.component}\u0000${pad.number}`)
       && !padAlreadyHasRoutedCopper(request, pad)
       && (!ruleFor(request, pad.net).allowedLayers?.length
         || ruleFor(request, pad.net).allowedLayers!.includes(mountedLayer))
@@ -756,14 +768,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
           ...request.program.matchedGroups.flatMap((group) => group.nets),
         ])
-        const inScope = (net: string) => (
-          (!request.program.onlyNets || request.program.onlyNets.includes(net))
-          && !request.program.ignoreNets.includes(net)
-        )
-        const remainingNets = orderedScopeNets(request).filter((net) => (
-          net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net)
-          && request.board.pads.filter((pad) => pad.net === net).length >= 2
-        ))
+        const routeScopeNets = routableScopeNets(request)
+        const remainingNets = routeScopeNets.filter((net) => !allSpecial.has(net))
         const specialGridStep = selectKrtGridStep(request, requestedGridStep, [...allSpecial])
         const remainingGridStep = selectKrtGridStep(request, requestedGridStep, remainingNets)
         const special = specialRules(request, specialGridStep)
@@ -812,7 +818,12 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         }
         let current = prepared.inputBoard
         const fanoutResults: KrtProcessResult[] = []
-        const fanoutPlans = planKrtQfnFanout(request, remainingNets, remainingGridStep)
+        const internalRequest = request as KrtInternalRouteRequest
+        const fanoutNets = internalRequest.krtAutomaticFanoutNets ?? routeScopeNets
+        const fanoutGridStep = selectKrtGridStep(request, requestedGridStep, fanoutNets)
+        const fanoutPlans = internalRequest.krtSkipAutomaticFanout
+          ? []
+          : planKrtQfnFanout(request, fanoutNets, fanoutGridStep)
         if (fanoutPlans.length) diagnostics.push(diagnostic(
           "KRT_AUTOMATIC_FANOUT_PLANNED",
           "info",
@@ -965,8 +976,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     ...adapter,
     routeSpecial(request) {
       const members = specialMembers(request)
-      return adapter.route({
+      const scoped: KrtInternalRouteRequest = {
         ...request,
+        // QFN/QFP fanout is component-wide and must happen before any power,
+        // differential, or ordinary maze route can occupy the escape ring.
+        krtAutomaticFanoutNets: routableScopeNets(request),
         program: {
           ...request.program,
           signalNets: request.program.signalNets.filter((item) => members.includes(item.net)),
@@ -974,18 +988,21 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           onlyNets: members,
           ignoreNets: request.board.nets.map((item) => item.name).filter((net) => !members.includes(net)),
         },
-      })
+      }
+      return adapter.route(scoped)
     },
     routeRemaining(request) {
       const members = specialMembers(request)
-      return adapter.route({
+      const scoped: KrtInternalRouteRequest = {
         ...request,
+        krtSkipAutomaticFanout: true,
         program: {
           ...request.program,
           differentialPairs: [], matchedGroups: [], viaFences: [],
           ignoreNets: [...new Set([...request.program.ignoreNets, ...members])],
         },
-      })
+      }
+      return adapter.route(scoped)
     },
   }
 }

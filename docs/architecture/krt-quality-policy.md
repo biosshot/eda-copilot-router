@@ -82,9 +82,10 @@ second escape geometry engine. It runs inside the KRT backend before maze
 routing, uses compiled per-board geometry, and preserves accepted stubs as
 locked input copper. KRT's own `qfn_fanout.py` post-fanout DRC summary is
 retained; there is no separate native fanout checkpoint. Native DRC remains the
-final board-level authority. Differential/matched members use KRT's coupled
-routing path rather than independent QFN stubs; ordinary and power-pad escapes
-are eligible for the automatic pass.
+final board-level authority. Fanout is attempted once per dense component over
+the complete routing scope before power, differential, matched, or ordinary
+maze routing. The generated stubs remain independent local escapes; coupled
+members are still completed by KRT's differential routing path.
 
 The DSL is opt-out rather than placement-prescriptive:
 
@@ -95,7 +96,9 @@ disableFanout(component("U3"), pad("U1", 14), pad("U1", 15))
 A component target suppresses all automatic fanout on that component. A pad
 target suppresses every physical pad sharing that logical component/pad key.
 Neither form disables normal routing. Pads already connected by generated
-polygon copper, or already touching routed copper, are not fanned again.
+polygon copper remain eligible: polygon connectivity collapses later maze
+terminals but must not suppress a useful escape from a dense package. Pads
+already touching routed track/via copper are not fanned again.
 
 The candidate cascade degrades toward completion, not away from it:
 
