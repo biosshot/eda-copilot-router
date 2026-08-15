@@ -260,6 +260,7 @@ const routed = await api.run({ board, dsl: "runAll()", backend })
 assert.equal(routed.status, "complete")
 assert.equal(routed.operation, "all")
 assert.equal(routed.rules.applyRequested, true)
+assert.equal(routed.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
 
@@ -607,6 +608,7 @@ const malformed = await api.run({
 })
 assert.equal(malformed.status, "error")
 assert.ok(malformed.diagnostics.some((item) => item.code === "ROUTING_TRACK_INVALID"))
+assert.equal(malformed.copper.tracks.length, 1, "post-validation must retain the diagnostic candidate")
 
 const doctor = spawnSync(process.execPath, [join(distRoot, "cli.js"), "doctor"], { cwd: root, encoding: "utf8" })
 assert.equal(doctor.status, 0, doctor.stderr)

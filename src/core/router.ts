@@ -435,6 +435,10 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     if (!copperValidation.ok) return {
       status: "error", operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      // Semantic/structural validation annotates a candidate; it must not
+      // silently erase backend geometry. The host/native verifier decides
+      // whether an explicitly invalid diagnostic artifact can be applied.
+      copper: resultCopper,
       diagnostics,
       metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
       requiresNativeVerification: true,

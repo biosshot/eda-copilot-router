@@ -516,6 +516,17 @@ export function compileRoutingRules(
     checkNet(fence.net)
     for (const net of fence.along) checkNet(net)
   }
+  // runAll() deliberately persists the universal KRT neckdown floor. This keeps
+  // the rules used by the router and the post-route verifier consistent while
+  // preserving boards that already permit a smaller feature.
+  if (program.operation === "all") for (const { name } of board.nets) {
+    if (!selected(name) || /^GND$/i.test(name)) continue
+    const values = byNet.get(name) ?? board.rules.default
+    byNet.set(name, {
+      ...values,
+      minTrackWidthMm: Math.min(values.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
+    })
+  }
   if (program.operation !== "apply-drc") required.add("ordinary-routing")
   const effective: RoutingRules = {
     default: effectiveDefault,

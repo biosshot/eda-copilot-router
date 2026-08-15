@@ -1496,7 +1496,7 @@ export async function runKrtSpecial(
       },
     )
     subcalls.push(diff)
-    if (diff.status === "completed" && !diff.diagnostics.some((item) => item.severity === "error")) {
+    if (diff.attempted && await exists(diffOutput)) {
       ordinaryInput = diffOutput
     }
   }
@@ -1540,14 +1540,12 @@ export async function runKrtSpecial(
         "The ordinary matched-group subcall changed differential copper from the preceding special subcall.",
         changed,
       ))
-      if (changed.length) await copyBoardAndSidecars(ordinaryInput, resolve(outputBoard), diagnostics)
     } catch (error) {
       diagnostics.push(diagnostic(
         "KRT_SPECIAL_PROTECTION_GUARD_FAILED",
         "error",
         `Could not compare protected special copper: ${errorText(error)}`,
       ))
-      await copyBoardAndSidecars(ordinaryInput, resolve(outputBoard), diagnostics)
     }
   }
   if (/\bWARNING:.*(?:NOT fully matched|SHORT of the group target)/i.test(ordinary.stdout)) {

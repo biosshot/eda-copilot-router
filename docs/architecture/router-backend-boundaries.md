@@ -131,6 +131,18 @@ segment/arc/via geometry is also protected in backend project metadata and
 compared after the pass; net-count equality is insufficient because a
 same-count reroute can still destroy coupling or matching.
 
+### Deferred KRT limitations
+
+These are known adapter limitations, not extra DSL restrictions:
+
+- A mixed remaining invocation does not yet preserve different per-net
+  `allowedLayers` sets independently. A future adapter should partition the
+  logical remaining stage into compatible internal KRT calls.
+- Differential pairs and ordinary matched groups with heterogeneous geometry
+  or tolerance rules are not yet partitioned into compatible internal KRT
+  calls. A future implementation should retain one logical special stage while
+  compiling each compatible rule group separately.
+
 `viaFence(...)` does not add a backend-specific route job or a seventh stage.
 Its `along` nets join the same special scope, then a core-owned postprocessor
 places ordinary net-assigned vias beside their routed tracks. A backend need
@@ -173,11 +185,13 @@ The source board is immutable throughout routing:
 9. Return `RoutingResult`; the host applies it transactionally and owns the
    final native validation/commit decision.
 
-No failed result modifies the source document. Partial and invalid output may
-be retained only as an explicitly named diagnostic artifact together with its
-stage report. A preflight conflict prevents backend invocation, while runtime
-routing/refill diagnostics are recorded and the workflow continues whenever a
-usable board artifact remains.
+No failed result modifies the source document. A parseable partial or invalid
+candidate is retained as an explicitly named diagnostic artifact together with
+its stage report. Post-validation annotates candidate copper and never silently
+deletes or rewrites it; only a structural import/parse failure can prevent that
+candidate from reaching the result. A preflight conflict prevents backend
+invocation, while runtime routing/refill diagnostics are recorded and the
+workflow continues whenever a usable board artifact remains.
 
 ## Planned backend roles
 

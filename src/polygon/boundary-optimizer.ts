@@ -123,6 +123,7 @@ export type CompactBoundaryOptimizationResult = {
   isolatedPads: Array<{
     pad: PolygonScenePad
     nearestPadFreeGapWidths: number
+    reason?: string
   }>
   searchWorkUnits: number
   failure?: {
@@ -2273,19 +2274,19 @@ export function optimizeCompactBoundaries(
   const groups = groupsAfterCut(geometries, globalEdges, maxPadFreeGapWidths)
   const boundaries: CompactBoundaryOptimization[] = []
   const isolatedPads: CompactBoundaryOptimizationResult["isolatedPads"] = []
-  const addIsolated = (geometry: PadGeometry, peers: PadGeometry[]) => {
+  const addIsolated = (geometry: PadGeometry, peers: PadGeometry[], reason?: string) => {
     const nearestPadFreeGapWidths = peers
       .filter((peer) => peer !== geometry)
       .reduce((nearest, peer) => Math.min(nearest, edgeBetween([geometry, peer], 0, 1).gapWidths), Infinity)
-    isolatedPads.push({ pad: geometry.pad, nearestPadFreeGapWidths })
+    isolatedPads.push({ pad: geometry.pad, nearestPadFreeGapWidths, ...(reason ? { reason } : {}) })
   }
-  try {
-    for (const group of groups) {
-      const members = group.map((index) => geometries[index])
-      if (members.length < 2) {
-        addIsolated(members[0], geometries)
-        continue
-      }
+  for (const group of groups) {
+    const members = group.map((index) => geometries[index])
+    if (members.length < 2) {
+      addIsolated(members[0], geometries)
+      continue
+    }
+    try {
       const optimized = optimizeGroup(
         members,
         obstacles,
@@ -2297,24 +2298,16 @@ export function optimizeCompactBoundaries(
       if (optimized) {
         boundaries.push(optimized)
       } else {
-        for (const geometry of members) addIsolated(geometry, members)
+        for (const geometry of members) addIsolated(
+          geometry,
+          members,
+          "local polygon branch has no collision-free useful-width solution",
+        )
       }
-    }
-  } catch (error) {
-    if (!(error instanceof PolygonSearchBudgetExceeded)) throw error
-    return {
-      boundaries: [],
-      maxPadFreeGapMm: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapMm)) : 0,
-      maxPadFreeGapWidths: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapWidths)) : 0,
-      isolatedPads: [],
-      searchWorkUnits: searchBudget.usedWorkUnits,
-      failure: {
-        code: error.code,
-        message: `polygon search reached its deterministic ${error.maxWorkUnits}-unit limit while ${error.operation}`,
-        usedWorkUnits: error.usedWorkUnits,
-        maxWorkUnits: error.maxWorkUnits,
-        operation: error.operation,
-      },
+    } catch (error) {
+      if (!(error instanceof PolygonSearchBudgetExceeded)) throw error
+      const reason = `local polygon branch reached its deterministic ${error.maxWorkUnits}-unit limit while ${error.operation}`
+      for (const geometry of members) addIsolated(geometry, members, reason)
     }
   }
   return {

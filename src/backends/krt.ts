@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import type {
@@ -79,6 +79,10 @@ export type KrtBackendOptions = Readonly<{
 
 const EMPTY_COPPER: RoutingCopper = { tracks: [], vias: [], zones: [] }
 const HARD_MIN_TRACK_WIDTH_MM = 0.127
+
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(() => true, () => false)
+}
 
 function diagnostic(code: string, severity: RoutingDiagnostic["severity"], message: string, details?: unknown): RoutingDiagnostic {
   return { code, severity, message, ...(details === undefined ? {} : { details }) }
@@ -313,16 +317,6 @@ async function writeFabOverrides(path: string, values: KrtNumericRules) {
   ].join("\n"))
 }
 
-function fullyPreconnectedNets(request: BackendRouteRequest) {
-  const padCounts = new Map<string, number>()
-  for (const pad of request.board.pads) if (pad.net) padCounts.set(pad.net, (padCounts.get(pad.net) ?? 0) + 1)
-  const groups = request.connectivity?.preconnectedPadGroups ?? []
-  return new Set(groups.filter((group) => {
-    const uniquePads = new Set(group.pads.map((pad) => `${pad.component}\u0000${pad.pad}`))
-    return uniquePads.size >= 2 && uniquePads.size === padCounts.get(group.net)
-  }).map((group) => group.net))
-}
-
 export const KRT_QUALITY_PROFILES = Object.freeze({
   fast: Object.freeze({
     gridStep: 0.1,
@@ -547,12 +541,10 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         ...request.program.matchedGroups.flatMap((group) => group.nets),
       ]
       const special = new Set(specialNets)
-      const preconnected = fullyPreconnectedNets(request)
       const remaining = orderedScopeNets(request).filter((net) => (
         net.toUpperCase() !== "GND"
         && !special.has(net)
         && !request.program.ignoreNets.includes(net)
-        && !preconnected.has(net)
         && request.board.pads.filter((pad) => pad.net === net).length >= 2
       ))
       diagnostics.push(...routeLayerDiagnostics(request, specialNets))
@@ -593,9 +585,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           (!request.program.onlyNets || request.program.onlyNets.includes(net))
           && !request.program.ignoreNets.includes(net)
         )
-        const preconnected = fullyPreconnectedNets(request)
         const remainingNets = orderedScopeNets(request).filter((net) => (
-          net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net) && !preconnected.has(net)
+          net.toUpperCase() !== "GND" && inScope(net) && !allSpecial.has(net)
           && request.board.pads.filter((pad) => pad.net === net).length >= 2
         ))
         const specialGridStep = selectKrtGridStep(request, requestedGridStep, [...allSpecial])
@@ -655,7 +646,11 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             ordinaryMatchedFabOverridesPath: specialFab,
           }, join(root, "special"))
           diagnostics.push(...convertDiagnostics(specialResult.diagnostics))
-          if (specialResult.status === "completed") current = output
+          // KRT may leave a useful, parseable partial board even when its
+          // summary or a semantic audit reports an error. Preserve that
+          // candidate; final validation, not transport status, decides its
+          // electrical quality.
+          if (specialResult.attempted && await exists(output)) current = output
         }
         let remainingResult: KrtProcessResult | undefined
         if (remainingNets.length) {
@@ -675,23 +670,12 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             })),
           }, join(root, "remaining"))
           diagnostics.push(...convertDiagnostics(remainingResult.diagnostics))
-          if (remainingResult.status === "completed") current = output
+          if (remainingResult.attempted && await exists(output)) current = output
         }
         const routed = await options.transport.read(request, prepared.inputBoard, current)
         diagnostics.push(...(routed.diagnostics ?? []))
         const ruleDiagnostics = routedCopperRuleDiagnostics(request, routed.copper)
         diagnostics.push(...ruleDiagnostics)
-        if (ruleDiagnostics.length) return {
-          status: "error",
-          copper: EMPTY_COPPER,
-          diagnostics,
-          metrics: {
-            elapsedMs: performance.now() - startedAt,
-            routedNetCount: 0,
-            backend: "krt",
-            details: { rejectedRoutedDelta: true, artifactsDirectory: root },
-          },
-        }
         const failed = (specialResult ? processFailed(specialResult) : false)
           || (remainingResult ? processFailed(remainingResult) : false)
         const openNets = new Set([

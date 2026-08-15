@@ -819,4 +819,26 @@ assert.equal(boundedSearch.plans.length, 1)
 assert.equal(boundedSearch.plans[0].status, "error")
 assert.match(boundedSearch.plans[0].reason, /deterministic 1-unit limit/)
 
+const partialBranchProgram = runPolygonDsl(`
+polygon("PARTIAL_BRANCH")
+  .connect(net("PARTIAL_BRANCH"))
+  .on(topLayer())
+  .compact();
+`)
+const partialBranches = planPolygons({
+  ...pcb,
+  pads: [
+    pad("PB1", 1, "PARTIAL_BRANCH", 10, 10),
+    pad("PB2", 1, "PARTIAL_BRANCH", 11.5, 10),
+    pad("PB3", 1, "PARTIAL_BRANCH", 40, 10),
+  ],
+}, partialBranchProgram).plans
+assert.equal(partialBranches.filter((plan) => plan.status === "ready").length, 1)
+assert.equal(partialBranches.filter((plan) => plan.status === "skipped").length, 1)
+assert.deepEqual(
+  partialBranches.find((plan) => plan.status === "ready").targetPads.map((item) => item.component).sort(),
+  ["PB1", "PB2"],
+  "a failed distant branch must not erase a ready local boundary",
+)
+
 console.log("polygon DSL, octilinear geometry, spike filtering, and deterministic boundary tests passed")

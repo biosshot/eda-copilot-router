@@ -327,36 +327,6 @@ function optimizationMetrics(
   }
 }
 
-function padsConnectedAcrossBoundaries(requiredPads: PolygonScenePad[], boundaries: CompactBoundaryOptimization[]) {
-  if (!requiredPads.length) return true
-  const parent = new Map<string, string>()
-  const find = (key: string): string => {
-    const current = parent.get(key) ?? key
-    if (current === key) {
-      parent.set(key, key)
-      return key
-    }
-    const root = find(current)
-    parent.set(key, root)
-    return root
-  }
-  const join = (left: string, right: string) => {
-    const leftRoot = find(left)
-    const rightRoot = find(right)
-    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot)
-  }
-  for (const boundary of boundaries) {
-    const keys = boundary.pads.map(padKey)
-    if (!keys.length) continue
-    find(keys[0])
-    for (const key of keys.slice(1)) join(keys[0], key)
-  }
-  const requiredKeys = requiredPads.map(padKey)
-  if (requiredKeys.some((key) => !parent.has(key))) return false
-  const root = find(requiredKeys[0])
-  return requiredKeys.every((key) => find(key) === root)
-}
-
 function planIntent(
   pcb: PolygonScene,
   intent: PolygonIntent,
@@ -401,16 +371,6 @@ function planIntent(
   if (optimized.failure) {
     return [failed(intent, layer, boardAreaMm2, optimized.failure.message, targetPads)]
   }
-  const viableBoundaries = optimized.boundaries.filter((cluster) => {
-    const ratio = boardAreaMm2 > 0 ? polygonArea(cluster.boundary) / boardAreaMm2 : Infinity
-    return Number.isFinite(ratio) && ratio <= MAX_COMPACT_BOARD_AREA_RATIO
-  })
-  if (explicitPads.length && !padsConnectedAcrossBoundaries(explicitPads, viableBoundaries)) {
-    const reason = optimized.maxPadFreeGapWidths > intent.maxPadFreeGapWidths
-      ? `explicit targets require a ${optimized.maxPadFreeGapWidths.toFixed(2)} pad-width gap; configured maxPadFreeGap is ${intent.maxPadFreeGapWidths}`
-      : "explicit targets have no collision-free 0/45/90 corridor at the configured useful width"
-    return [failed(intent, layer, boardAreaMm2, reason, targetPads)]
-  }
   const clusterCount = optimized.boundaries.length + optimized.isolatedPads.length + unusablePads.length
   const plans: ZonePlan[] = optimized.boundaries.map((cluster, index) => {
     const boundaryAreaMm2 = polygonArea(cluster.boundary)
@@ -451,18 +411,35 @@ function planIntent(
       warnings: splitWarning,
     }
   })
+  const explicitIsolated: typeof optimized.isolatedPads = []
   for (const isolated of optimized.isolatedPads) {
     const normalizedGap = Number.isFinite(isolated.nearestPadFreeGapWidths)
       ? isolated.nearestPadFreeGapWidths.toFixed(2)
       : "infinite"
+    const explicit = explicitPadKeys.has(padKey(isolated.pad))
+    if (explicit) {
+      explicitIsolated.push(isolated)
+      continue
+    }
     plans.push(skipped(
       intent,
       layer,
       boardAreaMm2,
-      `local cluster has one pad; nearest pad-free gap is ${normalizedGap} pad widths (limit ${intent.maxPadFreeGapWidths})`,
+      isolated.reason
+        ?? `local cluster has one pad; nearest pad-free gap is ${normalizedGap} pad widths (limit ${intent.maxPadFreeGapWidths})`,
       [isolated.pad],
     ))
   }
+  if (explicitIsolated.length) plans.push(failed(
+    intent,
+    layer,
+    boardAreaMm2,
+    explicitIsolated.find((item) => item.reason)?.reason
+      ?? (optimized.maxPadFreeGapWidths > intent.maxPadFreeGapWidths
+        ? `explicit targets require a ${optimized.maxPadFreeGapWidths.toFixed(2)} pad-width pad-free gap; configured maxPadFreeGap is ${intent.maxPadFreeGapWidths}`
+        : "explicit targets have no collision-free 0/45/90 corridor at the configured useful width"),
+    explicitIsolated.map((item) => item.pad),
+  ))
   for (const pad of unusablePads) {
     plans.push(skipped(intent, layer, boardAreaMm2, "target pad has no usable geometry", [pad]))
   }

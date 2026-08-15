@@ -7,9 +7,9 @@ import { run } from "../package-dist/index.js"
 import { importKiCadRoutingBoard } from "../../kicad-copilot/dist/router-package-adapter.js"
 
 const boardPath = resolve(process.env.COPILOT_ROUTER_POWERBANK_BOARD
-  ?? "D:\\MyProject\\kicad\\Powerbank_v1\\Powerbank.kicad_pcb")
+  ?? "tests/e2e/powerbank/fixture/Powerbank.kicad_pcb")
 const dslPath = resolve(process.env.COPILOT_ROUTER_POWERBANK_DSL
-  ?? "D:\\MyProject\\kicad\\Powerbank_v1\\Powerbank-routing.js")
+  ?? "tests/e2e/powerbank/routing.js")
 
 const imported = await importKiCadRoutingBoard(boardPath, { existingCopper: "fixed" })
 assert.ok(imported.board, imported.diagnostics.map((item) => item.message).join("\n"))
