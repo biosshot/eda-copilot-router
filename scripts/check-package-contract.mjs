@@ -482,6 +482,49 @@ assert.deepEqual(polygonBackendRequest.connectivity.preconnectedPadGroups, [{
   pads: [{ component: "U1", pad: "1" }, { component: "C1", pad: "1" }],
 }])
 
+const tappedPowerBoard = {
+  ...board,
+  pads: [...board.pads, {
+    component: "U1", number: "4", net: "VCC", at: { x: 12, y: 5 }, rotationDeg: 0,
+    layers: ["F.Cu"], shape: { kind: "rect", widthMm: 0.4, heightMm: 0.4 },
+  }],
+}
+const stagedPowerCalls = []
+let stagedPowerSpecialRequest
+const stagedPowerBackend = {
+  ...backend,
+  async route() { throw new Error("powerNet must use the logical special stage") },
+  async routeSpecial(request) {
+    stagedPowerCalls.push("special")
+    stagedPowerSpecialRequest = request
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+  async routeRemaining() {
+    stagedPowerCalls.push("remaining")
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
+const tappedPowerResult = await api.run({
+  board: tappedPowerBoard,
+  backend: stagedPowerBackend,
+  dsl: `
+    powerNet("VCC", {
+      maxCurrentA: 0.1,
+      powerPads: [pad("U1", 1), pad("C1", 1)],
+      tapWidthMm: "drc-min",
+    })
+    polygon("VCC").connect(net("VCC")).on("TOP").compact()
+    runRouting()
+  `,
+})
+assert.equal(tappedPowerResult.status, "complete")
+assert.deepEqual(stagedPowerCalls, ["special", "remaining"])
+assert.equal(stagedPowerSpecialRequest.program.powerNets[0].net, "VCC")
+assert.deepEqual(stagedPowerSpecialRequest.connectivity.preconnectedPadGroups, [{
+  net: "VCC",
+  pads: [{ component: "U1", pad: "1" }, { component: "C1", pad: "1" }],
+}], "net(...) polygons must use explicit powerPads and leave other same-net pads routable")
+
 const planeResult = await api.run({
   board,
   backend: polygonBackend,

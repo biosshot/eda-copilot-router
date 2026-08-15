@@ -1,5 +1,5 @@
 import type { BackendRouteRequest } from "../adapters/contracts.js"
-import type { LayerSelector, PlaneIntent, RoutingProgram } from "../intent/types.js"
+import type { CopperTarget, LayerSelector, PlaneIntent, RoutingProgram } from "../intent/types.js"
 import { DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM } from "../polygon/boundary-optimizer.js"
 import { planPolygons } from "../polygon/engine.js"
 import { routingBoardToPolygonScene } from "../polygon/routing-board-adapter.js"
@@ -56,6 +56,35 @@ function selectedLayers(board: RoutingBoard, selector: LayerSelector) {
     const match = /^INNER_(\d+)$/.exec(name)
     return match ? inner[Number(match[1]) - 1]?.name ?? name : name
   })
+}
+
+function polygonProgramWithPowerPadTargets(program: RoutingProgram): RoutingProgram {
+  const powerPads = new Map(program.powerNets.flatMap((intent) => (
+    intent.powerPads?.length ? [[intent.net, intent.powerPads] as const] : []
+  )))
+  if (!powerPads.size) return program
+  return {
+    ...program,
+    polygons: program.polygons.map((intent) => {
+      const scopedPads = powerPads.get(intent.net)
+      if (!scopedPads || !intent.targets.some((target) => target.kind === "net" && target.net === intent.net)) {
+        return intent
+      }
+      const expanded: CopperTarget[] = []
+      for (const target of intent.targets) {
+        if (target.kind === "net" && target.net === intent.net) expanded.push(...scopedPads)
+        else expanded.push(target)
+      }
+      const unique = new Map<string, CopperTarget>()
+      for (const target of expanded) {
+        const key = target.kind === "pad"
+          ? `pad\u0000${target.component}\u0000${target.pad}`
+          : `net\u0000${target.net}`
+        unique.set(key, target)
+      }
+      return { ...intent, targets: [...unique.values()] }
+    }),
+  }
 }
 
 function pointInRing(point: PointMm, ring: readonly PointMm[]) {
@@ -284,7 +313,7 @@ export function planRoutingCopper(
   let compactPlans = 0
   let compactReady = 0
   if (phases.compact !== false && program.polygons.length) {
-    const result = planPolygons(routingBoardToPolygonScene(board), program, {
+    const result = planPolygons(routingBoardToPolygonScene(board), polygonProgramWithPowerPadTargets(program), {
       rulesForNet: (net) => {
         const value = valuesForNet(rules, net)
         return {

@@ -430,6 +430,13 @@ export function compileRoutingRules(
   const platingUm = program.stack?.viaPlatingThicknessUm ?? DEFAULT_VIA_PLATING_UM
   for (const power of program.powerNets) {
     checkNet(power.net); checkLayers(power.allowedLayers)
+    for (const target of power.powerPads ?? []) {
+      const pads = board.pads.filter((item) => item.component === target.component && item.number === target.pad)
+      if (!pads.length) diagnostics.push(diagnostic("DSL_UNKNOWN_PAD", `Pad ${target.component}.${target.pad} does not exist.`))
+      else if (pads.some((pad) => pad.net !== power.net)) diagnostics.push(diagnostic(
+        "DSL_PAD_NET_MISMATCH", `Physical pads for ${target.component}.${target.pad} are not all on ${power.net}.`,
+      ))
+    }
     const base = byNet.get(power.net) ?? board.rules.default
     if (power.minTrackWidthMm !== undefined && power.minTrackWidthMm < HARD_MIN_TRACK_WIDTH_MM - EPSILON) {
       diagnostics.push(diagnostic(
