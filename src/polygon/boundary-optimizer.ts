@@ -703,6 +703,10 @@ function unionBoundary(
 }
 
 export function mergeOctilinearBoundaries(rings: PcbPoint[][], minimumFeatureMm = 0) {
+  const snapToleranceMm = Math.max(
+    ANGLE_TOLERANCE_MM,
+    Math.min(0.01, minimumFeatureMm > 0 ? minimumFeatureMm / 4 : 0.01),
+  )
   const paths = rings
     .filter((ring) => ring.length >= 3 && boundaryArea(ring) > 1e-9)
     .map(toClipper)
@@ -722,6 +726,10 @@ export function mergeOctilinearBoundaries(rings: PcbPoint[][], minimumFeatureMm 
       ClipperLib.Clipper.CleanPolygon(path, 2))
     .map(fromClipper)
     .map(simplifyCollinear)
+    // Every input is already octilinear. Independent branch cleanup can
+    // leave micrometre-scale coordinate differences at a shared pad; snap
+    // only that numerical seam before enforcing the strict angle invariant.
+    .map((ring: PcbPoint[]) => canonicalizeNearlyOctilinear(ring, snapToleranceMm) ?? ring)
     .map((ring: PcbPoint[]) => minimumFeatureMm > 0
       ? simplifyBoundaryFeatures(ring, minimumFeatureMm)
       : ring)
@@ -1127,25 +1135,7 @@ function compactConnectivityGroups(
   const groups = [...grouped.values()]
     .map((group) => group.sort((left, right) => left - right))
     .sort((left, right) => left[0] - right[0])
-  const groupForPad = Array<number>(geometries.length)
-  groups.forEach((group, groupIndex) => {
-    for (const member of group) groupForPad[member] = groupIndex
-  })
-  return { groups, groupForPad }
-}
-
-function contractedMstLinks(edges: Edge[], groupForPad: number[]) {
-  const links = new Map<string, { firstGroup: number; secondGroup: number }>()
-  for (const edge of edges) {
-    const left = groupForPad[edge.a]
-    const right = groupForPad[edge.b]
-    if (left === right) continue
-    const firstGroup = Math.min(left, right)
-    const secondGroup = Math.max(left, right)
-    links.set(`${firstGroup}:${secondGroup}`, { firstGroup, secondGroup })
-  }
-  return [...links.values()].sort((left, right) =>
-    left.firstGroup - right.firstGroup || left.secondGroup - right.secondGroup)
+  return groups
 }
 
 function alignedPadClusterBridge(
@@ -1878,14 +1868,13 @@ function compareRoutedCandidates(
 function routedConnectionsForCompactGroup(
   geometries: PadGeometry[],
   obstacles: PadGeometry[],
-  rawEdges: Edge[],
   bankEnvelopes: PadBankEnvelope[],
   padExpansionRatio: number,
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
   searchBudget: PolygonSearchBudget,
 ) {
-  const { groups, groupForPad } = compactConnectivityGroups(geometries, bankEnvelopes)
+  const groups = compactConnectivityGroups(geometries, bankEnvelopes)
   if (groups.length < 2) return []
   const cache = new Map<string, RoutedEdge | null>()
   const clearanceContext = routedClearanceGateContext(
@@ -1899,11 +1888,7 @@ function routedConnectionsForCompactGroup(
     routed: RoutedEdge
   }
   const candidates: RoutedGroupLink[] = []
-  const evaluatedLinks = new Set<string>()
   const evaluateLink = (link: { firstGroup: number; secondGroup: number }) => {
-    const linkKey = `${link.firstGroup}:${link.secondGroup}`
-    if (evaluatedLinks.has(linkKey)) return
-    evaluatedLinks.add(linkKey)
     let best: RoutedEdge | undefined
     const selectsBankEndpoint = groups[link.firstGroup].length > 1
       || groups[link.secondGroup].length > 1
@@ -1962,32 +1947,90 @@ function routedConnectionsForCompactGroup(
     return undefined
   }
 
-  for (const link of contractedMstLinks(rawEdges, groupForPad)) evaluateLink(link)
-  let selected = spanningTree()
-  if (selected) return selected
-
-  // Contraction can turn the raw pad tree into a cyclic supergraph. If one
-  // of those links is blocked, progressively try the remaining cluster pairs
-  // in cheap direct-distance order instead of reporting a false failure.
-  const fallbackLinks: Array<{ firstGroup: number; secondGroup: number; distanceMm: number }> = []
+  // A compact intent expresses connectivity, not a hand-authored topology.
+  // Consider local cluster pairs by their Euclidean lower bound, route each
+  // branch independently around obstacles, and let Kruskal choose the actual
+  // routed tree. This avoids preserving a valid but needlessly long edge from
+  // the raw pad MST merely because it happened to be considered first.
+  const links: Array<{ firstGroup: number; secondGroup: number; distanceMm: number }> = []
   for (let firstGroup = 0; firstGroup < groups.length; firstGroup += 1) {
     for (let secondGroup = firstGroup + 1; secondGroup < groups.length; secondGroup += 1) {
-      const key = `${firstGroup}:${secondGroup}`
-      if (evaluatedLinks.has(key)) continue
       const distanceMm = Math.min(...groups[firstGroup].flatMap((first) =>
         groups[secondGroup].map((second) => edgeBetween(geometries, first, second).distanceMm)))
-      fallbackLinks.push({ firstGroup, secondGroup, distanceMm })
+      links.push({ firstGroup, secondGroup, distanceMm })
     }
   }
-  fallbackLinks.sort((left, right) => left.distanceMm - right.distanceMm
+  links.sort((left, right) => left.distanceMm - right.distanceMm
     || left.firstGroup - right.firstGroup
     || left.secondGroup - right.secondGroup)
-  for (const { distanceMm: _distanceMm, ...link } of fallbackLinks) {
+
+  let selected: RoutedEdge[] | undefined
+  for (let index = 0; index < links.length; index += 1) {
+    const { distanceMm: _distanceMm, ...link } = links[index]
     evaluateLink(link)
     selected = spanningTree()
-    if (selected) return selected
+    if (!selected) continue
+
+    // Routed length is the primary edge cost and can never be shorter than
+    // the direct endpoint distance. Once the next unseen lower bound is
+    // strictly longer than the heaviest selected edge (at engine precision),
+    // no unseen branch can improve this tree. This keeps large pad groups
+    // lazy without imposing an arbitrary pad-count or neighbour limit.
+    const nextDistanceMm = links[index + 1]?.distanceMm
+    const maximumSelectedLength = Math.max(...selected.map((route) => route.lengthMm))
+    if (nextDistanceMm === undefined
+      || Math.round(nextDistanceMm * SCALE) > Math.round(maximumSelectedLength * SCALE)) {
+      return selected
+    }
   }
-  return undefined
+  return selected
+}
+
+function routedConnectionGeometry(
+  routed: RoutedEdge,
+  geometries: PadGeometry[],
+  obstacles: PadGeometry[],
+  padExpansionRatio: number,
+  minimumCorridorWidthMm: number,
+  obstacleClearanceMm: number,
+) {
+  const subjects: PcbPoint[][] = []
+  const protectedSubjects: PcbPoint[][] = []
+  const alignedBridge = alignedPadClusterBridge(
+    routed,
+    geometries,
+    obstacles,
+    padExpansionRatio,
+    minimumCorridorWidthMm,
+    obstacleClearanceMm,
+  )
+  if (alignedBridge) {
+    if (alignedBridge.kind === "bridge") {
+      subjects.push(alignedBridge.subject)
+      protectedSubjects.push(alignedBridge.protected)
+    }
+    return { subjects, protectedSubjects }
+  }
+  const vertexWidths = adaptiveRouteVertexWidths(routed, geometries, padExpansionRatio)
+  for (let index = 1; index < routed.points.length; index += 1) {
+    const corridor = adaptiveCorridorSegmentRing(
+      routed.points[index - 1],
+      routed.points[index],
+      vertexWidths[index - 1],
+      vertexWidths[index],
+      routed.segmentBodyWidthsMm[index - 1] ?? routed.widthMm,
+    )
+    if (corridor) subjects.push(corridor)
+    const protectedCorridor = adaptiveCorridorSegmentRing(
+      routed.points[index - 1],
+      routed.points[index],
+      routed.widthMm,
+      routed.widthMm,
+      routed.widthMm,
+    )
+    if (protectedCorridor) protectedSubjects.push(protectedCorridor)
+  }
+  return { subjects, protectedSubjects }
 }
 
 function optimizeGroup(
@@ -2009,7 +2052,6 @@ function optimizeGroup(
   const routes = routedConnectionsForCompactGroup(
     geometries,
     obstacles,
-    edges,
     bankEnvelopes,
     padExpansionRatio,
     minimumCorridorWidthMm,
@@ -2036,8 +2078,8 @@ function optimizeGroup(
     ...geometries.map((geometry) => boundsRing(geometryBounds(geometry))),
     ...padBankSubjects,
   ]
-  for (const routed of routes) {
-    const alignedBridge = alignedPadClusterBridge(
+  const branchGeometry = routes.map((routed) => {
+    const geometry = routedConnectionGeometry(
       routed,
       geometries,
       obstacles,
@@ -2045,43 +2087,92 @@ function optimizeGroup(
       minimumCorridorWidthMm,
       obstacleClearanceMm,
     )
-    if (alignedBridge) {
-      if (alignedBridge.kind === "covered") continue
-      subjects.push(alignedBridge.subject)
-      protectedSubjects.push(alignedBridge.protected)
-      continue
-    }
-    const vertexWidths = adaptiveRouteVertexWidths(routed, geometries, padExpansionRatio)
-    for (let index = 1; index < routed.points.length; index += 1) {
-      const corridor = adaptiveCorridorSegmentRing(
-        routed.points[index - 1],
-        routed.points[index],
-        vertexWidths[index - 1],
-        vertexWidths[index],
-        routed.segmentBodyWidthsMm[index - 1] ?? routed.widthMm,
-      )
-      if (corridor) subjects.push(corridor)
-      const protectedCorridor = adaptiveCorridorSegmentRing(
-        routed.points[index - 1],
-        routed.points[index],
-        routed.widthMm,
-        routed.widthMm,
-        routed.widthMm,
-      )
-      if (protectedCorridor) protectedSubjects.push(protectedCorridor)
-    }
-  }
+    subjects.push(...geometry.subjects)
+    protectedSubjects.push(...geometry.protectedSubjects)
+    return { routed, ...geometry }
+  })
   const foreignPadRings = obstacles
     .filter((geometry) => geometry.pad.net !== geometries[0].pad.net)
     .map((geometry) => boundsRing(geometryBounds(geometry)))
-  const unioned = unionBoundary(
+  const foreignPadPaths = unionPaths(foreignPadRings.map(toClipper))
+  const regularizationWidthMm = Math.max(minimumCorridorWidthMm, corridorWidthMinMm)
+  const globallyRegularized = () => unionBoundary(
     subjects,
     protectedSubjects,
     foreignPadRings,
     minimumFeatureMm,
     pocketClosingRadiusMm,
-    Math.max(minimumCorridorWidthMm, corridorWidthMinMm),
+    regularizationWidthMm,
   )
+  const unioned = branchGeometry.length <= 1
+    ? globallyRegularized()
+    : ((() => {
+      // Clean each routed branch as the same two-endpoint polygon the caller
+      // could have described manually, then perform one plain union. Global
+      // morphology on a many-branch tree is both expensive and prone to one
+      // branch paying for a shape change elsewhere in the tree.
+      const branchBoundaries: PcbPoint[][] = []
+      let rawVertexCount = 0
+      const filledPocketAreaMm2 = 0
+      for (const branch of branchGeometry) {
+        const endpointIndexes = [branch.routed.edge.a, branch.routed.edge.b]
+        const endpointSubjects = endpointIndexes.flatMap((index) =>
+          expandedPadRings(geometries[index], padExpansionRatio))
+        const endpointProtected = endpointIndexes.map((index) =>
+          boundsRing(geometryBounds(geometries[index])))
+        const branchInputs = [...endpointSubjects, ...branch.subjects]
+        const baseline = mergeOctilinearBoundaries(branchInputs)
+        if (baseline.length !== 1) return undefined
+        const cleaned = mergeOctilinearBoundaries(branchInputs, minimumFeatureMm)
+        const protectedPaths = unionPaths(
+          [...endpointProtected, ...branch.protectedSubjects].map(toClipper),
+        )
+        const baselinePaths = unionPaths([toClipper(baseline[0])])
+        const cleanedPaths = cleaned.length === 1
+          ? unionPaths([toClipper(cleaned[0])])
+          : []
+        const cleanedPreservesCore = cleanedPaths.length === 1
+          && clipperPathsAreaMm2(differencePaths(protectedPaths, cleanedPaths)) <= 1e-8
+        const cleanedAdded = cleanedPaths.length
+          ? differencePaths(cleanedPaths, baselinePaths)
+          : []
+        const cleanedAvoidsForeignPads = !foreignPadRings.length
+          || clipperPathsAreaMm2(intersectPaths(
+            cleanedAdded,
+            foreignPadPaths,
+          )) <= 1e-8
+        branchBoundaries.push(cleanedPreservesCore && cleanedAvoidsForeignPads
+          ? cleaned[0]
+          : baseline[0])
+        rawVertexCount += branchInputs.reduce((sum, ring) => sum + ring.length, 0)
+      }
+      const mergeInputs = [...branchBoundaries, ...padSubjects, ...padBankSubjects]
+      const baselineBoundaries = mergeOctilinearBoundaries(mergeInputs)
+      if (baselineBoundaries.length !== 1) return undefined
+      const cleanedBoundaries = mergeOctilinearBoundaries(mergeInputs, minimumFeatureMm)
+      const protectedPaths = unionPaths(protectedSubjects.map(toClipper))
+      const baselinePaths = unionPaths([toClipper(baselineBoundaries[0])])
+      const cleanedPaths = cleanedBoundaries.length === 1
+        ? unionPaths([toClipper(cleanedBoundaries[0])])
+        : []
+      const cleanedPreservesCore = cleanedPaths.length === 1
+        && clipperPathsAreaMm2(differencePaths(protectedPaths, cleanedPaths)) <= 1e-8
+      const cleanedAdded = cleanedPaths.length
+        ? differencePaths(cleanedPaths, baselinePaths)
+        : []
+      const cleanedAvoidsForeignPads = !foreignPadPaths.length
+        || clipperPathsAreaMm2(intersectPaths(cleanedAdded, foreignPadPaths)) <= 1e-8
+      const boundary = cleanedPreservesCore && cleanedAvoidsForeignPads
+        ? cleanedBoundaries[0]
+        : baselineBoundaries[0]
+      return {
+        boundary,
+        baselineBoundary: baselineBoundaries[0],
+        rawVertexCount,
+        removedVertexCount: Math.max(0, rawVertexCount - boundary.length),
+        filledPocketAreaMm2,
+      }
+    })() ?? globallyRegularized())
   if (!unioned) return undefined
   const simplifiedUnion = simplifyBoundaryFeatures(unioned.boundary, minimumFeatureMm)
   const baselineUnion = simplifyBoundaryFeatures(unioned.baselineBoundary, minimumFeatureMm)

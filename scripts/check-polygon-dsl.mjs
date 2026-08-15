@@ -329,9 +329,10 @@ const pocket = planPolygons(pocketPcb, pocketProgram, {
 }).plans[0]
 assert.equal(pocket.status, "ready")
 assert.ok(isOctilinearBoundary(pocket.boundary))
-assert.ok(pocket.optimization.avoidedObstacleCount > 0)
-assert.ok(pocket.optimization.filledPocketAreaMm2 > 0.3
-  || pocket.optimization.corridorBodyWidthMaxMm > pocket.optimization.corridorWidthMinMm * 1.2)
+// The obstacle no longer forces a global detour: the multi-pad planner may
+// choose the two clear local branches and merge their already-clean contours.
+assert.ok(pocket.optimization.routeDetourMm < 1e-6)
+assert.ok(pocket.optimization.removedVertexCount > 0)
 assertCleanBoundary(pocket)
 
 const adaptiveProgram = runPolygonDsl(`
@@ -515,6 +516,54 @@ assert.ok(isOctilinearBoundary(lBank.boundary))
 // over the unsupported empty corner.
 assert.equal(boundaryCoversPoint(lBank.boundary, { x: 21.5, y: 21.5 }), false)
 assertCleanBoundary(lBank)
+
+const localBranchProgram = runPolygonDsl(`
+polygon("LOCAL_BRANCH_TREE")
+  .connect(net("LOCAL_BRANCH_TREE"))
+  .on(topLayer())
+  .compact()
+  .maxPadFreeGap(20);
+`)
+const localBranchTargets = [
+  { ...pad("A", 1, "LOCAL_BRANCH_TREE", 20, 20), shape: ["RECT", 2, 2] },
+  { ...pad("B", 1, "LOCAL_BRANCH_TREE", 24, 20), shape: ["RECT", 2, 2] },
+  { ...pad("C", 1, "LOCAL_BRANCH_TREE", 22, 22), shape: ["RECT", 0.3, 0.3] },
+]
+const localBranchObstacle = {
+  ...pad("X", 1, "OTHER", 22, 19),
+  shape: ["RECT", 1, 1],
+}
+const planLocalBranchTree = (targets) => planPolygons({
+  ...pcb,
+  pads: [...targets, localBranchObstacle],
+}, localBranchProgram, {
+  rulesForNet: () => ({ minimumCorridorWidthMm: 0.6, obstacleClearanceMm: 0.2 }),
+}).plans[0]
+const localBranchTree = planLocalBranchTree(localBranchTargets)
+assert.equal(localBranchTree.status, "ready")
+assertRectPadCoverage(localBranchTree, localBranchTargets)
+assert.ok(isOctilinearBoundary(localBranchTree.boundary))
+assertCleanBoundary(localBranchTree)
+// The normalized-gap MST contains the wide A-B edge. That branch has to
+// detour around X, while A-C and B-C are clear local diagonals. A multi-pad
+// intent describes desired connectivity, so the planner must choose the
+// shorter routed tree rather than preserve the raw-MST topology or require
+// several hand-authored intents.
+assert.ok(
+  localBranchTree.optimization.routeDetourMm < 1e-6,
+  `multi-pad tree kept an avoidable detour: ${localBranchTree.optimization.routeDetourMm}`,
+)
+assert.ok(
+  localBranchTree.optimization.mstLengthMm < 6,
+  `multi-pad tree kept the raw wide-pad edge: ${localBranchTree.optimization.mstLengthMm}`,
+)
+const shuffledLocalBranchTree = planLocalBranchTree([
+  localBranchTargets[2],
+  localBranchTargets[0],
+  localBranchTargets[1],
+])
+assert.equal(shuffledLocalBranchTree.status, "ready")
+assert.deepEqual(shuffledLocalBranchTree.boundary, localBranchTree.boundary)
 
 const c2BankProgram = runPolygonDsl(`
 polygon("C2_BANK")
