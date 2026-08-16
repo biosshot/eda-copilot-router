@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import {
+  DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS,
   DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM,
   isOctilinearBoundary,
   MAX_COMPACT_BOARD_AREA_RATIO,
@@ -12,6 +13,7 @@ import {
 } from "../dist/polygon/index.js"
 
 assert.equal(DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM, 0.254)
+assert.equal(DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS, 10_000)
 
 const topRotatedPad = transformFootprintPoint(
   { x: 3.5, y: 1.35 },
@@ -818,6 +820,24 @@ const boundedSearch = planPolygons({
 assert.equal(boundedSearch.plans.length, 1)
 assert.equal(boundedSearch.plans[0].status, "error")
 assert.match(boundedSearch.plans[0].reason, /deterministic 1-unit limit/)
+
+const deadlineProgram = runPolygonDsl(`
+polygon("DEADLINE")
+  .connect(net("DEADLINE"))
+  .on(topLayer())
+  .compact()
+  .maxPadFreeGap(20);
+`)
+const deadlineSearch = planPolygons({
+  ...pcb,
+  pads: Array.from({ length: 200 }, (_, index) =>
+    pad(`D${index}`, 1, "DEADLINE", index * 0.2, index % 2 ? 0.2 : 0)),
+}, deadlineProgram, {
+  rulesForNet: () => ({ maxSearchElapsedMs: 1 }),
+})
+assert.equal(deadlineSearch.plans.length, 1)
+assert.equal(deadlineSearch.plans[0].status, "error")
+assert.match(deadlineSearch.plans[0].reason, /1-ms time limit/)
 
 const partialBranchProgram = runPolygonDsl(`
 polygon("PARTIAL_BRANCH")

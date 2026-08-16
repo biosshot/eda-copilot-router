@@ -102,6 +102,8 @@ export type PolygonGeometryRules = {
   obstacleClearanceMm?: number
   /** Deterministic cap on geometric search work for one polygon intent. */
   maxSearchWorkUnits?: number
+  /** Cooperative wall-clock cap for one polygon intent; never exceeds 10 seconds. */
+  maxSearchElapsedMs?: number
 }
 
 export type PolygonPlannerOptions = {

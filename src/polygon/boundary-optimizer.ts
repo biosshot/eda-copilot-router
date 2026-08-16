@@ -1,5 +1,6 @@
 import type { PcbPoint, PolygonScenePad } from "./scene.js"
 import ClipperLib from "clipper-lib"
+import { performance } from "node:perf_hooks"
 
 // Clipper is used only to union rough target-pad/corridor outlines. It does
 // not calculate DRC clearance, obstacle avoidance, thermals, or the EDA fill.
@@ -10,6 +11,8 @@ export const PAD_ENVELOPE_EXPANSION_RATIO = 0.20
 export const DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM = 0.254
 export const DEFAULT_OBSTACLE_CLEARANCE_MM = 0.20
 export const DEFAULT_MAX_POLYGON_SEARCH_WORK_UNITS = 250_000
+/** Hard upper bound for one compact polygon intent. The search is cooperative. */
+export const DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS = 10_000
 export const MIN_BOUNDARY_FEATURE_WIDTH_RATIO = 0.12
 export const MAX_OCTILINEAR_ENVELOPE_AREA_RATIO = 1.12
 export const MAX_ADAPTIVE_CORRIDOR_WIDTH_RATIO = 2.5
@@ -41,18 +44,49 @@ class PolygonSearchBudgetExceeded extends Error {
   }
 }
 
+class PolygonSearchDeadlineExceeded extends Error {
+  readonly code = "POLYGON_SEARCH_DEADLINE_EXCEEDED"
+
+  constructor(
+    readonly elapsedMs: number,
+    readonly maxElapsedMs: number,
+    readonly operation: string,
+  ) {
+    super(`polygon search exceeded ${maxElapsedMs} ms while ${operation}`)
+    this.name = "PolygonSearchDeadlineExceeded"
+  }
+}
+
 type PolygonSearchBudget = {
   readonly maxWorkUnits: number
+  readonly maxElapsedMs: number
+  readonly startedAtMs: number
   usedWorkUnits: number
+  checkpoint(operation: string): void
   spend(workUnits: number, operation: string): void
 }
 
-function createPolygonSearchBudget(maxWorkUnits: number): PolygonSearchBudget {
+function createPolygonSearchBudget(maxWorkUnits: number, maxElapsedMs: number): PolygonSearchBudget {
   const normalizedMaximum = Math.max(1, Math.floor(maxWorkUnits))
+  // Callers may request a tighter test/application budget, but one polygon
+  // can never extend the package-owned ten-second ceiling.
+  const normalizedElapsed = Math.max(1, Math.min(
+    DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS,
+    Number.isFinite(maxElapsedMs) ? maxElapsedMs : DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS,
+  ))
   return {
     maxWorkUnits: normalizedMaximum,
+    maxElapsedMs: normalizedElapsed,
+    startedAtMs: performance.now(),
     usedWorkUnits: 0,
+    checkpoint(operation) {
+      const elapsedMs = performance.now() - this.startedAtMs
+      if (elapsedMs >= this.maxElapsedMs) {
+        throw new PolygonSearchDeadlineExceeded(elapsedMs, this.maxElapsedMs, operation)
+      }
+    },
     spend(workUnits, operation) {
+      this.checkpoint(operation)
       const normalizedWork = Math.max(0, Math.ceil(workUnits))
       if (this.usedWorkUnits + normalizedWork > this.maxWorkUnits) {
         throw new PolygonSearchBudgetExceeded(this.usedWorkUnits, this.maxWorkUnits, operation)
@@ -127,11 +161,32 @@ export type CompactBoundaryOptimizationResult = {
   }>
   searchWorkUnits: number
   failure?: {
-    code: "POLYGON_SEARCH_BUDGET_EXCEEDED"
+    code: "POLYGON_SEARCH_BUDGET_EXCEEDED" | "POLYGON_SEARCH_DEADLINE_EXCEEDED"
     message: string
-    usedWorkUnits: number
-    maxWorkUnits: number
     operation: string
+    usedWorkUnits?: number
+    maxWorkUnits?: number
+    elapsedMs?: number
+    maxElapsedMs?: number
+  }
+}
+
+function polygonSearchFailure(
+  error: PolygonSearchBudgetExceeded | PolygonSearchDeadlineExceeded,
+): NonNullable<CompactBoundaryOptimizationResult["failure"]> {
+  if (error instanceof PolygonSearchDeadlineExceeded) return {
+    code: error.code,
+    message: `local polygon branch reached its ${error.maxElapsedMs}-ms time limit while ${error.operation}`,
+    operation: error.operation,
+    elapsedMs: error.elapsedMs,
+    maxElapsedMs: error.maxElapsedMs,
+  }
+  return {
+    code: error.code,
+    message: `local polygon branch reached its deterministic ${error.maxWorkUnits}-unit limit while ${error.operation}`,
+    operation: error.operation,
+    usedWorkUnits: error.usedWorkUnits,
+    maxWorkUnits: error.maxWorkUnits,
   }
 }
 
@@ -182,10 +237,10 @@ export function isOctilinearBoundary(points: PcbPoint[]) {
 
 function simplifyCollinear(points: PcbPoint[]) {
   let simplified = normalizeRing(points)
-  let changed = true
-  while (changed && simplified.length > 3) {
-    changed = false
-    const next = simplified.filter((current, index) => {
+  while (simplified.length > 3) {
+    let removable = -1
+    for (let index = 0; index < simplified.length; index += 1) {
+      const current = simplified[index]
       const previous = simplified[(index + simplified.length - 1) % simplified.length]
       const following = simplified[(index + 1) % simplified.length]
       const cross = (current.x - previous.x) * (following.y - current.y)
@@ -196,12 +251,16 @@ function simplifyCollinear(points: PcbPoint[]) {
         Math.hypot(following.x - current.x, following.y - current.y),
       )
       if (Math.abs(cross) <= ANGLE_TOLERANCE_MM * scale) {
-        changed = true
-        return false
+        removable = index
+        break
       }
-      return true
-    })
-    if (next.length >= 3) simplified = next
+    }
+    if (removable < 0) break
+    // Remove only one vertex per pass. Filtering all collinear vertices from
+    // the old ring can delete both sides of two adjacent near-duplicate
+    // corners, leave fewer than three points, and repeat forever without
+    // changing `simplified`.
+    simplified = simplified.filter((_, index) => index !== removable)
   }
   return simplified
 }
@@ -481,10 +540,13 @@ function unionBoundary(
   minimumFeatureMm: number,
   pocketClosingRadiusMm: number,
   regularizationWidthMm: number,
+  searchBudget: PolygonSearchBudget,
 ) {
+  searchBudget.checkpoint("starting compact-boundary union")
   const paths = rings.filter((ring) => ring.length >= 3 && boundaryArea(ring) > 1e-9).map(toClipper)
   if (!paths.length) return undefined
   const solution = unionPaths(paths)
+  searchBudget.checkpoint("unioning compact-boundary subjects")
   const raw = solution
     .map(fromClipper)
     .map(simplifyCollinear)
@@ -496,6 +558,7 @@ function unionBoundary(
   const protectedPaths = unionPaths(protectedRings
     .filter((ring) => ring.length >= 3 && boundaryArea(ring) > 1e-9)
     .map(toClipper))
+  searchBudget.checkpoint("unioning protected polygon subjects")
   // The protected pad bodies and minimum-width corridors are the electrical
   // connectivity invariant. Never let the later "largest contour" fallback
   // hide a disconnected target island.
@@ -503,6 +566,7 @@ function unionBoundary(
   const foreignPaths = unionPaths(foreignPadRings
     .filter((ring) => ring.length >= 3 && boundaryArea(ring) > 1e-9)
     .map(toClipper))
+  searchBudget.checkpoint("unioning foreign-pad obstacles")
   const baseBoundary = cleanOctilinearBoundaries(
     solution,
     minimumFeatureMm,
@@ -517,6 +581,7 @@ function unionBoundary(
     minimumFeatureMm,
     regularizationWidthMm,
   )[0] ?? baseBoundary
+  searchBudget.checkpoint("canonicalizing the compact boundary")
   const baseAreaMm2 = boundaryArea(canonicalBaseBoundary)
   const basePerimeterMm = boundaryPerimeterMm(canonicalBaseBoundary)
   const compactnessScaleMm = Math.max(minimumFeatureMm, regularizationWidthMm)
@@ -526,6 +591,7 @@ function unionBoundary(
   let bestEnergy = baseEnergy
 
   const candidateIsSafe = (candidatePaths: any[]) => {
+    searchBudget.checkpoint("validating a compact-boundary candidate")
     const normalized = unionPaths(candidatePaths)
     const boundaries = cleanOctilinearBoundaries(
       normalized,
@@ -572,6 +638,7 @@ function unionBoundary(
   }
 
   for (const radiusMm of radii) {
+    searchBudget.checkpoint("regularizing compact-boundary pockets")
     // Closing only fills concave bays. Unioning B back in makes the operation
     // extensive even when a large Clipper offset would otherwise lose a thin
     // neck numerically.
@@ -644,6 +711,7 @@ function unionBoundary(
         && removedEdgeCount <= MAX_SHORTCUT_REMOVED_EDGES;
       removedEdgeCount += 1) {
       for (let startIndex = 0; startIndex < passBoundary.length; startIndex += 1) {
+        searchBudget.checkpoint("searching compact-boundary shortcuts")
         const rotated = [
           ...passBoundary.slice(startIndex),
           ...passBoundary.slice(0, startIndex),
@@ -692,6 +760,7 @@ function unionBoundary(
     minimumFeatureMm,
     regularizationWidthMm,
   )
+  searchBudget.checkpoint("finishing compact-boundary regularization")
   const boundary = filtered[0] ?? raw.find(isOctilinearBoundary)
   if (!boundary) return undefined
   return {
@@ -786,11 +855,12 @@ function edgeBetween(geometries: PadGeometry[], a: number, b: number): Edge {
   }
 }
 
-function minimumSpanningTree(geometries: PadGeometry[]) {
+function minimumSpanningTree(geometries: PadGeometry[], searchBudget?: PolygonSearchBudget) {
   if (geometries.length < 2) return []
   const visited = new Set<number>([0])
   const edges: Edge[] = []
   while (visited.size < geometries.length) {
+    searchBudget?.checkpoint("building the polygon minimum spanning tree")
     let best: Edge | undefined
     for (const a of visited) {
       for (let b = 0; b < geometries.length; b += 1) {
@@ -959,6 +1029,7 @@ function padBankEnvelopes(
   padExpansionRatio: number,
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
+  searchBudget: PolygonSearchBudget,
 ): PadBankEnvelope[] {
   if (geometries.length < 2) return []
   const expandedBounds = geometries.map((geometry) => {
@@ -986,6 +1057,7 @@ function padBankEnvelopes(
       if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot
     }
     for (let left = 0; left < geometries.length; left += 1) {
+      searchBudget.checkpoint("detecting compact pad banks")
       for (let right = left + 1; right < geometries.length; right += 1) {
         if (padBankPairAxis(
           geometries[left],
@@ -1036,6 +1108,7 @@ function padBankEnvelopes(
   const foreignClearancePaths = foreignBounds.map((bounds) =>
     toClipper(boundsRing(inflateBounds(bounds, obstacleClearanceMm + 2 / SCALE))))
   return [...unique.values()].map(({ members, bounds }) => {
+    searchBudget.checkpoint("validating compact pad-bank connectivity")
     const orderedMembers = [...members].sort((left, right) => left - right)
     const rawMemberPaths = orderedMembers.map((member) =>
       toClipper(boundsRing(geometryBounds(geometries[member]))))
@@ -1100,6 +1173,7 @@ function rawPadOverlapCluster(geometries: PadGeometry[], seed: number) {
 function compactConnectivityGroups(
   geometries: PadGeometry[],
   bankEnvelopes: PadBankEnvelope[],
+  searchBudget: PolygonSearchBudget,
 ) {
   const parent = geometries.map((_, index) => index)
   const find = (value: number): number => parent[value] === value
@@ -1112,6 +1186,7 @@ function compactConnectivityGroups(
   }
   // Raw same-net copper is already connected even without a generated zone.
   for (let left = 0; left < geometries.length; left += 1) {
+    searchBudget.checkpoint("building compact-pad connectivity groups")
     const leftBounds = geometryBounds(geometries[left])
     for (let right = left + 1; right < geometries.length; right += 1) {
       const rightBounds = geometryBounds(geometries[right])
@@ -1875,7 +1950,7 @@ function routedConnectionsForCompactGroup(
   obstacleClearanceMm: number,
   searchBudget: PolygonSearchBudget,
 ) {
-  const groups = compactConnectivityGroups(geometries, bankEnvelopes)
+  const groups = compactConnectivityGroups(geometries, bankEnvelopes, searchBudget)
   if (groups.length < 2) return []
   const cache = new Map<string, RoutedEdge | null>()
   const clearanceContext = routedClearanceGateContext(
@@ -1890,6 +1965,7 @@ function routedConnectionsForCompactGroup(
   }
   const candidates: RoutedGroupLink[] = []
   const evaluateLink = (link: { firstGroup: number; secondGroup: number }) => {
+    searchBudget.checkpoint("evaluating a compact-group link")
     let best: RoutedEdge | undefined
     const selectsBankEndpoint = groups[link.firstGroup].length > 1
       || groups[link.secondGroup].length > 1
@@ -1955,6 +2031,7 @@ function routedConnectionsForCompactGroup(
   // the raw pad MST merely because it happened to be considered first.
   const links: Array<{ firstGroup: number; secondGroup: number; distanceMm: number }> = []
   for (let firstGroup = 0; firstGroup < groups.length; firstGroup += 1) {
+    searchBudget.checkpoint("enumerating compact-group links")
     for (let secondGroup = firstGroup + 1; secondGroup < groups.length; secondGroup += 1) {
       const distanceMm = Math.min(...groups[firstGroup].flatMap((first) =>
         groups[secondGroup].map((second) => edgeBetween(geometries, first, second).distanceMm)))
@@ -2042,13 +2119,15 @@ function optimizeGroup(
   obstacleClearanceMm: number,
   searchBudget: PolygonSearchBudget,
 ): CompactBoundaryOptimization | undefined {
-  const edges = minimumSpanningTree(geometries)
+  searchBudget.checkpoint("starting compact polygon optimization")
+  const edges = minimumSpanningTree(geometries, searchBudget)
   const bankEnvelopes = padBankEnvelopes(
     geometries,
     obstacles,
     padExpansionRatio,
     minimumCorridorWidthMm,
     obstacleClearanceMm,
+    searchBudget,
   )
   const routes = routedConnectionsForCompactGroup(
     geometries,
@@ -2104,6 +2183,7 @@ function optimizeGroup(
     minimumFeatureMm,
     pocketClosingRadiusMm,
     regularizationWidthMm,
+    searchBudget,
   )
   const unioned = branchGeometry.length <= 1
     ? globallyRegularized()
@@ -2116,6 +2196,7 @@ function optimizeGroup(
       let rawVertexCount = 0
       const filledPocketAreaMm2 = 0
       for (const branch of branchGeometry) {
+        searchBudget.checkpoint("merging a compact polygon branch")
         const endpointIndexes = [branch.routed.edge.a, branch.routed.edge.b]
         const endpointSubjects = endpointIndexes.flatMap((index) =>
           expandedPadRings(geometries[index], padExpansionRatio))
@@ -2148,6 +2229,7 @@ function optimizeGroup(
         rawVertexCount += branchInputs.reduce((sum, ring) => sum + ring.length, 0)
       }
       const mergeInputs = [...branchBoundaries, ...padSubjects, ...padBankSubjects]
+      searchBudget.checkpoint("merging compact polygon branches")
       const baselineBoundaries = mergeOctilinearBoundaries(mergeInputs)
       if (baselineBoundaries.length !== 1) return undefined
       const cleanedBoundaries = mergeOctilinearBoundaries(mergeInputs, minimumFeatureMm)
@@ -2238,6 +2320,7 @@ export function optimizeCompactBoundaries(
     minimumCorridorWidthMm?: number
     obstacleClearanceMm?: number
     maxSearchWorkUnits?: number
+    maxSearchElapsedMs?: number
   } = {},
 ): CompactBoundaryOptimizationResult {
   const maxPadFreeGapWidths = options.maxPadFreeGapWidths ?? MAX_PAD_FREE_GAP_WIDTHS
@@ -2246,6 +2329,7 @@ export function optimizeCompactBoundaries(
   const obstacleClearanceMm = options.obstacleClearanceMm ?? DEFAULT_OBSTACLE_CLEARANCE_MM
   const searchBudget = createPolygonSearchBudget(
     options.maxSearchWorkUnits ?? DEFAULT_MAX_POLYGON_SEARCH_WORK_UNITS,
+    options.maxSearchElapsedMs ?? DEFAULT_MAX_POLYGON_SEARCH_ELAPSED_MS,
   )
   const toGeometry = (pad: PolygonScenePad) => {
     const rings = ringsFromPad(pad).filter((ring) => ring.length >= 3)
@@ -2270,10 +2354,25 @@ export function optimizeCompactBoundaries(
       searchWorkUnits: 0,
     }
   }
-  const globalEdges = minimumSpanningTree(geometries)
+  let globalEdges: Edge[]
+  try {
+    globalEdges = minimumSpanningTree(geometries, searchBudget)
+  } catch (error) {
+    if (!(error instanceof PolygonSearchBudgetExceeded)
+      && !(error instanceof PolygonSearchDeadlineExceeded)) throw error
+    return {
+      boundaries: [],
+      maxPadFreeGapMm: 0,
+      maxPadFreeGapWidths: 0,
+      isolatedPads: [],
+      searchWorkUnits: searchBudget.usedWorkUnits,
+      failure: polygonSearchFailure(error),
+    }
+  }
   const groups = groupsAfterCut(geometries, globalEdges, maxPadFreeGapWidths)
   const boundaries: CompactBoundaryOptimization[] = []
   const isolatedPads: CompactBoundaryOptimizationResult["isolatedPads"] = []
+  let failure: CompactBoundaryOptimizationResult["failure"]
   const addIsolated = (geometry: PadGeometry, peers: PadGeometry[], reason?: string) => {
     const nearestPadFreeGapWidths = peers
       .filter((peer) => peer !== geometry)
@@ -2282,11 +2381,12 @@ export function optimizeCompactBoundaries(
   }
   for (const group of groups) {
     const members = group.map((index) => geometries[index])
-    if (members.length < 2) {
-      addIsolated(members[0], geometries)
-      continue
-    }
     try {
+      searchBudget.checkpoint("starting a local polygon group")
+      if (members.length < 2) {
+        addIsolated(members[0], geometries)
+        continue
+      }
       const optimized = optimizeGroup(
         members,
         obstacles,
@@ -2305,9 +2405,12 @@ export function optimizeCompactBoundaries(
         )
       }
     } catch (error) {
-      if (!(error instanceof PolygonSearchBudgetExceeded)) throw error
-      const reason = `local polygon branch reached its deterministic ${error.maxWorkUnits}-unit limit while ${error.operation}`
+      if (!(error instanceof PolygonSearchBudgetExceeded)
+        && !(error instanceof PolygonSearchDeadlineExceeded)) throw error
+      failure = polygonSearchFailure(error)
+      const reason = failure.message
       for (const geometry of members) addIsolated(geometry, members, reason)
+      break
     }
   }
   return {
@@ -2316,5 +2419,6 @@ export function optimizeCompactBoundaries(
     maxPadFreeGapWidths: globalEdges.length ? Math.max(...globalEdges.map((edge) => edge.gapWidths)) : 0,
     isolatedPads,
     searchWorkUnits: searchBudget.usedWorkUnits,
+    ...(failure ? { failure } : {}),
   }
 }
