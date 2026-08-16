@@ -123,9 +123,15 @@ function orderedScopeNets(request: BackendRouteRequest) {
   return request.program.onlyNets.filter((net) => known.has(net))
 }
 
+const GND_NET_NAMES = new Set(["GND", "/GND"])
+
+function isGroundNetName(net: string) {
+  return GND_NET_NAMES.has(net.trim().toUpperCase())
+}
+
 function routableScopeNets(request: BackendRouteRequest) {
   return orderedScopeNets(request).filter((net) => (
-    net.toUpperCase() !== "GND"
+    !isGroundNetName(net)
     && !request.program.ignoreNets.includes(net)
     && request.board.pads.filter((pad) => pad.net === net).length >= 2
   ))
@@ -554,7 +560,7 @@ export function planKrtQfnFanout(
   routeNets: readonly string[],
   gridStep: number,
 ): readonly KrtQfnFanoutPlan[] {
-  const scope = new Set(routeNets.filter((net) => net.toUpperCase() !== "GND"))
+  const scope = new Set(routeNets.filter((net) => !isGroundNetName(net)))
   const logicalPadCounts = new Map<string, number>()
   for (const pad of request.board.pads) if (pad.net) {
     logicalPadCounts.set(pad.net, (logicalPadCounts.get(pad.net) ?? 0) + 1)
@@ -649,7 +655,7 @@ export function selectKrtGridStep(
 ) {
   if (requestedGridStep <= 0.05 + 1e-9) return requestedGridStep
   const scope = new Set(routeNets.filter((net) => (
-    net.toUpperCase() !== "GND" && !request.program.ignoreNets.includes(net)
+    !isGroundNetName(net) && !request.program.ignoreNets.includes(net)
   )))
   const fineNominalFeature = [...scope].some((net) => {
     const values = ruleFor(request, net)
@@ -770,7 +776,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
       ]
       const special = new Set(specialNets)
       const remaining = orderedScopeNets(request).filter((net) => (
-        net.toUpperCase() !== "GND"
+        !isGroundNetName(net)
         && !special.has(net)
         && !request.program.ignoreNets.includes(net)
         && request.board.pads.filter((pad) => pad.net === net).length >= 2

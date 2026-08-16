@@ -326,6 +326,12 @@ function unique(values: readonly string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
 }
 
+const GND_NET_NAMES = new Set(["GND", "/GND"])
+
+function isGroundNetName(net: string) {
+  return GND_NET_NAMES.has(net.trim().toUpperCase())
+}
+
 function sameStrings(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
@@ -467,27 +473,6 @@ export async function persistKrtProtectedNets(
   const after = JSON.stringify(protectedNets)
   if (before !== after) await writeFile(projectPath, `${JSON.stringify(project, null, 2)}\n`, "utf8")
   return { path: projectPath, nets, changed: before !== after }
-}
-
-function isExactKrtNetName(value: string) {
-  // KRT expands fnmatch patterns and also splits comma-delimited tokens. The
-  // adapter contract is exact-name routing, so ambiguous names must be
-  // rejected instead of accidentally broadening a stage's scope.
-  return value.length > 0 && !/[*?\[\],]/.test(value)
-}
-
-function validateExactNetNames(
-  values: readonly string[],
-  context: string,
-  diagnostics: KrtDiagnostic[],
-) {
-  const invalid = unique(values).filter((value) => !isExactKrtNetName(value))
-  if (invalid.length) diagnostics.push(diagnostic(
-    "KRT_EXACT_NET_REQUIRED",
-    "error",
-    `${context} must use exact KRT net names, not wildcard or comma-delimited patterns.`,
-    invalid,
-  ))
 }
 
 function normalizePair(pair: KrtDiffPair): NormalizedPair {
@@ -1101,7 +1086,6 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
   const groupOwner = new Map<string, number>()
 
   pairs.forEach((pair, index) => {
-    validateExactNetNames([pair.positive, pair.negative], `diffPairs[${index}]`, diagnostics)
     if (!pair.positive || !pair.negative || pair.positive === pair.negative) {
       diagnostics.push(diagnostic(
         "KRT_INVALID_DIFF_PAIR",
@@ -1112,7 +1096,7 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
       return
     }
     for (const member of [pair.positive, pair.negative]) {
-      if (member.toUpperCase() === "GND") diagnostics.push(diagnostic(
+      if (isGroundNetName(member)) diagnostics.push(diagnostic(
         "KRT_GND_EXCLUDED", "error", "GND cannot be a special routed net.", { pair },
       ))
       const previous = memberOwner.get(member)
@@ -1127,7 +1111,6 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
   })
 
   groups.forEach((group, index) => {
-    validateExactNetNames(group.nets, `matchedGroups[${index}]`, diagnostics)
     if (group.nets.length < 2) diagnostics.push(diagnostic(
       "KRT_INVALID_MATCHED_GROUP",
       "error",
@@ -1135,7 +1118,7 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
       { index, group },
     ))
     for (const net of group.nets) {
-      if (net.toUpperCase() === "GND") diagnostics.push(diagnostic(
+      if (isGroundNetName(net)) diagnostics.push(diagnostic(
         "KRT_GND_EXCLUDED", "error", "GND cannot belong to a matched group.", { index, net },
       ))
       const previous = groupOwner.get(net)
@@ -1184,12 +1167,11 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
 
 function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
   const nets = unique(spec.remainingNets)
-  validateExactNetNames(nets, "remainingNets", diagnostics)
   const specialNets = new Set(spec.diffPairs.flatMap((pair) => {
     const normalized = normalizePair(pair)
     return [normalized.positive, normalized.negative]
   }))
-  const forbidden = nets.filter((net) => net.toUpperCase() === "GND" || specialNets.has(net))
+  const forbidden = nets.filter((net) => isGroundNetName(net) || specialNets.has(net))
   if (forbidden.length) diagnostics.push(diagnostic(
     "KRT_REMAINING_SCOPE_CONFLICT",
     "error",
@@ -1197,9 +1179,8 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
     forbidden,
   ))
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
-  validateExactNetNames(ripExistingNets, "ripExistingNets", diagnostics)
   const invalidRipNets = ripExistingNets.filter((net) => (
-    net.toUpperCase() === "GND" || specialNets.has(net) || nets.includes(net)
+    isGroundNetName(net) || specialNets.has(net) || nets.includes(net)
   ))
   if (invalidRipNets.length) diagnostics.push(diagnostic(
     "KRT_RIP_SCOPE_CONFLICT",
@@ -1209,7 +1190,6 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
   ))
   const routed = new Set(nets)
   const powerNames = unique((spec.powerNets ?? []).map((item) => item.net))
-  validateExactNetNames(powerNames, "powerNets", diagnostics)
   const invalidPower = (spec.powerNets ?? []).filter((item) => (
     !routed.has(item.net) || !Number.isFinite(item.width) || item.width <= 0
   ))
@@ -1345,7 +1325,6 @@ function qfnFanoutArgs(
   if (!pads.length) diagnostics.push(diagnostic(
     "KRT_INVALID_FANOUT_SCOPE", "error", "QFN fanout requires at least one exact logical pad number.",
   ))
-  validateExactNetNames(nets, "fanout nets", diagnostics)
   if (!nets.length) diagnostics.push(diagnostic(
     "KRT_INVALID_FANOUT_SCOPE", "error", "QFN fanout requires at least one exact net name.",
   ))

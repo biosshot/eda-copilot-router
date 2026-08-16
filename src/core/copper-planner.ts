@@ -27,6 +27,11 @@ const ROUTER_ZONE_MIN_THICKNESS_MM = DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM
 // keeps every router-owned compact power zone above the late ground pour even
 // when the DSL leaves both priorities at their default value.
 const ROUTER_COMPACT_ZONE_PRIORITY_BASE = 1
+const GND_NET_NAMES = new Set(["GND", "/GND"])
+
+function isGroundNetName(net: string) {
+  return GND_NET_NAMES.has(net.trim().toUpperCase())
+}
 
 export type PlannedRoutingCopper = Readonly<{
   copper: RoutingCopper
@@ -361,7 +366,7 @@ export function planRoutingCopper(
       net: plane.net,
       layers,
       outline: { outer: board.outline, holes: board.cutouts },
-      priority: plane.net.toUpperCase() === "GND"
+      priority: isGroundNetName(plane.net)
         ? 0
         : ROUTER_COMPACT_ZONE_PRIORITY_BASE,
       minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
