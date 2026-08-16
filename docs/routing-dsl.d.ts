@@ -150,7 +150,7 @@ declare function stack(options: {
 
 declare function quality(options: {
   profile?: "fast" | "balanced" | "quality-first" | "completion-first";
-  /** 1..16; use at most 3 unless a broader portfolio is intentional. */
+  /** 1..16; KRT also uses this as the cheap special-stage candidate cap. */
   maxCandidates?: number;
 }): void;
 

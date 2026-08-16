@@ -29,11 +29,15 @@ import {
 } from "./krt-runtime.js"
 
 export {
+  buildKrtSpecialCandidates,
+  parseKrtDrcViolationCount,
   KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
   KRT_RIPUP_ABANDON_METRIC_CHOICES,
   KRT_RIPUP_BLOCKER_SELECT_CHOICES,
+  type KrtOrdering,
   type KrtRipupAbandonMetric,
   type KrtRipupBlockerSelect,
+  type KrtSpecialCandidate,
 } from "./krt-adapter.js"
 
 export {
@@ -133,6 +137,15 @@ type KrtInternalRouteRequest = BackendRouteRequest & Readonly<{
   /** A preceding KRT stage already performed component-wide fanout. */
   krtSkipAutomaticFanout?: boolean
 }>
+
+/** Keep component fanout from pre-routing copper owned by the special stage. */
+export function krtAutomaticFanoutNets(
+  routeNets: readonly string[],
+  specialNets: readonly string[],
+) {
+  const special = new Set(specialNets)
+  return [...new Set(routeNets)].filter((net) => !special.has(net))
+}
 
 function normalizedLayerSet(layers: readonly string[]) {
   return [...new Set(layers)].sort()
@@ -681,6 +694,10 @@ function stringArray(value: unknown) {
 function summaryOpenNets(summary: Record<string, unknown> | undefined) {
   const output = new Set<string>()
   if (!summary) return output
+  if (Array.isArray(summary.special_open_nets)) {
+    for (const net of stringArray(summary.special_open_nets)) output.add(net)
+    return output
+  }
   for (const key of ["failed_single", "open_single", "single_ended_followup_nets"]) {
     for (const net of stringArray(summary[key])) output.add(net)
   }
@@ -825,8 +842,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           // A viaFence is generated only after its source routing succeeds, so
           // a planned fence cannot safely replace KRT's native return vias.
           suppressGroundReturnVias: false,
-          // onlyNets controls scope, never priority. All KRT subprocesses use
-          // the same MPS ordering without direct-first resorting.
+          // onlyNets controls scope, never priority. Ordinary routing keeps
+          // MPS; the special portfolio overrides this field per candidate.
           ordering: "mps",
           preserveNetOrder: true,
           // A dense pad escape may need the fixed 0.127 mm hard floor even
@@ -838,12 +855,14 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           collectStats: false,
           debugMemory: false,
           exactFilledZoneObstacles: true,
+          specialMaxCandidates: Math.max(1, Math.min(16, Math.trunc(request.policy?.maxCandidates ?? 1))),
           signal: request.signal,
         }
         let current = prepared.inputBoard
         const fanoutResults: KrtProcessResult[] = []
         const internalRequest = request as KrtInternalRouteRequest
-        const fanoutNets = internalRequest.krtAutomaticFanoutNets ?? routeScopeNets
+        const fanoutNets = internalRequest.krtAutomaticFanoutNets
+          ?? krtAutomaticFanoutNets(routeScopeNets, [...allSpecial])
         const fanoutGridStep = selectKrtGridStep(request, requestedGridStep, fanoutNets)
         const fanoutPlans = internalRequest.krtSkipAutomaticFanout
           ? []
@@ -1031,11 +1050,14 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
     ...adapter,
     routeSpecial(request) {
       const members = specialMembers(request)
+      const memberSet = new Set(members)
       const scoped: KrtInternalRouteRequest = {
         ...request,
-        // QFN/QFP fanout is component-wide and must happen before any power,
-        // differential, or ordinary maze route can occupy the escape ring.
-        krtAutomaticFanoutNets: routableScopeNets(request),
+        // Reserve ordinary pad escapes before special routing, but leave every
+        // differential/matched/fence member to its owning special router.
+        // Asymmetric pre-existing stubs can force route_diff.py into a DRC-
+        // invalid pair even when the same pair routes cleanly from bare pads.
+        krtAutomaticFanoutNets: krtAutomaticFanoutNets(routableScopeNets(request), [...memberSet]),
         program: {
           ...request.program,
           signalNets: request.program.signalNets.filter((item) => members.includes(item.net)),

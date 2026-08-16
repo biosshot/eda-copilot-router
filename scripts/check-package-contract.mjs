@@ -25,6 +25,25 @@ assert.equal(typeof easyEdaWasm.createEasyEdaWasmBackend, "function")
 assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
 assert.equal(typeof krt.createKrtBackend, "function")
+assert.equal(typeof krt.buildKrtSpecialCandidates, "function")
+const specialCandidates = krt.buildKrtSpecialCandidates(16, 4)
+assert.equal(specialCandidates.length, 16)
+assert.deepEqual(specialCandidates[0], {
+  id: "original-rip0", ordering: "original", mpsReverseRounds: false, maxRipup: 0,
+})
+assert.ok(specialCandidates.some((candidate) => candidate.mpsReverseRounds === true))
+assert.ok(specialCandidates.some((candidate) => candidate.maxRipup > 0))
+assert.ok(specialCandidates.every((candidate) => candidate.maxRipup >= 0))
+assert.equal(krt.buildKrtSpecialCandidates(32, 4).length, 16, "special portfolio must hard-cap at 16")
+assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... OK"), 0)
+assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... OK (1 same-net copper warning(s))"), 0)
+assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... FAILED (3 violations)"), 3)
+assert.equal(krt.parseKrtDrcViolationCount("check_drc produced no summary"), undefined)
+assert.deepEqual(
+  krt.krtAutomaticFanoutNets(["SIG", "USB_DP", "SIG", "USB_DM"], ["USB_DP", "USB_DM"]),
+  ["SIG"],
+  "automatic fanout must not pre-route copper owned by the special stage",
+)
 assert.equal(typeof krt.prepareKrtRuntime, "function")
 assert.deepEqual(krt.KRT_QUALITY_PROFILES, {
   fast: {
@@ -412,10 +431,12 @@ await api.run({
 assert.deepEqual(singleBalancedProfiles, ["balanced"], "one selected profile must mean one backend run")
 
 const cascadeProfiles = []
+const cascadeBudgets = []
 const cascadeBackend = {
   ...backend,
   async route(request) {
     cascadeProfiles.push(request.policy.profile)
+    cascadeBudgets.push(request.policy.maxCandidates)
     const complete = request.policy.profile === "completion-first"
     return {
       status: complete ? "complete" : "partial",
@@ -434,6 +455,7 @@ const cascadeResult = await api.run({
   policy: { profile: "balanced", maxCandidates: 2 },
 })
 assert.deepEqual(cascadeProfiles, ["balanced", "completion-first"])
+assert.deepEqual(cascadeBudgets, [2, 2], "stage-local backends must receive the caller's bounded candidate budget")
 assert.equal(cascadeResult.status, "complete")
 assert.equal(cascadeResult.copper.tracks.length, 1)
 assert.equal(cascadeResult.metrics.candidateCount, 2)

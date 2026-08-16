@@ -151,7 +151,9 @@ async function routeCandidate(
 ) {
   const scoped = {
     ...request,
-    policy: { ...policy, profile, maxCandidates: 1 },
+    // The core owns the profile cascade; the backend may use the same bounded
+    // budget for cheap stage-local variants (for example KRT special routing).
+    policy: { ...policy, profile },
   }
   const needsSpecialStage = request.program.viaFences.length > 0
   if (!needsSpecialStage || !backend.routeSpecial || !backend.routeRemaining) {

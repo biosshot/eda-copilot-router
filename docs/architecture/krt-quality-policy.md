@@ -111,21 +111,53 @@ polygon copper remain eligible: polygon connectivity collapses later maze
 terminals but must not suppress a useful escape from a dense package. Pads
 already touching routed track/via copper are not fanned again.
 
-The candidate cascade degrades toward completion, not away from it:
+Automatic component fanout excludes nets owned by the special stage. Their
+diff-pair, matched-group, or via-fence router must leave the dense package from
+the original pads as one atomic geometry problem; asymmetric fixed stubs can
+otherwise make a routable pair fail clearance. Ordinary pad escapes are still
+reserved before special routing.
+
+The whole-board profile cascade degrades toward completion, not away from it:
 
 - `fast` and `completion-first`: selected profile only;
 - `balanced`: balanced, then completion-first;
 - `quality-first`: quality-first, balanced, then completion-first.
 
-The first candidate with zero open nets wins. Although the DSL accepts up to
-16 candidates, the current cascade contains at most three distinct profiles.
+The first whole-board candidate with zero open nets wins. The cascade contains
+at most three distinct quality profiles.
+
+Within each profile, the much cheaper special stage has its own bounded search
+portfolio. `quality.maxCandidates` is passed through as its limit (hard maximum
+16), and the search stops as soon as all declared special nets pass KRT's
+geometry-aware connectivity audit without increasing the special-net DRC
+violation count. Every attempt starts from the same immutable pre-special
+board. The deterministic variants include:
+
+- declared pair order (`original`) with zero rip-up first;
+- ordinary MPS and reversed-round MPS (most-conflicting round first);
+- inside-out ordering;
+- isolated variants with zero, profile maximum, half-maximum and one rip-up.
+
+The selected special candidate alone is copied forward. Rip-up in a losing
+candidate therefore cannot damage a pair routed by another candidate. KRT GND
+return vias are disabled during differential search because PowerBank showed
+real pair-via clearance errors; explicit `viaFence` or later plane stitching
+owns those vias with board-level context.
+
+`single_ended_followup_nets` are not silently accepted. The adapter invokes one
+scoped `route.py` follow-up with zero rip-up, verifies that all existing coupled
+copper remains a multiset subset of the result, and reruns KRT's connectivity
+checker. A fully deferred or failed pair remains invalid even when ordinary
+single-ended copper could connect its members. Only a routed multipoint pair
+with short incomplete branches can become complete through this follow-up.
 
 ## Argument rules
 
-- Every KRT subprocess uses `--ordering mps`, including scoped `onlyNets`,
-  differential, matched, power, completion, and legacy staged calls.
-  `KICAD_DIRECT_FIRST=0` prevents KRT from repartitioning bare-BGA nets after
-  MPS; scope selection is not an implicit priority override.
+- Ordinary, power and completion subprocesses use `--ordering mps`. Isolated
+  special candidates may use `original`, `mps`, reversed-round `mps`, or
+  `inside_out`. `KICAD_DIRECT_FIRST=0` prevents KRT from repartitioning
+  bare-BGA nets after the selected order; scope selection is not an implicit
+  priority override.
 - `route.py`-only neck-down and rip-up-abandon options are never sent to
   `route_diff.py`.
 - Differential intra-pair matching is enabled only when a skew limit was
@@ -147,12 +179,12 @@ The first candidate with zero open nets wins. Although the DSL accepts up to
 
 - native track/pad teardrops;
 - per-net via geometry or incompatible layer groups in one process;
-- more than three genuinely distinct portfolio candidates;
+- additional candidate dimensions beyond ordering and bounded rip-up;
 - terminal-specific `powerPads` / `tapWidthMm` topology;
 - enforcement of `maxUncoupledLengthMm`;
 - KRT time matching, AC-coupling matching and per-layer costs;
 - native KRT coplanar/impedance controls beyond compiled width/gap;
-- reverse-order, layer-swap and proximity-guide portfolio variants.
+- layer-swap and proximity-guide portfolio variants.
 
 Each new upstream option needs an exact DSL mapping, DRC-preserving defaults,
 result validation, and an E2E regression before it becomes production policy.

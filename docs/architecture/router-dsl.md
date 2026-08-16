@@ -314,8 +314,9 @@ clearRouting({
 
 - quality profiles are `fast`, `balanced`, `quality-first`, and
   `completion-first`;
-- `maxCandidates` has a hard maximum of 16; documentation recommends at most
-  3 unless the caller explicitly wants a portfolio search;
+- `maxCandidates` has a hard maximum of 16. KRT uses the same bounded budget
+  for its cheap special-stage ordering/rip-up variants and stops at the first
+  electrically complete candidate;
 - `onlyNets` establishes the route scope and `ignoreNets` subtracts from it;
 - differential pairs and matched groups are atomic when scope is resolved;
 - copper already electrically connected by retained tracks or planned zones is
