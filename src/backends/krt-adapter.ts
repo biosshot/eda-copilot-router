@@ -479,9 +479,9 @@ function normalizePair(pair: KrtDiffPair): NormalizedPair {
   return Array.isArray(pair)
     ? { positive: String(pair[0] ?? "").trim(), negative: String(pair[1] ?? "").trim() }
     : {
-        positive: String((pair as { positive: string }).positive ?? "").trim(),
-        negative: String((pair as { negative: string }).negative ?? "").trim(),
-      }
+      positive: String((pair as { positive: string }).positive ?? "").trim(),
+      negative: String((pair as { negative: string }).negative ?? "").trim(),
+    }
 }
 
 function normalizeGroup(group: KrtMatchedGroup): NormalizedGroup {
@@ -783,7 +783,7 @@ async function runCaptured(
   timeoutMs: number | undefined,
   environment: Record<string, string> = {},
   abortSignal?: AbortSignal,
-) : Promise<CapturedProcess> {
+): Promise<CapturedProcess> {
   const started = performance.now()
   return await new Promise((resolvePromise) => {
     let stdout = ""
@@ -1070,10 +1070,10 @@ async function commonPreflight(
     const source = await readFile(inputBoard, "utf8")
     if (!spec.filledCopperProxy && !spec.exactFilledZoneObstacles
       && /(?:^|\s)\(zone(?=[\s(])/m.test(source)) diagnostics.push(diagnostic(
-      "KRT_ZONE_OBSTACLE_UNSUPPORTED",
-      "warning",
-      "Stock KRT does not stamp native filled-zone contours as routing obstacles. Native refill and final verification are authoritative.",
-    ))
+        "KRT_ZONE_OBSTACLE_UNSUPPORTED",
+        "warning",
+        "Stock KRT does not stamp native filled-zone contours as routing obstacles. Native refill and final verification are authoritative.",
+      ))
   } catch {
     // The input-not-found/copy diagnostics above already explain this case.
   }
@@ -1150,7 +1150,7 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
     "rules.diffPairGap is required for special differential-pair routing.",
   ))
   if (spec.rules.diffPairGap !== undefined
-      && spec.rules.diffPairGap + EPSILON < spec.rules.clearance) {
+    && spec.rules.diffPairGap + EPSILON < spec.rules.clearance) {
     diagnostics.push(diagnostic(
       "LOSSY_RULE_TRANSLATION",
       "error",
@@ -1238,7 +1238,7 @@ function commonArgs(
   pushNumericArg(args, "--direction-preference-cost", spec.directionPreferenceCost)
   if (spec.debugMemory) args.push("--debug-memory")
   args.push("--keep-input-copper", "--no-fix-drc-settings")
-  args.push("--fab-overrides", resolve(spec.fabOverridesPath))
+  // args.push("--fab-overrides", resolve(spec.fabOverridesPath))
   return args
 }
 
@@ -1307,7 +1307,9 @@ function remainingArgs(
     args.push("--power-nets", ...spec.powerNets.map((item) => item.net))
     args.push("--power-nets-widths", ...spec.powerNets.map((item) => numberArg(item.width)))
   }
-  return args
+
+  // console.log(args)
+  return args //.slice(0, 2)
 }
 
 function qfnFanoutArgs(
@@ -1373,7 +1375,7 @@ async function executeStage(
   buildArgs: (diagnostics: KrtDiagnostic[]) => string[] | undefined,
   summaryKind: "fanout" | "special" | "remaining" = stage,
   extraEnvironment: Readonly<Record<string, string>> = {},
-) : Promise<KrtProcessResult> {
+): Promise<KrtProcessResult> {
   const diagnostics: KrtDiagnostic[] = []
   const normalizedInput = resolve(inputBoard)
   const normalizedOutput = resolve(outputBoard)
@@ -1454,6 +1456,7 @@ async function executeStage(
     const processArgs = pythonScriptArgs(scriptPath, args, spec.pythonPathEntries)
     result.command = [executable, ...processArgs]
     result.invocationPath = join(normalizedArtifacts, `krt-${stage}-invocation.json`)
+    // console.log(result.command)
     await writeArtifact(result.invocationPath, `${JSON.stringify({
       stage,
       executable,
@@ -1780,8 +1783,8 @@ function specialSemanticOpenNets(
     const report = reports.find((item) => (
       item.p_net === pair.positive && item.n_net === pair.negative
     ) || (
-      item.p_net === pair.negative && item.n_net === pair.positive
-    ))
+        item.p_net === pair.negative && item.n_net === pair.positive
+      ))
     const incomplete = report ? stringArray(report.incomplete_members) : []
     const pairName = typeof report?.pair === "string" ? report.pair : ""
     const coupled = report?.outcome === "coupled"
