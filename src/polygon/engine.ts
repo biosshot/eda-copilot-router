@@ -194,6 +194,7 @@ function sourceRings(source: unknown): PcbPoint[][] {
 }
 
 export function ringsFromScenePolygon(polygon: PolygonScenePolygon) {
+  if (polygon.rings?.length) return structuredClone(polygon.rings)
   return polygon.sources.flatMap((source) => sourceRings(source))
 }
 
@@ -364,7 +365,7 @@ function planIntent(
   const optimized = optimizeCompactBoundaries(
     usablePads,
     ringsFromScenePad,
-    pcb.pads.filter((pad) => padOnLayer(pad, layer)),
+    [...pcb.pads, ...(pcb.obstacles ?? [])].filter((pad) => padOnLayer(pad, layer)),
     {
       maxPadFreeGapWidths: intent.maxPadFreeGapWidths,
       ...options.rulesForNet?.(intent.net),

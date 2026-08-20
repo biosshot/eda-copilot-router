@@ -8,6 +8,7 @@ import type {
   RoutingDiagnostic,
   RoutingRules,
 } from "./contracts.js"
+import { distanceToPadHoleCenterline, padHoleGeometry } from "./pad-hole.js"
 
 const EPSILON = 1e-7
 
@@ -98,7 +99,11 @@ function legalVia(
   if (board.keepouts.some((keepout) => keepout.forbid.vias
     && keepout.layers.some((layer) => layers.includes(layer))
     && distanceToRing(point, keepout.polygon.outer) < radius - EPSILON)) return false
+  const holeClearance = value.holeToHoleClearanceMm ?? value.clearanceMm
   if (board.pads.some((pad, index) => {
+    const hole = padHoleGeometry(pad)
+    if (hole && distanceToPadHoleCenterline(point, hole)
+      < drillMm / 2 + hole.radiusMm + holeClearance - EPSILON) return true
     if (index === ignoredPadIndex) return false
     const clearance = pad.net === net ? 0 : Math.max(value.clearanceMm, pad.net ? rulesForNet(rules, pad.net).clearanceMm : value.clearanceMm)
     return Math.hypot(point.x - pad.at.x, point.y - pad.at.y) < radius + padRadius(board, index) + clearance - EPSILON
@@ -340,7 +345,8 @@ export function planViaStitches(
         const actual = new Set([...board.copper.fixed.zones, ...board.copper.editable.zones]
           .filter((zone) => zone.fill?.style !== "hatched" && zoneContains(source.at, zone)
             && zone.layers.some((layer) => layer === source.fromLayer || layer === source.toLayer))
-          .map((zone) => zone.net))
+          .map((zone) => zone.net)
+          .filter((net): net is string => net !== undefined))
         if (actual.size === 1) referenceNet = [...actual][0]
       }
       if (!referenceNet) {

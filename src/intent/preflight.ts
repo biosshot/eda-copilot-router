@@ -72,7 +72,7 @@ function referenceCopper(board: RoutingBoard, program: RoutingProgram) {
     })
   }
   for (const zone of [...board.copper.fixed.zones, ...board.copper.editable.zones]) {
-    if (zone.fill?.style === "hatched") continue
+    if (!zone.net || zone.fill?.style === "hatched") continue
     for (const layer of zone.layers) output.push({
       net: zone.net, layer, ...(zone.clearanceMm === undefined ? {} : { clearanceMm: zone.clearanceMm }),
     })

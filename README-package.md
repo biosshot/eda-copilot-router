@@ -3,16 +3,15 @@
 EDA-neutral PCB routing contracts, DSL compiler, polygon/plane planning, and a
 single KRT backend.
 
-The host converts its native board into `RoutingBoard`, supplies a
-`KrtBoardTransport`, calls `run(...)`, and applies `RoutingResult` using native
-refill and DRC. Native editor structures are not part of the package API.
+The host converts its native board into `RoutingBoard`, calls `run(...)`, and
+applies `RoutingResult` using native refill and DRC. Native editor structures
+are not part of the package API.
 
 ```js
-import { createKrtBackend, run } from "@easyeda-copilot/router"
+import { run } from "@easyeda-copilot/router"
 
 const result = await run({
   board,
-  backend: createKrtBackend({ transport }),
   signal: abortController.signal,
   policy: { profile: "balanced", maxCandidates: 1 },
   dsl: `
@@ -31,6 +30,6 @@ The CLI accepts EDA-neutral JSON plus DSL source:
 
 ```text
 copilot-router validate board.json --dsl routing.dsl.js
-copilot-router run board.json --dsl routing.dsl.js --backend ./backend.js -o result.json
+copilot-router run board.json --dsl routing.dsl.js -o result.json
 copilot-router doctor
 ```

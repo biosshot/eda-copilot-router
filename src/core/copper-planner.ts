@@ -3,6 +3,7 @@ import type { CopperTarget, LayerSelector, PlaneIntent, RoutingProgram, ZoneOpti
 import { DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM } from "../polygon/boundary-optimizer.js"
 import { planPolygons } from "../polygon/engine.js"
 import { routingBoardToPolygonScene } from "../polygon/routing-board-adapter.js"
+import { distanceToPadHoleCenterline, padHoleGeometry } from "./pad-hole.js"
 import type {
   PointMm,
   RoutedVia,
@@ -193,20 +194,6 @@ function padRadius(board: RoutingBoard, component: string, number: string) {
   }
 }
 
-function padHole(board: RoutingBoard, pad: RoutingBoard["pads"][number]) {
-  if (!pad.hole) return undefined
-  const offset = pad.hole.offset ?? { x: 0, y: 0 }
-  const angle = pad.rotationDeg * Math.PI / 180
-  const center = {
-    x: pad.at.x + offset.x * Math.cos(angle) - offset.y * Math.sin(angle),
-    y: pad.at.y + offset.x * Math.sin(angle) + offset.y * Math.cos(angle),
-  }
-  return {
-    center,
-    radius: (pad.hole.diameterMm + (pad.hole.slotLengthMm ?? 0)) / 2,
-  }
-}
-
 function boardPointAllowed(board: RoutingBoard, point: PointMm, radius: number, edgeClearance: number) {
   if (!pointInRing(point, board.outline) || board.cutouts.some((cutout) => pointInRing(point, cutout))) return false
   const margin = radius + edgeClearance
@@ -256,10 +243,10 @@ function stitchingCandidates(
       const padClearance = padRadius(board, pad.component, pad.number)
         + radius + (pad.net === plane.net ? 0 : padSpacing)
       if (distance < padClearance - EPSILON) return false
-      const hole = padHole(board, pad)
+      const hole = padHoleGeometry(pad)
       const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
-      if (hole && Math.hypot(point.x - hole.center.x, point.y - hole.center.y)
-        < viaRule.drillMm / 2 + hole.radius + holeClearance - EPSILON) return false
+      if (hole && distanceToPadHoleCenterline(point, hole)
+        < viaRule.drillMm / 2 + hole.radiusMm + holeClearance - EPSILON) return false
     }
     for (const track of copper.tracks) {
       if (track.net === plane.net || !layers.includes(track.layer)) continue

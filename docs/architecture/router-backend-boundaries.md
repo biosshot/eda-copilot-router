@@ -30,10 +30,9 @@ backend contract.
 KiCad AST nodes and other native document objects are not router-core
 contracts.
 
-KRT is the default production engine. Its temporary KiCad board transport is a
-low-level adapter/engine bridge, not an ordinary caller-facing workflow. A
-built-in standalone KiCad operation constructs that bridge internally; the
-high-level API does not require `createKiCadTransport()`. See
+KRT is the default production engine. Its temporary KiCad board is materialized
+by one router-owned codec with no host or caller override. A built-in standalone
+KiCad operation composes native import/apply around the same portable core. See
 [`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).
 
 Do not add backend-specific route-job types to the DSL. The DSL describes

@@ -1,20 +1,17 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
-import { isAbsolute, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { resolve } from "node:path"
 import { run } from "./core/router.js"
 import { validateRoutingBoard } from "./core/validation.js"
 import { compileRoutingDsl } from "./intent/builder.js"
 import { compileRoutingRules } from "./intent/preflight.js"
-import type { RouterBackendAdapter } from "./adapters/contracts.js"
 
 const HELP = `copilot-router
 
 Commands:
   doctor
   validate <routing-board.json> --dsl <routing.dsl.js>
-  run <routing-board.json> --dsl <routing.dsl.js> --backend <module> -o <result.json>
+  run <routing-board.json> --dsl <routing.dsl.js> -o <result.json>
 
 The CLI is EDA-neutral. Import/apply/refill/DRC remain host-adapter operations.
 `
@@ -29,19 +26,6 @@ function option(args: string[], ...names: string[]) {
 
 async function json(path: string) {
   return JSON.parse(await readFile(resolve(path), "utf8")) as unknown
-}
-
-async function loadBackend(specifier: string): Promise<RouterBackendAdapter> {
-  const require = createRequire(resolve(process.cwd(), "package.json"))
-  const resolved = isAbsolute(specifier) || specifier.startsWith(".")
-    ? resolve(specifier)
-    : require.resolve(specifier)
-  const module = await import(pathToFileURL(resolved).href) as Record<string, unknown>
-  const backend = module.default ?? module.backend
-  if (!backend || typeof backend !== "object" || typeof (backend as RouterBackendAdapter).route !== "function") {
-    throw new TypeError("Backend module must export default or backend implementing RouterBackendAdapter")
-  }
-  return backend as RouterBackendAdapter
 }
 
 async function main() {
@@ -80,14 +64,10 @@ async function main() {
     return valid ? 0 : 1
   }
   if (command !== "run") throw new TypeError(`Unknown command ${command}`)
-  const backendSpecifier = option(args, "--backend")
   const outputPath = option(args, "-o", "--output")
   if (!outputPath) throw new TypeError("run requires -o <result.json>")
   const program = compileRoutingDsl(source)
-  const backend = program.operation === "apply-drc"
-    ? undefined
-    : backendSpecifier ? await loadBackend(backendSpecifier) : undefined
-  const result = await run({ board: validation.value, dsl: program, ...(backend ? { backend } : {}) })
+  const result = await run({ board: validation.value, dsl: program })
   await writeFile(resolve(outputPath), `${JSON.stringify(result, null, 2)}\n`, "utf8")
   return result.status === "error" ? 1 : 0
 }

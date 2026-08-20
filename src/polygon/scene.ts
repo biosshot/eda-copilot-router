@@ -30,11 +30,12 @@ export type PolygonScenePad = {
 }
 
 export type PolygonScenePolygon = {
-  net: string
+  net?: string
   layer: PcbLayerName | "MULTI"
   fill: boolean
   lineWidth: number
   sources: unknown[][]
+  rings?: PcbPoint[][]
 }
 
 export type PolygonSceneTrack = {
@@ -75,6 +76,8 @@ export type PolygonScene = {
   }
   components: PolygonSceneComponent[]
   pads: PolygonScenePad[]
+  /** Copper, cutouts, and keepouts participating in compact-boundary search. */
+  obstacles?: PolygonScenePad[]
   tracks: PolygonSceneTrack[]
   arcs: PolygonSceneArc[]
   vias: PolygonSceneVia[]

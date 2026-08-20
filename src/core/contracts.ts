@@ -89,7 +89,8 @@ export type RoutedVia = Readonly<{
 
 export type RoutedZone = Readonly<{
   id?: string
-  net: string
+  /** Omitted only for immutable copper whose electrical net is unknown. */
+  net?: string
   layers: readonly string[]
   outline: PolygonMm
   priority?: number

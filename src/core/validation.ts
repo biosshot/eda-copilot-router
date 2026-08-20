@@ -136,6 +136,7 @@ function validateCopper(
   path: string,
   nets: Set<string>,
   layers: Set<string>,
+  allowNetlessZones = false,
 ): value is RoutingCopper {
   if (!object(value)) {
     error(diagnostics, "ROUTING_COPPER_REQUIRED", `${path} must be an object.`, path)
@@ -170,13 +171,14 @@ function validateCopper(
   })
   zones.forEach((candidate, index) => {
     const at = `${path}.zones[${index}]`
-    if (!object(candidate) || typeof candidate.net !== "string" || !Array.isArray(candidate.layers)
+    if (!object(candidate) || (!allowNetlessZones && typeof candidate.net !== "string")
+      || (candidate.net !== undefined && typeof candidate.net !== "string") || !Array.isArray(candidate.layers)
       || !candidate.layers.length || !candidate.layers.every((item) => typeof item === "string")
       || !polygon(candidate.outline)) {
       error(diagnostics, "ROUTING_ZONE_INVALID", `${at} is not a valid routed zone.`, at)
       return
     }
-    if (!nets.has(candidate.net)) error(diagnostics, "ROUTING_UNKNOWN_NET", `${at} references unknown net ${candidate.net}.`, at)
+    if (typeof candidate.net === "string" && !nets.has(candidate.net)) error(diagnostics, "ROUTING_UNKNOWN_NET", `${at} references unknown net ${candidate.net}.`, at)
     for (const layer of candidate.layers) if (!layers.has(layer)) {
       error(diagnostics, "ROUTING_UNKNOWN_LAYER", `${at} references unknown layer ${layer}.`, at)
     }
@@ -311,7 +313,7 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
   }
   if (!object(value.copper)) error(diagnostics, "ROUTING_COPPER_REQUIRED", "copper is required.", "copper")
   else {
-    validateCopper(value.copper.fixed, diagnostics, "copper.fixed", nets, layers)
+    validateCopper(value.copper.fixed, diagnostics, "copper.fixed", nets, layers, true)
     validateCopper(value.copper.editable, diagnostics, "copper.editable", nets, layers)
   }
   return { ok: !diagnostics.some((item) => item.severity === "error"), value: value as RoutingBoard, diagnostics }

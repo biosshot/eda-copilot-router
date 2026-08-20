@@ -21,6 +21,7 @@ assert.equal(typeof dsl.compileRoutingDsl, "function")
 assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
 assert.equal(typeof krt.createKrtBackend, "function")
+assert.equal(krt.createKrtBackend().id, "krt")
 assert.equal(typeof krt.buildKrtSpecialCandidates, "function")
 const specialCandidates = krt.buildKrtSpecialCandidates(16, 4)
 assert.equal(specialCandidates.length, 16)
@@ -137,6 +138,18 @@ const board = {
 }
 
 assert.equal(api.validateRoutingBoard(board).ok, true)
+const netlessZone = {
+  layers: ["F.Cu"],
+  outline: { outer: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }] },
+}
+assert.equal(api.validateRoutingBoard({
+  ...board,
+  copper: { fixed: { ...emptyCopper, zones: [netlessZone] }, editable: emptyCopper },
+}).ok, true, "unknown-net copper regions are valid immutable obstacles")
+assert.equal(api.validateRoutingBoard({
+  ...board,
+  copper: { fixed: emptyCopper, editable: { ...emptyCopper, zones: [netlessZone] } },
+}).ok, false, "router-owned zones still require an electrical net")
 
 const nativeBusDefaults = dsl.compileRoutingDsl(`busDetect(true); runRouting()`)
 assert.equal(nativeBusDefaults.busDetect, true)

@@ -77,16 +77,16 @@ arbitrary JavaScript backend module. The low-level backend interface may
 remain for testing and future replacement engines.
 
 KRT consumes a temporary KiCad board even when the originating host is
-EasyEDA. `KrtBoardTransport` is the low-level bridge that materializes this
-temporary input and reads KRT's routed output back into `RoutingCopper`. It is
-not a second board model and must not appear in the DSL.
+EasyEDA. The router-owned `RoutingBoard`-to-KRT codec writes
+the temporary KRT input and reads routed copper without importing an EasyEDA
+or KiCad host adapter. Installed KiCad and `kicad-cli` are not runtime
+requirements for `RoutingBoard -> KRT -> RoutingResult`. The temporary
+`.kicad_pcb` is only KRT's internal interchange format.
 
-For host integrations, the bridge is constructed by the EasyEDA/KiCad adapter
-layer. For standalone KiCad commands, it is constructed internally by the
-built-in KiCad adapter. A public `createKiCadTransport()` workflow is not part
-of the accepted high-level API. If a fully generic `RoutingBoard`-to-KRT codec
-can preserve all required pads, rules, fixed copper, and filled-zone obstacles,
-it may later become the built-in default bridge for both hosts.
+Host adapters continue to own native import and final native application, but
+they do not define `createKrtBridge()`, `boardBridge`, or a public
+`createKiCadTransport()` workflow. There is no transport/codec override: all
+EasyEDA, KiCad, and portable callers use the same router-owned codec.
 
 ## Optional standalone KiCad path
 
@@ -96,9 +96,9 @@ The package will additionally provide a KiCad adapter and high-level CLI path:
 copilot-router route board.kicad_pcb --dsl routing.dsl.js -o routed.kicad_pcb
 ```
 
-The high-level operation composes native import, the internal KRT bridge,
+The high-level operation composes native import, the router-owned KRT codec,
 `run(...)`, transactional apply, refill, and native checks. Callers do not
-manually call `createKiCadTransport()`.
+configure a transport.
 
 The canonical portable path remains available for EasyEDA and other hosts:
 
@@ -124,3 +124,9 @@ The following are deliberately not part of the next implementation:
 - JSON schema versioning and migrations;
 - new fixed-copper or mechanical-obstacle collections without a demonstrated
   case that the existing normalized geometry cannot represent.
+
+CI must include both a portable core E2E and a real managed-KRT E2E on a runner
+where `kicad-cli` is absent. Neither test may import the sibling
+`kicad-copilot` project. Native KiCad apply/refill/DRC remains a separate,
+optional integration test and does not redefine the portable runtime
+prerequisites.

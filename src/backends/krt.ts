@@ -27,6 +27,7 @@ import {
   prepareKrtRuntime,
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
+import { readKrtBoard, writeKrtBoard } from "./krt-codec.js"
 
 export {
   buildKrtRemainingArgs,
@@ -51,31 +52,7 @@ export {
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
 
-export type KrtBoardTransportResult = Readonly<{
-  inputBoard: string
-  diagnostics?: readonly RoutingDiagnostic[]
-}>
-
-export type KrtBoardReadResult = Readonly<{
-  copper: RoutingCopper
-  diagnostics?: readonly RoutingDiagnostic[]
-}>
-
-/**
- * KRT itself consumes KiCad files. The EDA host owns this narrow transport,
- * while KRT stage selection, rule compilation and process custody stay here.
- */
-export interface KrtBoardTransport {
-  prepare(request: BackendRouteRequest, directory: string): Promise<KrtBoardTransportResult>
-  read(
-    request: BackendRouteRequest,
-    preparedBoard: string,
-    routedBoard: string,
-  ): Promise<KrtBoardReadResult>
-}
-
 export type KrtBackendOptions = Readonly<{
-  transport: KrtBoardTransport
   /** Optional development override. Normal package use lazily prepares KRT. */
   krtDirectory?: string
   pythonPath?: string
@@ -732,7 +709,7 @@ function processFailed(result: KrtProcessResult) {
   return result.status !== "completed" || result.diagnostics.some((item) => item.severity === "error")
 }
 
-export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapter {
+export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackendAdapter {
   let preparedRuntime: Promise<PreparedKrtRuntime> | undefined
   const runtime = (signal?: AbortSignal) => {
     if (!preparedRuntime) preparedRuntime = prepareKrtRuntime({
@@ -806,11 +783,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
       await mkdir(root, { recursive: true })
       const startedAt = performance.now()
       try {
-        const prepared = await options.transport.prepare(request, root)
-        diagnostics.push(...(prepared.diagnostics ?? []))
-        if (diagnostics.some((item) => item.severity === "error")) return {
-          status: "error", copper: EMPTY_COPPER, diagnostics,
-        }
+        const prepared = await writeKrtBoard(request, root)
         const quality = routeQuality(request)
         const { gridStep: requestedGridStep, ...stageQuality } = quality
         const allSpecial = new Set([
@@ -991,8 +964,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
           diagnostics.push(...convertDiagnostics(remainingResult.diagnostics))
           if (remainingResult.attempted && await exists(output)) current = output
         }
-        const routed = await options.transport.read(request, prepared.inputBoard, current)
-        diagnostics.push(...(routed.diagnostics ?? []))
+        const routed = await readKrtBoard(prepared.inputBoard, current)
         const ruleDiagnostics = routedCopperRuleDiagnostics(request, routed.copper)
         diagnostics.push(...ruleDiagnostics)
         const failed = (specialResult ? processFailed(specialResult) : false)

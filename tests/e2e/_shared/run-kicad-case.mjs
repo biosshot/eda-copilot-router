@@ -87,91 +87,6 @@ function sourceCopper(request) {
   }
 }
 
-function trackSegments(track) {
-  return track.points.slice(0, -1).map((start, index) => ({
-    net: track.net,
-    layer: track.layer,
-    widthMm: track.widthMm,
-    start,
-    end: track.points[index + 1],
-  }))
-}
-
-function trackKey(track) {
-  const points = [track.start, track.end].sort((left, right) => left.x - right.x || left.y - right.y)
-  const rounded = (value) => Math.round(value * 1_000_000)
-  return [track.net, track.layer, rounded(track.widthMm), ...points.flatMap((point) => [rounded(point.x), rounded(point.y)])].join("|")
-}
-
-function viaKey(via) {
-  const rounded = (value) => Math.round(value * 1_000_000)
-  return [via.net, rounded(via.at.x), rounded(via.at.y), rounded(via.diameterMm), rounded(via.drillMm),
-    via.fromLayer, via.toLayer, via.type ?? "through"].join("|")
-}
-
-function subtractCopper(source, output) {
-  const sourceTracks = new Map()
-  for (const segment of source.tracks.flatMap(trackSegments)) {
-    const key = trackKey(segment)
-    sourceTracks.set(key, (sourceTracks.get(key) ?? 0) + 1)
-  }
-  const tracks = []
-  for (const segment of output.tracks.flatMap(trackSegments)) {
-    const key = trackKey(segment)
-    const count = sourceTracks.get(key) ?? 0
-    if (count) sourceTracks.set(key, count - 1)
-    else tracks.push({
-      net: segment.net,
-      layer: segment.layer,
-      widthMm: segment.widthMm,
-      points: [segment.start, segment.end],
-    })
-  }
-  const sourceVias = new Map()
-  for (const via of source.vias) sourceVias.set(viaKey(via), (sourceVias.get(viaKey(via)) ?? 0) + 1)
-  const vias = output.vias.filter((via) => {
-    const key = viaKey(via)
-    const count = sourceVias.get(key) ?? 0
-    if (!count) return true
-    sourceVias.set(key, count - 1)
-    return false
-  })
-  return { tracks, vias, zones: [] }
-}
-
-function createTransport(context, adapter) {
-  return {
-    async prepare(request, directory) {
-      const inputBoard = join(directory, "01-krt-input.kicad_pcb")
-      const copper = sourceCopper(request)
-      const materialized = await adapter.materializeKiCadRoutingCandidate(
-        context,
-        copper,
-        request.rules,
-        inputBoard,
-        {
-          replaceAllCopper: true,
-          lockTracksAndVias: true,
-          refillZones: copper.zones.length > 0,
-        },
-      )
-      return { inputBoard: materialized.outputPath }
-    },
-    async read(request, _preparedBoard, routedBoard) {
-      const imported = await adapter.importKiCadRoutingBoard(routedBoard, { existingCopper: "fixed" })
-      if (!imported.board) return {
-        copper: { tracks: [], vias: [], zones: [] },
-        diagnostics: imported.diagnostics,
-      }
-      const source = sourceCopper(request)
-      return {
-        copper: subtractCopper({ tracks: source.tracks, vias: source.vias, zones: [] }, imported.board.copper.fixed),
-        diagnostics: imported.diagnostics,
-      }
-    },
-  }
-}
-
 async function resolveKiCadCli() {
   const candidates = [
     process.env.KICAD_CLI,
@@ -320,7 +235,6 @@ async function main() {
 
     const dsl = await readFile(selectedDslPath, "utf8")
     const backend = router.createKrtBackend({
-      transport: createTransport(imported.context, adapter),
       artifactsDirectory: join(runDirectory, "krt"),
       keepArtifacts: true,
     })

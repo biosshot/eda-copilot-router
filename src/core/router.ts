@@ -1,4 +1,5 @@
 import type { BackendRouteRequest, BackendRouteResult, RouterBackendAdapter } from "../adapters/contracts.js"
+import { createKrtBackend } from "../backends/krt.js"
 import { compileRoutingDsl } from "../intent/builder.js"
 import { compileRoutingRules } from "../intent/preflight.js"
 import type { ClearRoutingIntent, RoutingPolicy, RoutingProfile, RoutingProgram } from "../intent/types.js"
@@ -51,7 +52,8 @@ function mergeCopper(first: RoutingCopper, second: RoutingCopper): RoutingCopper
 }
 
 function clearEditableCopper(copper: RoutingCopper, intent: ClearRoutingIntent): RoutingCopper {
-  const selected = (net: string) => intent.nets === "all" || intent.nets.includes(net)
+  const selected = (net: string | undefined) => net !== undefined
+    && (intent.nets === "all" || intent.nets.includes(net))
   return {
     tracks: intent.items.includes("tracks") ? copper.tracks.filter((item) => !selected(item.net)) : copper.tracks,
     vias: intent.items.includes("vias") ? copper.vias.filter((item) => !selected(item.net)) : copper.vias,
@@ -230,7 +232,8 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       "DSL_COMPILE_ERROR", "Routing DSL could not be compiled.", error instanceof Error ? error.message : String(error),
     )], startedAt)
   }
-  const compiled = compileRoutingRules(request.board, program, request.backend?.capabilities)
+  const backend = request.backend ?? createKrtBackend()
+  const compiled = compileRoutingRules(request.board, program, backend.capabilities)
   const policy: RoutingPolicy = { ...program.quality, ...request.policy }
   const errors = compiled.diagnostics.filter((item) => item.severity === "error")
   const applyRequested = program.operation !== "route"
@@ -247,14 +250,6 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     operation: program.operation,
     rules: { effective: compiled.effective, applyRequested: true, overriddenFields: compiled.overriddenFields },
     diagnostics: compiled.diagnostics,
-    metrics: { elapsedMs: performance.now() - startedAt },
-    requiresNativeVerification: true,
-  }
-  if (!request.backend) return {
-    status: "error",
-    operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
-    diagnostics: [...compiled.diagnostics, exception("BACKEND_REQUIRED", "Routing operation requires a backend.")],
     metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
   }
@@ -327,10 +322,10 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   let backendPreflight: readonly RoutingDiagnostic[] = []
   try {
-    backendPreflight = await request.backend.preflight?.(backendRequest) ?? []
+    backendPreflight = await backend.preflight?.(backendRequest) ?? []
   } catch (error) {
     backendPreflight = [exception(
-      "BACKEND_PREFLIGHT_EXCEPTION", `${request.backend.id} preflight threw an exception.`,
+      "BACKEND_PREFLIGHT_EXCEPTION", `${backend.id} preflight threw an exception.`,
       error instanceof Error ? error.message : String(error),
     )]
   }
@@ -338,7 +333,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     status: "error", operation: program.operation,
     rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
     diagnostics: [...compiled.diagnostics, ...backendPreflight],
-    metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
     requiresNativeVerification: true,
   }
   const candidates: BackendCandidate[] = []
@@ -346,7 +341,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   for (const profile of profiles) {
     if (request.signal?.aborted) break
     try {
-      const result = await routeCandidate(request.backend, backendRequest, policy, profile)
+      const result = await routeCandidate(backend, backendRequest, policy, profile)
       candidates.push({ index: candidates.length, profile, result })
       if (result.status === "complete" && finiteMetric(result.metrics?.openNetCount, 0) === 0) break
     } catch (error) {
@@ -357,7 +352,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
           status: "error",
           copper: { tracks: [], vias: [], zones: [] },
           diagnostics: [exception(
-            "BACKEND_ROUTE_EXCEPTION", `${request.backend.id} threw during ${profile} routing.`,
+            "BACKEND_ROUTE_EXCEPTION", `${backend.id} threw during ${profile} routing.`,
             error instanceof Error ? error.message : String(error),
           )],
         },
@@ -370,7 +365,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
       "ROUTING_ABORTED", "Routing was aborted by the caller.", request.signal.reason,
     )],
-    metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id, candidateCount: candidates.length },
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: candidates.length },
     requiresNativeVerification: true,
   }
   if (!candidates.length) return {
@@ -380,7 +375,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       "ROUTING_ABORTED",
       "Routing was aborted before a candidate completed.",
     )],
-    metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id, candidateCount: 0 },
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: 0 },
     requiresNativeVerification: true,
   }
   candidates.sort(compareCandidates)
@@ -475,7 +470,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       // whether an explicitly invalid diagnostic artifact can be applied.
       copper: resultCopper,
       diagnostics,
-      metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+      metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
       requiresNativeVerification: true,
     }
     return {
@@ -489,7 +484,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       metrics: {
         ...backendResult.metrics,
         elapsedMs: performance.now() - startedAt,
-        backend: request.backend.id,
+        backend: backend.id,
         candidateCount: candidates.length,
         details: {
           ...backendResult.metrics?.details,
@@ -512,7 +507,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
         "PLANE_PLANNING_EXCEPTION", "Plane or stitching planning threw an exception.",
         error instanceof Error ? error.message : String(error),
       )],
-      metrics: { elapsedMs: performance.now() - startedAt, backend: request.backend.id },
+      metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
       requiresNativeVerification: true,
     }
   }
