@@ -15,5 +15,10 @@ const result = await router.run({
 assert.notEqual(result.status, "error", JSON.stringify(result.diagnostics))
 assert.ok((result.copper?.tracks.length ?? 0) > 0 || (result.copper?.vias.length ?? 0) > 0,
   `router-owned codec must return portable KRT copper: ${JSON.stringify(result.diagnostics)}`)
+for (const pad of board.pads) {
+  assert.ok(result.copper.tracks.some((track) => track.net === pad.net && track.points.some((point) =>
+    Math.hypot(point.x - pad.at.x, point.y - pad.at.y) < 0.9)),
+  `routed ${pad.net} copper must terminate at rotated ${pad.component}.${pad.number}`)
+}
 assert.equal(result.metrics?.backend, "krt")
 console.log(`managed KRT no-KiCad E2E: ok (${result.copper.tracks.length} tracks, ${result.copper.vias.length} vias)`)

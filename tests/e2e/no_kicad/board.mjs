@@ -26,8 +26,8 @@ export const board = Object.freeze({
   ],
   nets: nets.map((name) => ({ name })),
   components: [
-    { designator: "C1", at: { x: 18, y: 13 }, rotationDeg: 0, side: "top" },
-    { designator: "C2", at: { x: 18, y: 17 }, rotationDeg: 0, side: "top" },
+    { designator: "C1", at: { x: 18, y: 13 }, rotationDeg: 90, side: "top" },
+    { designator: "C2", at: { x: 18, y: 17 }, rotationDeg: 90, side: "top" },
     { designator: "J2", at: { x: 26, y: 15 }, rotationDeg: 0, side: "top" },
     { designator: "J1", at: { x: 10, y: 15 }, rotationDeg: 0, side: "top" },
   ],
@@ -92,4 +92,3 @@ export const dsl = `
   diffPair("DPB", { positive: "DPB_P", negative: "DPB_N" })
   runRouting()
 `
-
