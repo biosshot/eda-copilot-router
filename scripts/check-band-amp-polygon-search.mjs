@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 
 import { compileRoutingDsl, run } from "../package-dist/index.js"
-import { importKiCadRoutingBoard } from "../../kicad-copilot/dist/router-package-adapter.js"
+import { importKiCadRoutingBoard } from "../package-dist/adapters/kicad.js"
 
 const boardPath = resolve("tests/e2e/band_amp/fixture/band_amp.kicad_pcb")
 const dslPath = resolve("tests/e2e/band_amp/routing.js")

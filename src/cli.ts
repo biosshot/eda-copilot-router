@@ -2,6 +2,8 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { run } from "./core/router.js"
+import { createKrtBackend } from "./backends/krt.js"
+import { applyKiCadRoutingResult, importKiCadRoutingBoard } from "./adapters/kicad.js"
 import { validateRoutingBoard } from "./core/validation.js"
 import { compileRoutingDsl } from "./intent/builder.js"
 import { compileRoutingRules } from "./intent/preflight.js"
@@ -12,8 +14,10 @@ Commands:
   doctor
   validate <routing-board.json> --dsl <routing.dsl.js>
   run <routing-board.json> --dsl <routing.dsl.js> -o <result.json>
+  route <board.kicad_pcb> --dsl <routing.dsl.js> -o <routed.kicad_pcb> [--python <path>] [--profile fast]
 
-The CLI is EDA-neutral. Import/apply/refill/DRC remain host-adapter operations.
+The native KiCad command does not require KiCad or kicad-cli. Zone refill and
+native DRC remain optional host/native verification operations.
 `
 
 function option(args: string[], ...names: string[]) {
@@ -36,19 +40,47 @@ async function main() {
     return 0
   }
   if (command === "doctor") {
-    process.stdout.write(`${JSON.stringify({ node: process.version, edaAccess: "none", cwd: process.cwd() }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ node: process.version, edaAccess: "KiCad file adapter", nativeVerification: "optional", cwd: process.cwd() }, null, 2)}\n`)
     return 0
   }
   const boardPath = args[1]
   const dslPath = option(args, "--dsl")
-  if (!boardPath || !dslPath) throw new TypeError(`${command} requires <routing-board.json> --dsl <routing.dsl.js>`)
+  if (!boardPath || !dslPath) throw new TypeError(`${command} requires an input board and --dsl <routing.dsl.js>`)
+  const source = await readFile(resolve(dslPath), "utf8")
+  if (command === "route") {
+    if (!/\.kicad_pcb$/i.test(boardPath)) throw new TypeError("route requires <board.kicad_pcb>")
+    const outputPath = option(args, "-o", "--output")
+    if (!outputPath) throw new TypeError("route requires -o <routed.kicad_pcb>")
+    const imported = await importKiCadRoutingBoard(boardPath, { existingCopper: "fixed" })
+    if (!imported.board || !imported.context) {
+      process.stdout.write(`${JSON.stringify(imported, null, 2)}\n`)
+      return 1
+    }
+    const pythonPath = option(args, "--python")
+    const profile = option(args, "--profile") as "fast" | "balanced" | "quality-first" | "completion-first" | undefined
+    if (profile && !["fast", "balanced", "quality-first", "completion-first"].includes(profile)) throw new TypeError(`Unknown profile ${profile}`)
+    const result = await run({
+      board: imported.board,
+      dsl: compileRoutingDsl(source),
+      backend: createKrtBackend({ ...(pythonPath ? { pythonPath } : {}) }),
+      ...(profile ? { policy: { profile, maxCandidates: 1 } } : {}),
+    })
+    const applied = await applyKiCadRoutingResult(imported.context, result, outputPath)
+    process.stdout.write(`${JSON.stringify({
+      status: result.status,
+      outputPath: applied.outputPath,
+      metrics: result.metrics,
+      diagnostics: applied.diagnostics,
+      nativeVerification: applied.nativeVerification,
+    }, null, 2)}\n`)
+    return result.status === "error" || !applied.outputPath ? 1 : 0
+  }
   const boardInput = await json(boardPath)
   const validation = validateRoutingBoard(boardInput)
   if (!validation.ok || !validation.value) {
     process.stdout.write(`${JSON.stringify(validation, null, 2)}\n`)
     return 1
   }
-  const source = await readFile(resolve(dslPath), "utf8")
   if (command === "validate") {
     let program
     try { program = compileRoutingDsl(source) } catch (error) {

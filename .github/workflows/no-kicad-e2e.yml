@@ -33,4 +33,4 @@ jobs:
       - name: Assert KiCad is not installed
         run: test -z "$(command -v kicad-cli || true)"
       - run: npm run e2e:no-kicad:krt
-
+      - run: npm run e2e:no-kicad:native

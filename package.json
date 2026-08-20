@@ -27,6 +27,10 @@
       "types": "./package-dist/adapters/contracts.d.ts",
       "import": "./package-dist/adapters/contracts.js"
     },
+    "./adapters/kicad": {
+      "types": "./package-dist/adapters/kicad.d.ts",
+      "import": "./package-dist/adapters/kicad.js"
+    },
     "./backends/assets": {
       "types": "./package-dist/backends/assets.d.ts",
       "import": "./package-dist/backends/assets.js"
@@ -53,9 +57,9 @@
   },
   "scripts": {
     "build": "npm run build:public",
-    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/backends/assets.ts src/backends/krt.ts src/cli.ts --format esm --platform node --target node20 --out-dir package-dist --dts --clean --tsconfig tsconfig.public.json",
+    "build:public": "tsup src/index.ts src/intent/index.ts src/core/index.ts src/schema.ts src/adapters/contracts.ts src/adapters/kicad.ts src/backends/assets.ts src/backends/krt.ts src/backends/krt-codec.ts src/cli.ts --format esm --platform node --target node20 --out-dir package-dist --dts --clean --tsconfig tsconfig.public.json",
     "build:package": "npm run build:public",
-    "test:package": "npm run build:package && node scripts/check-package-contract.mjs",
+    "test:package": "npm run build:package && node scripts/check-package-contract.mjs && node scripts/check-krt-codec.mjs && node scripts/check-kicad-adapter.mjs",
     "e2e:kit-dev-coldfire-xilinx_5213": "npm run build:package && node tests/e2e/kit-dev-coldfire-xilinx_5213/run.mjs",
     "e2e:sonde_u": "npm run build:package && node tests/e2e/sonde_u/run.mjs",
     "e2e:powerbank": "npm run build:package && node tests/e2e/powerbank/run.mjs",
@@ -67,7 +71,8 @@
     "test": "npm run test:package",
     "e2e:no-kicad:portable": "npm run build:package && node tests/e2e/no_kicad/portable.mjs",
     "e2e:no-kicad:krt": "npm run build:package && node tests/e2e/no_kicad/krt.mjs",
-    "e2e:no-kicad": "npm run e2e:no-kicad:portable && npm run e2e:no-kicad:krt",
+    "e2e:no-kicad:native": "npm run build:package && node tests/e2e/no_kicad/native.mjs",
+    "e2e:no-kicad": "npm run e2e:no-kicad:portable && npm run e2e:no-kicad:krt && npm run e2e:no-kicad:native",
     "prepack": "npm run build:package",
     "e2e:cap_chain": "npm run build:package && node tests/e2e/cap_chain/run.mjs",
     "e2e:esp_prog": "npm run build:package && node tests/e2e/esp_prog/run.mjs",

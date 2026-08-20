@@ -13,7 +13,6 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 const testDirectory = dirname(fileURLToPath(import.meta.url))
 const routerDirectory = resolve(testDirectory, "../../..")
-const repositoryDirectory = resolve(routerDirectory, "..")
 
 function configuredPath(name) {
   const value = process.env[name]
@@ -95,6 +94,16 @@ async function resolveKiCadCli() {
   ].filter(Boolean)
   for (const candidate of candidates) if (await exists(candidate)) return candidate
   return "kicad-cli"
+}
+
+async function resolveKiCadPython() {
+  const candidates = [
+    process.env.KICAD_PYTHON,
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs", "KiCad", "10.0", "bin", "python.exe"),
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs", "KiCad", "9.0", "bin", "python.exe"),
+  ].filter(Boolean)
+  for (const candidate of candidates) if (await exists(candidate)) return candidate
+  throw new Error("Native zone verification requires KICAD_PYTHON or a standard KiCad Python installation")
 }
 
 async function runCaptured(command, args, cwd, signal) {
@@ -219,7 +228,7 @@ async function main() {
   const startedAt = performance.now()
   try {
     const router = await import(pathToFileURL(join(routerDirectory, "package-dist", "index.js")))
-    const adapter = await import(pathToFileURL(join(repositoryDirectory, "kicad-copilot", "dist", "router-package-adapter.js")))
+    const adapter = await import(pathToFileURL(join(routerDirectory, "package-dist", "adapters", "kicad.js")))
     const imported = await adapter.importKiCadRoutingBoard(inputPcb, { existingCopper: "fixed" })
     if (!imported.board || !imported.context) throw new Error(`KiCad import failed: ${JSON.stringify(imported.diagnostics)}`)
     const fixtureCopper = sourceCopper({ board: imported.board })
@@ -248,10 +257,17 @@ async function main() {
     })
     await writeFile(join(runDirectory, "routing-result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8")
     console.log(`[e2e] router status: ${result.status}`)
-    console.log("[e2e] apply + refill + native final DRC")
-    const applied = await adapter.applyKiCadRoutingResult(imported.context, result, outputPcb, { nativeVerify: true })
+    console.log("[e2e] apply + native final DRC")
+    const applied = await adapter.applyKiCadRoutingResult(imported.context, result, outputPcb)
     await writeFile(join(runDirectory, "apply-result.json"), `${JSON.stringify(applied, null, 2)}\n`, "utf8")
     if (!applied.outputPath) throw new Error(`KiCad apply failed: ${JSON.stringify(applied.diagnostics)}`)
+    if (result.copper?.zones.length) {
+      console.log("[e2e] native zone refill")
+      const refill = await runCaptured(await resolveKiCadPython(), [
+        join(routerDirectory, "scripts", "native-refill.py"), applied.outputPath,
+      ], dirname(applied.outputPath), abortController.signal)
+      if (refill.code !== 0) throw new Error(`KiCad zone refill failed: ${refill.stderr || refill.stdout}`)
+    }
     const finalDrc = await nativeDrc(kicadCli, applied.outputPath, finalReportPath, abortController.signal)
     const fixtureAfter = {
       pcb: await sha256(fixturePcb),

@@ -17,6 +17,8 @@ const krt = await import(pathToFileURL(join(distRoot, "backends", "krt.js")).hre
 
 assert.equal(typeof api.run, "function")
 assert.equal(typeof api.validateRoutingBoard, "function")
+assert.equal(typeof api.importKiCadRoutingBoard, "function")
+assert.equal(typeof api.applyKiCadRoutingResult, "function")
 assert.equal(typeof dsl.compileRoutingDsl, "function")
 assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
@@ -827,7 +829,7 @@ assert.equal(malformed.copper.tracks.length, 1, "post-validation must retain the
 
 const doctor = spawnSync(process.execPath, [join(distRoot, "cli.js"), "doctor"], { cwd: root, encoding: "utf8" })
 assert.equal(doctor.status, 0, doctor.stderr)
-assert.equal(JSON.parse(doctor.stdout).edaAccess, "none")
+assert.equal(JSON.parse(doctor.stdout).edaAccess, "KiCad file adapter")
 
 const temporary = await mkdtemp(join(tmpdir(), "copilot-router-package-"))
 try {

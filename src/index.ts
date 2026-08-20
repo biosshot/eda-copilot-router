@@ -1,4 +1,5 @@
 export * from "./adapters/contracts.js"
+export * from "./adapters/kicad.js"
 export * from "./backends/assets.js"
 export * from "./backends/krt.js"
 export * from "./core/index.js"

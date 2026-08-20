@@ -15,6 +15,7 @@
     "src/core/**/*.ts",
     "src/intent/**/*.ts",
     "src/adapters/contracts.ts",
+    "src/adapters/kicad.ts",
     "src/backends/assets.ts",
     "src/backends/krt.ts"
   ]

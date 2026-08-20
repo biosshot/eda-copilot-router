@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 
 import { run } from "../package-dist/index.js"
-import { importKiCadRoutingBoard } from "../../kicad-copilot/dist/router-package-adapter.js"
+import { importKiCadRoutingBoard } from "../package-dist/adapters/kicad.js"
 
 const boardPath = resolve(process.env.COPILOT_ROUTER_POWERBANK_BOARD
   ?? "tests/e2e/powerbank/fixture/Powerbank.kicad_pcb")

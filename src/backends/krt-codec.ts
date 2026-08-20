@@ -85,21 +85,31 @@ function padLayers(pad: RoutingPad, through: boolean) {
   return [...copper, quote(`${side}.Mask`), quote(`${side}.Paste`)].join(" ")
 }
 
+function localHoleOffset(pad: RoutingPad, component: BackendRouteRequest["board"]["components"][number]) {
+  if (!pad.hole?.offset) return undefined
+  // Hole offsets are expressed in the pad-local frame by both RoutingBoard and
+  // KiCad. Mirroring a bottom footprint is already handled by the footprint.
+  return component.side === "bottom"
+    ? { x: -pad.hole.offset.x, y: pad.hole.offset.y }
+    : pad.hole.offset
+}
+
 function padSource(
   pad: RoutingPad,
   component: BackendRouteRequest["board"]["components"][number],
 ) {
   const position = localPadPoint(pad, component)
-  const through = Boolean(pad.hole?.plated)
-  const type = through ? "thru_hole" : "smd"
+  const through = Boolean(pad.hole)
+  const type = pad.hole ? pad.hole.plated ? "thru_hole" : "np_thru_hole" : "smd"
   const size = padSize(pad)
   const localRotation = component.side === "bottom"
     ? component.rotationDeg - pad.rotationDeg
     : pad.rotationDeg - component.rotationDeg
+  const holeOffset = localHoleOffset(pad, component)
   const hole = pad.hole
     ? pad.hole.shape === "slot"
-      ? `(drill oval ${number(pad.hole.diameterMm + (pad.hole.slotLengthMm ?? 0))} ${number(pad.hole.diameterMm)})`
-      : `(drill ${number(pad.hole.diameterMm)})`
+      ? `(drill oval ${number(pad.hole.diameterMm + (pad.hole.slotLengthMm ?? 0))} ${number(pad.hole.diameterMm)}${holeOffset ? ` (offset ${xy(holeOffset)})` : ""})`
+      : `(drill ${number(pad.hole.diameterMm)}${holeOffset ? ` (offset ${xy(holeOffset)})` : ""})`
     : ""
   const roundrect = pad.shape.kind === "round-rect"
     ? `(roundrect_rratio ${number(Math.min(0.5, pad.shape.cornerRadiusMm / Math.max(0.001, Math.min(size.width, size.height))))})`
@@ -160,16 +170,43 @@ function polygonPoints(points: readonly PointMm[]) {
   return `(pts ${points.map((point) => `(xy ${xy(point)})`).join(" ")})`
 }
 
+function zonePolygons(outline: RoutingCopper["zones"][number]["outline"]) {
+  return [outline.outer, ...(outline.holes ?? [])]
+    .map((ring) => `(polygon ${polygonPoints(ring)})`)
+    .join("\n")
+}
+
 function zoneSource(zone: RoutingCopper["zones"][number], layer: string) {
+  if (!zone.net) return `(zone (layer ${quote(layer)}) ${uuid()} (hatch edge 0.5)
+    (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))
+    ${zonePolygons(zone.outline)})`
   const clearance = zone.clearanceMm ?? 0
   const thickness = zone.minThicknessMm ?? 0.1
+  const padMode = zone.padConnection?.mode ?? zone.connection ?? "thermal"
+  const thermalGap = zone.padConnection?.thermalGapMm ?? Math.max(clearance, 0.3)
+  const spokeWidth = zone.padConnection?.spokeWidthMm ?? 0.3
+  const spokeCount = zone.padConnection?.spokeCount
+  const spokeAngle = zone.padConnection?.spokeAngleDeg
+  const fill = zone.fill?.style === "hatched"
+    ? `(fill yes (mode hatch) (thermal_gap ${number(thermalGap)}) (thermal_bridge_width ${number(spokeWidth)})
+        ${spokeCount === undefined ? "" : `(thermal_bridge_count ${spokeCount})`}
+        ${spokeAngle === undefined ? "" : `(thermal_bridge_angle ${number(spokeAngle)})`}
+        (island_removal_mode 1) (island_area_min ${number(zone.removeIslandsBelowMm2 ?? 0)})
+        (hatch_thickness ${number(zone.fill.hatchThicknessMm ?? 0.5)})
+        (hatch_gap ${number(zone.fill.hatchGapMm ?? 0.5)})
+        (hatch_orientation ${number(zone.fill.hatchOrientationDeg ?? 0)}))`
+    : `(fill yes (thermal_gap ${number(thermalGap)}) (thermal_bridge_width ${number(spokeWidth)})
+        ${spokeCount === undefined ? "" : `(thermal_bridge_count ${spokeCount})`}
+        ${spokeAngle === undefined ? "" : `(thermal_bridge_angle ${number(spokeAngle)})`}
+        (island_removal_mode 1) (island_area_min ${number(zone.removeIslandsBelowMm2 ?? 0)}))`
   return `(zone
     ${zone.net ? `(net ${quote(zone.net)})` : ""}
     (layer ${quote(layer)}) ${uuid()} (hatch edge 0.5)
-    (connect_pads yes (clearance ${number(clearance)}))
+    ${zone.priority === undefined ? "" : `(priority ${number(zone.priority)})`}
+    ${padMode === "none" ? "(connect_pads (clearance 0))" : `(connect_pads ${padMode === "solid" ? "yes " : ""}(clearance ${number(clearance)}))`}
     (min_thickness ${number(thickness)})
-    (fill yes (thermal_gap 0.3) (thermal_bridge_width 0.3) (island_removal_mode 0))
-    (polygon ${polygonPoints(zone.outline.outer)})
+    ${fill}
+    ${zonePolygons(zone.outline)}
     (filled_polygon (layer ${quote(layer)}) ${polygonPoints(zone.outline.outer)}))`
 }
 
@@ -179,12 +216,13 @@ function keepoutSource(keepout: BackendRouteRequest["board"]["keepouts"][number]
       (tracks ${keepout.forbid.tracks ? "not_allowed" : "allowed"})
       (vias ${keepout.forbid.vias ? "not_allowed" : "allowed"})
       (pads allowed) (copperpour ${keepout.forbid.zones ? "not_allowed" : "allowed"}) (footprints allowed))
-    (polygon ${polygonPoints(keepout.polygon.outer)}))`
+    ${zonePolygons(keepout.polygon)})`
 }
 
 function layerSource(request: BackendRouteRequest) {
-  const copper = request.board.layers.map((layer, index) => {
-    const id = layer.side === "top" ? 0 : layer.side === "bottom" ? 2 : 4 + index * 2
+  let innerIndex = 0
+  const copper = request.board.layers.map((layer) => {
+    const id = layer.side === "top" ? 0 : layer.side === "bottom" ? 2 : 4 + innerIndex++ * 2
     return `(${id} ${quote(layer.name)} signal)`
   })
   return [...copper,
@@ -232,6 +270,37 @@ function childPoint(expression: SExpression[], name: string): PointMm | undefine
   return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined
 }
 
+export function approximateKiCadArc(start: PointMm, mid: PointMm, end: PointMm, toleranceMm = 0.01) {
+  const determinant = 2 * (start.x * (mid.y - end.y) + mid.x * (end.y - start.y) + end.x * (start.y - mid.y))
+  if (Math.abs(determinant) < 1e-9) return [start, end]
+  const start2 = start.x ** 2 + start.y ** 2
+  const mid2 = mid.x ** 2 + mid.y ** 2
+  const end2 = end.x ** 2 + end.y ** 2
+  const center = {
+    x: (start2 * (mid.y - end.y) + mid2 * (end.y - start.y) + end2 * (start.y - mid.y)) / determinant,
+    y: (start2 * (end.x - mid.x) + mid2 * (start.x - end.x) + end2 * (mid.x - start.x)) / determinant,
+  }
+  const angle = (point: PointMm) => Math.atan2(point.y - center.y, point.x - center.x)
+  const tau = Math.PI * 2
+  const normalized = (value: number) => ((value % tau) + tau) % tau
+  const from = angle(start)
+  let to = angle(end)
+  const ccwSpan = normalized(to - from)
+  if (normalized(angle(mid) - from) > ccwSpan) while (to >= from) to -= tau
+  else while (to <= from) to += tau
+  const radius = Math.hypot(start.x - center.x, start.y - center.y)
+  const safeTolerance = Math.max(0.0001, Math.min(toleranceMm, radius))
+  const maxStep = 2 * Math.acos(Math.max(-1, Math.min(1, 1 - safeTolerance / radius)))
+  const count = Math.max(2, Math.min(1024, Math.ceil(Math.abs(to - from) / Math.max(maxStep, Math.PI / 180))))
+  const points = Array.from({ length: count + 1 }, (_, index) => {
+    const current = from + (to - from) * index / count
+    return { x: center.x + Math.cos(current) * radius, y: center.y + Math.sin(current) * radius }
+  })
+  points[0] = start
+  points[points.length - 1] = end
+  return points
+}
+
 function netMap(root: SExpression[]) {
   return new Map(listChildren(root, "net").flatMap((item) => {
     const id = atom(item[1])
@@ -253,8 +322,10 @@ function parseCopper(source: string): RoutingCopper {
     const net = expressionNet(expression, nets)
     const layer = atom(findChild(expression, "layer")?.[1])
     const widthMm = childNumber(expression, "width")
-    const points = [childPoint(expression, "start"), childPoint(expression, "mid"), childPoint(expression, "end")]
-      .filter((point): point is PointMm => point !== undefined)
+    const start = childPoint(expression, "start")
+    const mid = childPoint(expression, "mid")
+    const end = childPoint(expression, "end")
+    const points = start && end ? mid ? approximateKiCadArc(start, mid, end) : [start, end] : []
     if (net && layer && widthMm && points.length >= 2) tracks.push({ net, layer, widthMm, points })
   }
   const vias: RoutedVia[] = []
