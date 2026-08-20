@@ -18,8 +18,10 @@ The public orchestration model uses three independent boundaries:
 2. `RouterBackendAdapter` translates `RoutingBoard` for one routing algorithm
    and returns untrusted router-owned copper. It never reads or writes the
    source board directly.
-3. A native verification adapter runs the target EDA's zone refill, DRC, and
-   connectivity checks after the result has been applied.
+3. The host's board adapter runs the target EDA's zone refill, DRC, and
+   connectivity checks after the result has been applied. This remains outside
+   `run(...)`; no separate verifier callback is required by the current core
+   contract.
 
 Backend distribution follows [backend-assets.md](backend-assets.md): KRT is a
 verified lazy-managed asset. A manual checkout is never part of the public
@@ -27,6 +29,12 @@ backend contract.
 
 KiCad AST nodes and other native document objects are not router-core
 contracts.
+
+KRT is the default production engine. Its temporary KiCad board transport is a
+low-level adapter/engine bridge, not an ordinary caller-facing workflow. A
+built-in standalone KiCad operation constructs that bridge internally; the
+high-level API does not require `createKiCadTransport()`. See
+[`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).
 
 Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and

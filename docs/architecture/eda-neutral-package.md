@@ -49,7 +49,12 @@ Board-wide planes and stitching vias are planned after trace routing, using the
 returned tracks/vias as obstacles. This keeps a GND plane from blocking the
 route search while retaining polygon-first ownership for compact power copper.
 
-KRT is the only backend. It consumes a temporary KiCad board through a narrow
-host-supplied transport and returns the portable `RoutingResult` copper model.
-The npm package does not export native EDA structures or the private polygon
-geometry scene.
+KRT is the only production backend and is the default engine. It consumes a
+temporary KiCad board through a narrow bridge and returns the portable
+`RoutingResult` copper model. Host integrations construct that bridge in their
+adapter layer; a standalone KiCad adapter constructs it internally. Ordinary
+callers are not expected to select KRT with an external backend module or call
+`createKiCadTransport()` themselves. The npm package does not expose native
+EDA structures or the private polygon geometry scene. The accepted next-step
+details are recorded in
+[`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).
