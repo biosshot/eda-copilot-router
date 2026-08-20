@@ -1,314 +1,68 @@
 # @easyeda-copilot/router
 
-The repository now exposes an EDA-neutral npm package with one `RoutingBoard`
-model, a local statement DSL, `RoutingResult`, and a small JSON CLI. See
-[`README-package.md`](README-package.md) and the
-[`EDA-neutral architecture`](docs/architecture/eda-neutral-package.md).
+EDA-neutral routing core with one production backend: KiCad Routing Tools
+(KRT). The package compiles the local routing DSL into effective design rules,
+plans compact polygons/planes, runs KRT, and returns portable copper geometry.
 
-The mature fixed-placement workflow remains available below as a legacy
-benchmark while KiCad and EasyEDA adopt the package contracts in their own
-host-side converters.
+Native KiCad file import, project-rule persistence, refill, DRC, and atomic
+application belong to a separate host adapter. This repository neither edits
+nor builds that host project.
 
-## Fixed-placement staged autorouter benchmark
+## Public surface
 
-The backend-independent routing architecture and its fail-fast invariants are
-recorded in [`docs/architecture/router-backend-boundaries.md`](docs/architecture/router-backend-boundaries.md).
-
-This benchmark keeps every KiCad footprint at its existing position and compares three EasyEDA WASM routing strategies:
-
-1. `baseline`: all non-GND nets in one pass.
-2. `block-local-first`: local IP5328P/USB port blocks first, shared power trunks last.
-3. `skeleton-first-repair`: USB pairs and shared power trunks first, remaining local nets second, then up to two blocker-aware rip-up/repair attempts.
-
-All variants:
-
-- remove existing tracks, vias, arcs, and zones from a cloned board;
-- never route GND;
-- use the same KiCad DRC/netclass rules;
-- route with final track widths instead of widening thin tracks after routing;
-- enable the same differential-pair mapping;
-- preserve the original component placement;
-- write boards, router JSON, KiCad DRC JSON, timing, and memory metrics under `results/`.
-
-Run:
-
-```powershell
-npm run build
-npm test
-```
-
-Environment overrides:
-
-- `COPILOT_ROUTER_BOARD`
-- `COPILOT_ROUTER_RULES_BOARD`
-- `COPILOT_ROUTER_TIMEOUT_MS`
-- `COPILOT_ROUTER_REPAIR_TIMEOUT_MS` (default: 90 seconds per repair attempt)
-- `COPILOT_ROUTER_CLEARANCE_MARGIN_MM`
-- `COPILOT_ROUTER_DIFF_PAIRS=0` to disable differential-pair routing for an isolation test.
-- `COPILOT_ROUTER_RESULT_SET` to keep isolation runs in a separate results subdirectory.
-
-## Local native-zone planner
-
-The mature planner consumes the package `RoutingBoard` through a private,
-geometry-only `PolygonScene`. `PolygonScene` is an implementation detail, not
-a second board exchange format and not part of the package exports. The legacy
-KiCad workflow normalizes its AST into the same private view. KiCad and EasyEDA
-are host adapters; their native zone
-fillers remain responsible for exact pad avoidance, DRC clearance, thermal
-spokes, clipping, and island removal.
-
-The LLM-facing DSL only names the copper net and the pads that should be joined.
-It never supplies polygon points, absolute bounds, clearance, or refill settings:
+- `@easyeda-copilot/router` — `run(...)`, board/result contracts and validation.
+- `@easyeda-copilot/router/dsl` — DSL compiler and preflight.
+- `@easyeda-copilot/router/backends/krt` — the only routing backend.
+- `@easyeda-copilot/router/backends/assets` — managed KRT asset support.
+- `@easyeda-copilot/router/schema` and `/core` — portable contracts/schema.
 
 ```js
-polygon("VSYS")
-  .connect(pad("U1", 8), pad("L1", 2))
-  .on(topLayer())
-  .compact()
+import { createKrtBackend, run } from "@easyeda-copilot/router"
 
-plane({
-  net: "GND",
-  layers: outerLayers(),
-  region: board(),
-  priority: 1,
-  stitching: {
-    gridMm: 5,
-    maxPadViaDistanceMm: 10,
-    via: "drc-min",
-    viaInPad: true,
-  },
+const backend = createKrtBackend({
+  transport, // supplied by the native EDA host
+  artifactsDirectory: "results/krt",
 })
 
-runAll()
+const result = await run({
+  board,
+  backend,
+  dsl: `
+    drc({
+      minTrackWidthMm: 0.127,
+      trackWidthMm: 0.254,
+      via: {
+        minDiameterMm: 0.6,
+        diameterMm: 0.6,
+        minDrillMm: 0.3,
+        drillMm: 0.3,
+      },
+    })
+    runAll()
+  `,
+})
 ```
 
-`compact()` derives point-like pad heads joined by obstacle-aware 0/45/90-degree
-corridors and is rejected when its candidate area exceeds 10% of the board.
-Boundary complexity has no point-count limit: the cleanup removes only short
-spikes/slivers and redundant collinear points, so a dense multi-pad net remains
-one useful contour instead of falling back to disconnected rectangles. Corridor
-width and obstacle inflation come from the target EDA's track-width/clearance
-rules; dense endpoint pins use a short directional taper before routing around a
-foreign neighbour.
-Free corridor segments are then widened independently, up to a relative compact
-cap and the nearest foreign-pad obstacle. The search keeps half of one useful
-routing corridor in reserve, so a local pinch narrows only its own segment rather
-than throttling the whole connection. Pad-envelope throats and body widths are
-joined by exact 45-degree flares; short-step cleanup removes parallel teeth while
-preserving the mandatory pad/corridor core. Metrics expose both
-`corridorWidthMinMm` and `corridorBodyWidthMaxMm`.
-After unioning pads and corridors, a DRC-derived morphological closing fills
-only narrow concave dead-end pockets. It does not apply global padding or grow
-the outer envelope, so otherwise unusable slots become useful power copper
-without consuming a through-routing channel. Metrics expose the chosen
-`pocketClosingRadiusMm` and resulting `filledPocketAreaMm2`.
-Foreign-pad keepouts are deliberately not cut into this rough outline: such
-subtractions created serrated 0.002-0.07 mm edges. KiCad/EasyEDA performs exact
-clearance clipping during native refill, followed by the post-refill connectivity
-validator.
-The default maximum pad-free span is 4.5 widths of the narrower target pad;
-`.maxPadFreeGapWidths(...)` overrides it per rule. Explicit `pad(...)` targets are
-mandatory: an impossible compact connection is reported as a plan error while
-the rest of the program continues. Only the standalone `plane({...})` macro
-permits a late board-scale outline. Its `components(...)` region syntax is
-reserved but deliberately unsupported in the current engine. Stitching ignores
-component bodies and courtyards; only copper, pads, holes, keepouts, board edges,
-and native DRC constrain via placement. Touching same-net plans are unioned before native-zone
-export. The adapter reads physical values from the target EDA's design rules
-when it creates the native zone.
+`trackWidthMm` and `via.diameterMm` / `via.drillMm` are nominal geometry.
+Their `min*` counterparts are hard manufacturing/DRC limits and also bound
+neck-down geometry.
 
-Build and run the Powerbank smoke test:
+## Development
 
-```powershell
-npm run build
-npm run test:poly
-npm run test:poly:dsl
+```text
+npm ci
+npm test
+npm run test:e2e:krt-corpus:contract
+npm run e2e:interf_u_unrouted
 ```
 
-The test keeps the source board untouched. It writes derived
-`Powerbank.poly-clean.kicad_pcb` and `Powerbank.poly-generated.kicad_pcb`
-boards beside the source, and JSON/SVG/metrics under `results/poly-engine/`.
-Run KiCad's native refill and DRC on the generated board with:
+E2E runners use a prebuilt native host adapter but never build or modify its
+repository. Generated artifacts are written only under this repository's
+ignored `results/` directory.
 
-```powershell
-kicad-cli pcb drc --format json --severity-all --refill-zones --save-board `
-  --output results/poly-engine/generated-drc.json `
-  D:\MyProject\kicad\Powerbank\Powerbank.poly-generated.kicad_pcb
+KRT `v0.20.4` is downloaded lazily, verified by SHA-256, patched from
+`assets/krt-patches`, and cached per user. `COPILOT_ROUTER_KRT_DIR` is an
+optional explicit development/air-gapped override.
 
-npm run test:poly:fill
-```
-
-The post-refill test verifies connectivity against KiCad's actual filled copper.
-If refill clips a corridor into islands, validation returns an error with the
-target-pad copper groups and continues without crashing.
-
-## Polygon-first KRT full-cycle MVP
-
-The complete workflow keeps the placement fixed and runs five authoring stages
-followed by one authoritative check:
-
-1. generate and natively refill every ready power polygon;
-2. run all declared differential pairs and equal-length groups in one logical
-   KiCadRoutingTools special stage, protect their exact copper, and natively
-   refill the polygons again;
-3. run every remaining non-GND net in one KiCadRoutingTools ordinary pass;
-4. refill, detect only the still-open ordinary nets, and run a bounded KRT
-   completion portfolio (max-quality first, then lower-cost/rescue and
-   singleton variants); every candidate starts from the same incumbent and
-   may not change placement, zone outlines, or already-complete nets;
-5. add the requested ground plane/stitching vias and refill;
-6. run KiCad's final DRC/connectivity validation.
-
-Runtime errors are persisted in the stage report and do not crash later stages
-when a usable board artifact remains. Polygon errors and KRT's own success
-summary do not directly set board validity. Only the final KiCad result sets
-`valid`: it requires no new hard DRC errors relative to the clean-board
-baseline and no unconnected non-GND nets. Final polygon-only diagnostics remain
-visible but do not invalidate a board that was completed by later copper.
-Stock KRT still uses its Default width in some multi-point fallback paths. The
-adapter does not globally widen other classes or weaken the power rule to hide
-that limitation: final native DRC reports any such segment as an error.
-
-The same special-intent JSON also carries electrical power intent. Each power
-net declares exactly one source of truth: either `maxCurrentA` (the engine
-calculates copper) or `minTrackWidthMm` (an explicit engineering override).
-`maxTempRiseC` defaults to 16 °C. Physical KiCad stackup copper thickness wins;
-when it is absent, the deterministic baseline is 1 oz. `maxTrackWidthMm`
-defaults to 10 mm and can never exceed 10 mm; an over-limit calculation is a
-preflight error, never a silent clamp. Example:
-
-```json
-{
-  "powerNets": [
-    { "net": "VBUS", "maxCurrentA": 2 },
-    { "net": "SW_NODE", "minTrackWidthMm": 0.8 }
-  ],
-  "manufacturing": {
-    "defaultCopperThicknessOz": 1,
-    "viaPlatingThicknessUm": 20,
-    "maxTrackWidthMm": 10
-  }
-}
-```
-
-The current fallback width model is the IPC-2221 chart equation, rounded up to
-0.05 mm. It is intentionally calculated in the engine, not by the LLM. Via
-geometry starts at the global DRC/fabrication minimum; the engine derives a
-parallel-via count from barrel plating and required copper cross-section. Final
-validation rejects exposed undersized tracks and insufficient via transitions,
-while a narrow bookkeeping segment fully embedded in a sufficiently wide
-same-net native filled polygon is accepted as reinforced copper. Generated
-per-net classes carry the calculated widths into KRT, Freerouting, and EasyEDA
-WASM. The final electrical report is stored as
-`99-final-power-validation.json`.
-
-The same orchestration can use Freerouting or EasyEDA WASM for the ordinary stage while KRT
-continues to own every special pair/group. The Freerouting adapter exports a
-staged KiCad copy to Specctra DSN, locks all existing KRT copper, and assigns
-`GND` plus every special net to temporary ignored net classes. KiCad imports the
-resulting SES into that staged native board, preserving polygon zones and
-sidecars. Freerouting's own unrouted/violation counters are diagnostics only;
-the final refilled KiCad DRC/connectivity result remains authoritative.
-The bundled thin launcher is necessary because Freerouting 2.3.0 parses its
-headless ignore-class option without applying it to the batch scheduler; it
-only fixes scope selection, while all routing and optimization remain stock
-Freerouting. Custom `.kicad_dru` constraints that are not represented by the
-effective KiCad net classes are not weakened or guessed: native final DRC
-reports any resulting violation.
-
-The EasyEDA WASM adapter reuses the same KiCad/netclass exporter as the earlier
-benchmark, passes all pre-existing KRT tracks and vias as occupied copper, and
-imports only traces/vias belonging to the exact remaining scope. The current
-exporter does not expose native filled-zone contours to the WASM maze, so zone
-outlines are preserved and KiCad refill resolves actual clearances afterwards;
-final DRC/connectivity is still the only validity decision.
-
-The Powerbank intent files are
-[`examples/powerbank.polygons.js`](examples/powerbank.polygons.js) and
-[`examples/powerbank.special.json`](examples/powerbank.special.json). There is
-no USB-C or single-ended differential-pair exception. Stock KRT cannot route
-ordinary matched groups through `route_diff.py`; when both kinds are declared,
-the adapter chains one batched diff invocation and one batched ordinary-group
-invocation inside the same logical special stage. A group that mixes coupled
-pair members and ordinary nets is still a `CAPABILITY_MISMATCH`.
-
-Build, test the validity contract, and run the workflow:
-
-```powershell
-npm run build
-npm run test:workflow
-npm run test:scheduler
-npm run test:portfolio
-npm run test:completion
-npm run test:power
-npm run route:full
-npm run route:portfolio
-npm run route:full:freerouting
-npm run route:full:easyeda
-```
-
-By default the result is written under `results/full-cycle/`; the source board
-is never modified. Useful overrides are:
-
-- `COPILOT_ROUTER_BOARD`
-- `COPILOT_ROUTER_RULES_BOARD`
-- `COPILOT_ROUTER_POLYGON_DSL`
-- `COPILOT_ROUTER_SPECIAL_INTENT`
-- `COPILOT_ROUTER_KRT_DIR` optionally overrides the managed KRT cache for development;
-  normal users do not set it
-- `COPILOT_ROUTER_CACHE_DIR` optionally relocates the verified backend cache
-- `COPILOT_ROUTER_KRT_NET_RESCUE=1` enables KRT's additive, native-clearance rescue pass
-- `COPILOT_ROUTER_KRT_MAX_ITERATIONS` and `COPILOT_ROUTER_KRT_MAX_PROBE_ITERATIONS`
-  control search depth without weakening native geometry rules
-- `COPILOT_ROUTER_NET_SCHEDULING=diagnostic|ordered|batched|singleton`
-  (`diagnostic` is the non-mutating default; the others are experimental completion profiles)
-- `COPILOT_ROUTER_COMPLETION_MAX_RUNS=0..5` controls the targeted post-remaining
-  attempts (`5` by default; `0` disables them). When the KRT remaining pass
-  reports structured blockers, each attempt routes one open target and permits
-  surgical rip-up of a closure of at most eight blocker nets. Ordinary blockers
-  may be moved by KRT directly. A reported differential-pair or matched-group
-  blocker is removed and rerouted only as one complete atomic group; GND,
-  zones and locked copper remain immutable. Every candidate is rolled back
-  unless native refill closes the target, restores every special constraint,
-  strictly improves connectivity, preserves other nets and adds no DRC error.
-- `COPILOT_ROUTER_KICAD_CLI`
-- `COPILOT_ROUTER_FULL_RESULT`
-- `COPILOT_ROUTER_FULL_OUTPUT`
-- `COPILOT_ROUTER_FULL_TIMEOUT_MS`
-- `COPILOT_ROUTER_REMAINING_BACKEND=krt|freerouting|easyeda-wasm`
-- `COPILOT_ROUTER_FREEROUTING_JAR` optionally overrides the managed Freerouting JAR
-- `COPILOT_ROUTER_JAVA`
-- `COPILOT_ROUTER_JAVAC`
-- `COPILOT_ROUTER_KICAD_PYTHON`
-- `COPILOT_ROUTER_FREEROUTING_BRIDGE`
-- `COPILOT_ROUTER_FREEROUTING_RUNNER`
-- `COPILOT_ROUTER_FREEROUTING_MAX_PASSES`
-- `COPILOT_ROUTER_FREEROUTING_THREADS`
-
-## Routing portfolio
-
-`npm run route:portfolio` first runs an incumbent candidate using the exact
-best-known global MPS profile (`20/3/250/50`, rip-up 5, no rescue), then runs
-isolated experimental candidates in descending quality tiers: `max`, `high`,
-`medium`, then `low`. Every KRT subprocess uses MPS ordering; candidates vary
-escape-risk scheduling, batching, singleton escape probes, and the additive net
-rescue pass. Track width, clearance, via diameter, and drill remain fixed to
-the compiled native rules in every tier; lower quality only reduces aesthetic
-costs and permits more rip-up/search alternatives.
-
-The portfolio stops at the first candidate that passes final native KiCad DRC,
-non-GND connectivity, and electrical power validation. If none is valid, it
-keeps all candidate boards and deterministically selects the best by: fewest
-power violations, fewest unrouted non-GND nets/items, fewest new DRC errors,
-fewest vias, then shortest routed copper.
-
-- `COPILOT_ROUTER_PORTFOLIO_MAX_RUNS=8` sets the candidate budget (hard maximum 32)
-- `COPILOT_ROUTER_PORTFOLIO_CANDIDATE_TIMEOUT_MS` sets a per-candidate wall-time limit
-- `COPILOT_ROUTER_PORTFOLIO_RESULT` selects the result root
-
-Every candidate has its own directory and workflow report. The selected board
-is copied to `<source>.portfolio-best.kicad_pcb` inside the portfolio root; the
-source board is hashed before and after the entire run and is never overwritten.
-Unless `COPILOT_ROUTER_RULES_BOARD` is explicitly set, portfolio candidates
-compile DRC from the source board itself so the incumbent cannot silently use a
-different benchmark netclass/via configuration.
+Architecture details are in [`docs/architecture`](docs/architecture), and the
+DSL declarations are in [`docs/routing-dsl.d.ts`](docs/routing-dsl.d.ts).

@@ -5,14 +5,14 @@ Date: 2026-08-11
 
 ## Decision
 
-The router core must not depend on EasyEDA WASM, Freerouting, KiCad file
-structures, or any other concrete routing engine. EasyEDA WASM is one optional
-backend and must be replaceable without changing rule compilation, polygon
-planning, special-net routing, validation, or transaction handling.
+The router core must not depend on KiCad file structures or KRT process
+details. KRT is isolated behind the backend contract so rule compilation,
+polygon planning, special-net routing, validation, and transaction handling
+remain portable.
 
-The public orchestration model uses three independent adapter boundaries:
+The public orchestration model uses three independent boundaries:
 
-1. A host/DSN adapter imports native data into the single internal
+1. A host adapter imports native data into the single internal
    `RoutingBoard` and later applies `RoutingResult` without rebuilding unrelated
    native objects.
 2. `RouterBackendAdapter` translates `RoutingBoard` for one routing algorithm
@@ -21,13 +21,12 @@ The public orchestration model uses three independent adapter boundaries:
 3. A native verification adapter runs the target EDA's zone refill, DRC, and
    connectivity checks after the result has been applied.
 
-Backend distribution follows [backend-assets.md](backend-assets.md): every
-router is host-bundled or a verified lazy-managed asset. A manual checkout is
-never part of the public backend contract.
+Backend distribution follows [backend-assets.md](backend-assets.md): KRT is a
+verified lazy-managed asset. A manual checkout is never part of the public
+backend contract.
 
-EasyEDA `RawPcb`, `BoardAssemble`, KiCad AST nodes, `PcbSnapshotV1`, and
-`PcbPatchV1` are not router-core contracts. DSN is a supported interchange and
-backend transport; it is not the core's in-memory model.
+KiCad AST nodes and other native document objects are not router-core
+contracts.
 
 Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
@@ -193,17 +192,10 @@ candidate from reaching the result. A preflight conflict prevents backend
 invocation, while runtime routing/refill diagnostics are recorded and the
 workflow continues whenever a usable board artifact remains.
 
-## Planned backend roles
+## Backend roles
 
 - `KiCadRoutingToolsBackendAdapter`: first complete-cycle backend for both the
   single special-net invocation and the single remaining-net invocation.
-- `EasyEdaWasmBackendAdapter`: compatibility and benchmark backend only.
-- `FreeroutingBackendAdapter`: selectable ordinary-net batch backend. It uses a
-  KiCad DSN/SES bridge, temporary ignored classes for GND and special nets, and
-  fixed pre-existing copper; KRT remains the special-net backend. A thin
-  headless launcher applies the ignore-class flags that Freerouting 2.3.0 only
-  applies in its GUI path and disables its unscoped fanout pre-pass; the stock
-  Freerouting batch router and optimizer still own all routing geometry.
 - Core polygon engine: native-zone outline planning, independent of trace
   routing backends.
 - Core special-net intent and final validators remain backend-neutral; detailed
@@ -220,6 +212,5 @@ schematic-block detection.
 - tscircuit-autorouter: capacity-mesh and hypergraph pipeline architecture.
 - Topola: topology-first navigation and rubber-band routing.
 - KiCad PNS: shape-based push-and-shove and local repair.
-- Freerouting: mature batch maze routing, rip-up/reroute, and optimization.
 - route-rnd: external-router protocol and self-described routing methods.
 - OrthoRoute/PathFinder: negotiated congestion and historical resource costs.

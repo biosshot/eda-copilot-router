@@ -1,9 +1,12 @@
 # KiCadRoutingTools corpus E2E
 
-This suite vendors the complete upstream `kicad_files` directory from
-`drandyhaas/KiCadRoutingTools` at the commit recorded in `SOURCE.json`.
-All 26 upstream files are byte-for-byte fixtures; the contract test verifies their
-SHA-256 hashes. Each PCB is an independent case with the same layout as `powerbank`:
+This suite derives its routing fixtures from the upstream `kicad_files` content
+in `drandyhaas/KiCadRoutingTools` at the commit recorded in `SOURCE.json`.
+User-local `.kicad_prl` preferences are excluded. Boards and the few
+`.kicad_pro` sidecars may carry explicit regression/rule adjustments, so the
+contract validates their presence and DSL expectations rather than claiming
+stale byte-for-byte upstream hashes. Each PCB is an independent case with the
+same layout as `powerbank`:
 
 ```text
 tests/e2e/<case>/

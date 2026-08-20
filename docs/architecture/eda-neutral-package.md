@@ -3,22 +3,20 @@
 Status: accepted direction
 Date: 2026-08-13
 
-The router is a separate product. EasyEDA `RawPcb`, EasyEDA `BoardAssemble`,
-and the KiCad S-expression AST remain native host types and are not public
-router data contracts.
+The router is a separate product. Native EDA document models remain host types
+and are not public router data contracts.
 
 ```mermaid
 flowchart LR
-  A["EasyEDA / KiCad / DSN"] -->|host conversion or DSN parser| B["RoutingBoard"]
+  A["native EDA board"] -->|host conversion| B["RoutingBoard"]
   B --> C["local router DSL + terminal command"]
   C --> D["polygon engine + routing backends"]
   D --> E["RoutingResult"]
-  E -->|host apply + refill + DRC| F["EasyEDA / KiCad"]
+  E -->|host apply + refill + DRC| F["native EDA board"]
 ```
 
-`RoutingBoard` is the only internal board model used by the routing core. DSN
-is a supported external interchange and backend transport, not the in-memory
-working model. `RoutingResult` is the compact EDA-neutral result.
+`RoutingBoard` is the only internal board model used by the routing core.
+`RoutingResult` is the compact EDA-neutral result.
 
 The package does not define `RawPcbV1`, `LegacyRawPcb`, `PcbSnapshotV1`, or
 `PcbPatchV1`. It does not add schema/version fields to routing data before the
@@ -29,9 +27,9 @@ The authoritative data contract is
 shape is [`router-dsl.md`](./router-dsl.md). DRC precedence is defined in
 [`drc-rule-precedence.md`](./drc-rule-precedence.md).
 
-The core never needs a live editor session. A host may construct
-`RoutingBoard` directly or provide DSN. Native zone refill, native DRC, and
-transactional application happen at the host boundary after routing.
+The core never needs a live editor session. A host constructs `RoutingBoard`.
+Native zone refill, native DRC, and transactional application happen at the
+host boundary after routing.
 
 The public package operation is `run(...)`. Inside the DSL,
 `applyDrcRules()`, `runRouting()`, and `runAll()` only select what that operation
@@ -51,11 +49,7 @@ Board-wide planes and stitching vias are planned after trace routing, using the
 returned tracks/vias as obstacles. This keeps a GND plane from blocking the
 route search while retaining polygon-first ownership for compact power copper.
 
-External engines remain optional adapters. KRT currently consumes a temporary
-KiCad board, Freerouting consumes DSN/SES, and EasyEDA WASM consumes its own
-router input. Each adapter translates from the same `RoutingBoard` and returns
-the same `RoutingResult` copper model.
-
-Migration preserves the current Powerbank regression while the file-based
-backend wrappers move behind the public adapter contract. The npm package does
-not export native EDA structures or the private polygon geometry scene.
+KRT is the only backend. It consumes a temporary KiCad board through a narrow
+host-supplied transport and returns the portable `RoutingResult` copper model.
+The npm package does not export native EDA structures or the private polygon
+geometry scene.

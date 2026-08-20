@@ -5,17 +5,14 @@ Date: 2026-08-13
 
 ## Boundary
 
-- EasyEDA `RawPcb` remains internal to EasyEDA.
-- EasyEDA `BoardAssemble` remains unchanged.
 - KiCad keeps its native S-expression AST outside the router core.
-- DSN is the preferred standard interchange format and Freerouting transport.
-- The router parses/imports external data into one internal `RoutingBoard`.
+- Native document and interchange formats remain internal to their host.
+- The host imports external data into one internal `RoutingBoard`.
 - The router returns `RoutingResult`; it never returns a rebuilt native board.
 
-DSN is not the internal object model. KRT does not consume DSN, EasyEDA WASM
-does not consume DSN, and polygon planning needs efficient typed geometry.
-Backend adapters may serialize `RoutingBoard` to DSN, temporary KiCad, or
-another engine-specific format.
+An interchange format is not the internal object model. KRT consumes a native
+temporary board through its host transport, while polygon planning uses the
+efficient typed geometry below.
 
 The compact-polygon implementation uses a private `PolygonScene` geometry view
 to keep Clipper algorithms independent of the full board contract. It is not an

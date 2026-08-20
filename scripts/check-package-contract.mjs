@@ -12,17 +12,13 @@ const api = await import(pathToFileURL(join(distRoot, "index.js")).href)
 const dsl = await import(pathToFileURL(join(distRoot, "intent", "index.js")).href)
 const schema = await import(pathToFileURL(join(distRoot, "schema.js")).href)
 await import(pathToFileURL(join(distRoot, "adapters", "contracts.js")).href)
-const easyEdaWasm = await import(pathToFileURL(join(distRoot, "backends", "easyeda-wasm.js")).href)
 const managedAssets = await import(pathToFileURL(join(distRoot, "backends", "assets.js")).href)
 const krt = await import(pathToFileURL(join(distRoot, "backends", "krt.js")).href)
-const freerouting = await import(pathToFileURL(join(distRoot, "backends", "freerouting-runtime.js")).href)
 
 assert.equal(typeof api.run, "function")
 assert.equal(typeof api.validateRoutingBoard, "function")
 assert.equal(typeof dsl.compileRoutingDsl, "function")
 assert.equal(typeof schema.ROUTING_BOARD_JSON_SCHEMA, "object")
-assert.equal(typeof easyEdaWasm.createEasyEdaWasmBackend, "function")
-assert.equal(typeof easyEdaWasm.createEasyEdaWasmWorkerEngine, "function")
 assert.equal(typeof managedAssets.prepareManagedRouterAsset, "function")
 assert.equal(typeof krt.createKrtBackend, "function")
 assert.equal(typeof krt.buildKrtSpecialCandidates, "function")
@@ -57,7 +53,7 @@ assert.deepEqual(krt.KRT_QUALITY_PROFILES, {
     gridStep: 0.1,
     maxIterations: 300_000, maxProbeIterations: 5_000, maxRipup: 4, heuristicWeight: 1.8,
     viaCost: 50, viaProximityCost: 10, turnCost: 1_000, directionPreferenceCost: 250,
-    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "complete-nets",
+    dynamicIterations: false, ripupBlockerSelect: "count", ripupAbandonMetric: "stranded",
     neckdownLength: 0.5, neckdownTaperLength: 0.5,
   },
   "quality-first": {
@@ -82,12 +78,10 @@ assert.deepEqual(krt.KRT_RIPUP_ABANDON_METRIC_CHOICES, [
   "stranded", "total-pads", "complete-nets", "congestion",
   "history", "weighted", "probe", "weighted-probe",
 ])
-assert.equal(typeof freerouting.prepareFreeroutingRuntime, "function")
 assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.4\.zip$/)
 assert.deepEqual(krt.KRT_REQUIRED_NECKDOWN_ENVIRONMENT, {
   KICAD_IMPEDANCE_NECKDOWN: "1",
 }, "KRT impedance neck-down must never be disabled by the adapter")
-assert.match(freerouting.freeroutingManagedRelease().url, /freerouting-2\.3\.0\.jar$/)
 assert.equal(api.createPcbSnapshotV1, undefined)
 assert.equal(api.routePcb, undefined)
 assert.equal(api.captureLegacyRawPcbV1, undefined)
@@ -172,7 +166,7 @@ assert.throws(() => dsl.compileRoutingDsl('fanout(component("U1"), { method: "bu
 assert.throws(() => dsl.compileRoutingDsl('fanout(component("U1"), { extensionMm: -1 }); runRouting()'), /must be >= 0/i)
 assert.equal(dsl.validateRoutingProgram({
   polygons: [], planes: [], signalNets: [], powerNets: [], differentialPairs: [], matchedGroups: [],
-  operation: "route", backend: "easyeda-wasm",
+  operation: "route", backend: "legacy-backend",
 }).valid, false, "backend-specific fields must not enter the routing DSL")
 
 const specialProgram = dsl.compileRoutingDsl(`
@@ -690,55 +684,6 @@ const weakAll = await api.run({
 assert.equal(weakAll.status, "error")
 assert.ok(weakAll.diagnostics.some((item) => item.code === "DSL_RULE_CONFLICT"))
 assert.equal(backendCalls, 2)
-
-let wasmCalls = 0
-let wasmInput
-const wasmBackend = easyEdaWasm.createEasyEdaWasmBackend({
-  async engine(input) {
-    wasmCalls += 1
-    wasmInput = input
-    return {
-      progress: 1,
-      routabitity: 1,
-      traces: [{ id: "new", layer: 1, net: "VCC", width: 0.2, path: [[-6, 0], [-2, 0]] }],
-      vias: [],
-    }
-  },
-})
-const wasmRouted = await api.run({ board, dsl: "runRouting()", backend: wasmBackend })
-assert.equal(wasmRouted.status, "complete")
-assert.equal(wasmCalls, 1)
-assert.equal(wasmInput.boardOutline.bbox.length, 4)
-assert.equal(Object.keys(wasmInput.components).length, board.pads.length)
-assert.deepEqual(wasmInput.nets.map((item) => item.net), ["VCC", "GND", "USB_DP", "USB_DM"])
-assert.equal(wasmInput.nets.find((item) => item.net === "GND").routing, false)
-assert.ok(wasmInput.nets.filter((item) => item.net !== "GND").every((item) => item.routing === true))
-assert.ok(wasmInput.prohibitedRegions.some((item) => (
-  item.layers.includes(1) && item.path.some((point) => Math.abs(point[0] + 2) < 1e-6 && Math.abs(point[1] + 1.5) < 1e-6)
-)), "GND pad copper must remain an obstacle even though GND is not routed")
-assert.deepEqual(wasmRouted.copper.tracks[0].points, [{ x: 4, y: 5 }, { x: 8, y: 5 }])
-
-await api.run({
-  board,
-  backend: wasmBackend,
-  dsl: `diffPair("usb", { positive: "USB_DP", negative: "USB_DM", gapMm: 0.25 }); runAll()`,
-})
-assert.deepEqual(wasmInput.classes.differentialPairClasses.usb, ["USB_DP", "USB_DM"])
-assert.equal(wasmInput.nets.find((item) => item.net === "USB_DP").differentialPair, "usb")
-assert.equal(wasmInput.rules.differentialPairs.usb[0].clearance[0], 0.25)
-
-const wasmPolygonRouted = await api.run({
-  board,
-  backend: wasmBackend,
-  dsl: `
-    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
-    runRouting()
-  `,
-})
-assert.equal(wasmPolygonRouted.status, "complete")
-assert.equal(wasmCalls, 3)
-assert.ok(wasmInput.tracks.some((item) => String(item.id).startsWith("existing-zone-proxy-")))
-assert.ok(wasmPolygonRouted.copper.tracks.every((item) => !String(item.id).includes("zone-proxy")))
 
 const unsupportedBackend = {
   ...backend,

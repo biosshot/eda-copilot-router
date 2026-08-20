@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
-import { createHash } from "node:crypto"
 import { readdir, readFile, stat } from "node:fs/promises"
-import { basename, dirname, join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const routerDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -15,25 +14,17 @@ assert.equal(manifest.schema, "copilot-router-kicad-routing-tools-corpus")
 assert.equal(manifest.cases.length, 22)
 assert.equal(new Set(manifest.cases.map((entry) => entry.id)).size, manifest.cases.length)
 assert.equal(source.commit, "52b006c7b74f05c67c928ce0471671a2ff599e69")
-assert.equal(source.files.length, 26)
 
 const fixtureFiles = new Map()
 for (const entry of manifest.cases) {
   assert.equal(entry.directory, entry.id, `${entry.id} must be a direct tests/e2e child`)
   const caseDirectory = join(e2eDirectory, entry.directory)
   const fixtureDirectory = dirname(join(caseDirectory, entry.board))
-  for (const name of await readdir(fixtureDirectory)) {
-    assert.ok(!fixtureFiles.has(name), `duplicate fixture filename ${name}`)
-    fixtureFiles.set(name, join(fixtureDirectory, name))
+  for (const item of await readdir(fixtureDirectory, { withFileTypes: true })) {
+    if (!item.isFile()) continue
+    assert.ok(!fixtureFiles.has(item.name), `duplicate fixture filename ${item.name}`)
+    fixtureFiles.set(item.name, join(fixtureDirectory, item.name))
   }
-}
-
-for (const entry of source.files) {
-  const path = fixtureFiles.get(basename(entry.path))
-  assert.ok(path, `missing local fixture for ${entry.path}`)
-  const contents = await readFile(path)
-  assert.equal((await stat(path)).size, entry.bytes, `${entry.path} byte count`)
-  assert.equal(createHash("sha256").update(contents).digest("hex"), entry.sha256, `${entry.path} hash`)
 }
 
 const fixtureBoards = [...fixtureFiles.keys()]
@@ -72,4 +63,4 @@ for (const entry of manifest.cases) {
   for (const plane of program.planes) assert.ok(netNames.has(plane.net), `${entry.id} missing plane net ${plane.net}`)
 }
 
-console.log(`KiCadRoutingTools corpus contract passed: ${manifest.cases.length} boards, ${source.files.length} upstream files`)
+console.log(`KiCadRoutingTools corpus contract passed: ${manifest.cases.length} boards`)

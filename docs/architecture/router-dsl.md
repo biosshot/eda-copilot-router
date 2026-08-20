@@ -168,7 +168,7 @@ and derived constraints; an explicit value that makes them impossible is a DSL
 error.
 
 When the terminal command is `applyDrcRules()` or `runAll()`, named DSL classes
-are persisted as real named net classes by capable KiCad/EasyEDA adapters, with
+are persisted as real named net classes by capable native host adapters, with
 their exact net assignments. `runRouting()` may use the effective class without
 requesting persistence, subject to the existing `DRC_APPLY_REQUIRED` rule.
 

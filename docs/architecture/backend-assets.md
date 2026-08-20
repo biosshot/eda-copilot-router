@@ -21,21 +21,15 @@ it. `allowDownload: false` is the explicit offline policy: a missing cached
 asset then produces a structured error instead of silently changing backend or
 version.
 
-## Backends
+## Backend
 
 - KRT is managed from the official `v0.20.4` release archive. The package also
   selects the release's platform-specific `grid_router` module and prepares
   `numpy`, `scipy`, and `shapely` in a backend-owned Python cache when the local
   interpreter does not already provide them.
-- Freerouting is managed from the official `v2.3.0` release JAR using the same
-  cache and integrity contract.
-- EasyEDA WASM is bundled by the local EasyEDA Copilot host and injected as an
-  engine. It is not downloaded from an undocumented URL or redistributed in
-  the public MIT tarball without an explicit redistribution license.
-
-Explicit KRT directories and Freerouting JAR paths remain supported only as
-development/air-gapped overrides. They are validated for required files and
-are never part of the normal installation instructions.
+Explicit KRT directories remain supported only as development/air-gapped
+overrides. They are validated for required files and are never part of the
+normal installation instructions.
 
 KRT is never discovered implicitly from the current working directory. An
 override must be explicit in configuration/environment; otherwise the pinned
@@ -47,9 +41,6 @@ fails before board routing starts.
 
 - KRT: `v0.20.4`, SHA-256
   `a989af2fa719c3b8d0763cae73dc0be5738a4c3e73c64741a7baaf0c4730c60c`
-- Freerouting: `v2.3.0`, SHA-256
-  `3cf18d608437740bc497db6b8ef5888e2e60a08de0def20691d1bad0c0e0ee24`
-
 Version upgrades are code changes: update the pinned metadata, run backend
 conformance tests, and publish a new package. Runtime code never resolves
 `latest`.

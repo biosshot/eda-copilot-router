@@ -16,8 +16,6 @@
     "src/intent/**/*.ts",
     "src/adapters/contracts.ts",
     "src/backends/assets.ts",
-    "src/backends/freerouting-runtime.ts",
-    "src/backends/krt.ts",
-    "src/backends/easyeda-wasm.ts"
+    "src/backends/krt.ts"
   ]
 }
