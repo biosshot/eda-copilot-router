@@ -4,9 +4,9 @@ EDA-neutral routing core with one production backend: KiCad Routing Tools
 (KRT). The package compiles the local routing DSL into effective design rules,
 plans compact polygons/planes, runs KRT, and returns portable copper geometry.
 
-Native KiCad file import, project-rule persistence, refill, DRC, and atomic
-application belong to a separate host adapter. This repository neither edits
-nor builds that host project.
+EasyEDA and KiCad hosts may keep using the EDA-neutral `RoutingBoard` /
+`RoutingResult` boundary. The package also includes a standalone KiCad file
+adapter and CLI; neither KRT routing path requires installed KiCad.
 
 ## Public surface
 
@@ -14,14 +14,15 @@ nor builds that host project.
 - `@easyeda-copilot/router/dsl` — DSL compiler and preflight.
 - `@easyeda-copilot/router/backends/krt` — the only routing backend.
 - `@easyeda-copilot/router/backends/assets` — managed KRT asset support.
+- `@easyeda-copilot/router/adapters/kicad` — standalone KiCad import/apply.
 - `@easyeda-copilot/router/schema` and `/core` — portable contracts/schema.
 
 ```js
 import { createKrtBackend, run } from "@easyeda-copilot/router"
 
 const backend = createKrtBackend({
-  transport, // supplied by the native EDA host
   artifactsDirectory: "results/krt",
+  // pythonPath: "/explicit/python", // optional; COPILOT_ROUTER_PYTHON also works
 })
 
 const result = await run({
@@ -43,6 +44,18 @@ const result = await run({
 })
 ```
 
+Or route a native KiCad board directly:
+
+```text
+copilot-router route board.kicad_pcb --dsl routing.dsl.js -o routed.kicad_pcb
+```
+
+This writes a new board and never overwrites the input. Without KiCad, zone
+outlines are preserved and the result is marked for later native refill/DRC by
+the host. `--python` selects KRT's Python interpreter; normal discovery already
+checks `COPILOT_ROUTER_PYTHON`, standard KiCad Python locations, `python3`, and
+`python`.
+
 `trackWidthMm` and `via.diameterMm` / `via.drillMm` are nominal geometry.
 Their `min*` counterparts are hard manufacturing/DRC limits and also bound
 neck-down geometry.
@@ -56,9 +69,8 @@ npm run test:e2e:krt-corpus:contract
 npm run e2e:interf_u_unrouted
 ```
 
-E2E runners use a prebuilt native host adapter but never build or modify its
-repository. Generated artifacts are written only under this repository's
-ignored `results/` directory.
+Native E2E runners use the adapter built in this package. Generated artifacts
+are written only under this repository's ignored `results/` directory.
 
 KRT `v0.20.4` is downloaded lazily, verified by SHA-256, patched from
 `assets/krt-patches`, and cached per user. `COPILOT_ROUTER_KRT_DIR` is an

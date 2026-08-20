@@ -1,6 +1,6 @@
 # Accepted cleanup and standalone direction
 
-Status: accepted direction; implementation pending
+Status: implemented baseline
 Date: 2026-08-20
 
 This record fixes the next contract changes without making KiCad the primary
@@ -90,15 +90,17 @@ EasyEDA, KiCad, and portable callers use the same router-owned codec.
 
 ## Optional standalone KiCad path
 
-The package will additionally provide a KiCad adapter and high-level CLI path:
+The package additionally provides a KiCad adapter and high-level CLI path:
 
 ```text
 copilot-router route board.kicad_pcb --dsl routing.dsl.js -o routed.kicad_pcb
 ```
 
 The high-level operation composes native import, the router-owned KRT codec,
-`run(...)`, transactional apply, refill, and native checks. Callers do not
-configure a transport.
+`run(...)`, and transactional apply. Callers do not configure a transport.
+When KiCad is absent, zone outlines remain refillable native intents and native
+verification is reported as `not-run`; an installed host may then refill and
+run DRC.
 
 The canonical portable path remains available for EasyEDA and other hosts:
 
@@ -108,8 +110,8 @@ native host -> RoutingBoard -> run(...) -> RoutingResult -> native host
 
 Standalone KiCad support is an additional adapter, not a change in ownership
 of the core contract and not a dependency on the separate `kicad-copilot`
-project. Router E2E tests should ultimately use the router-owned adapter rather
-than importing a sibling project build.
+project. Router E2E tests use the router-owned adapter rather than importing a
+sibling project build.
 
 ## Deferred decisions
 

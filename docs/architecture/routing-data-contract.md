@@ -6,13 +6,14 @@ Date: 2026-08-13
 ## Boundary
 
 - KiCad keeps its native S-expression AST outside the router core.
-- Native document and interchange formats remain internal to their host.
+- Native document formats remain outside the routing core. Optional file
+  adapters may live in this package without changing the core contract.
 - The host imports external data into one internal `RoutingBoard`.
 - The router returns `RoutingResult`; it never returns a rebuilt native board.
 
-An interchange format is not the internal object model. KRT consumes a native
-temporary board through its host transport, while polygon planning uses the
-efficient typed geometry below.
+An interchange format is not the internal object model. The router-owned KRT
+codec materializes a temporary board directly from `RoutingBoard`; hosts do not
+provide a transport or codec override.
 
 The compact-polygon implementation uses a private `PolygonScene` geometry view
 to keep Clipper algorithms independent of the full board contract. It is not an
@@ -28,10 +29,10 @@ native coordinate conversion exactly once.
 No `version`, `schema`, `V1`, or `V2` fields are part of these structures before
 the first public release.
 
-Physical copper layers use canonical EDA-neutral names: `TOP`, `BOTTOM`, and
-`INNER_1` through `INNER_30`. Native names such as KiCad `F.Cu`, `In1.Cu`, and
-`B.Cu` are translated only by the corresponding board adapter. `MULTI` may
-describe a pad or via span but is not a physical routing layer.
+Physical copper layers use stable names selected by the board adapter and used
+consistently throughout one `RoutingBoard`. The built-in KiCad adapter retains
+`F.Cu`, `In1.Cu`, and `B.Cu`; an EasyEDA adapter may use its own stable names.
+`RoutingLayer.index` carries physical ordering.
 
 ## Core types
 
@@ -85,7 +86,9 @@ contains position, finished geometry, and layer span. `RoutedZone` is a native
 copper-zone intent: net, layer set, outline, compiler-assigned priority, and
 connection settings. Zone priority is an internal deterministic output detail,
 not a router DSL field. `RoutedZone` is not an editor-specific filled-polygon
-cache. Exact fill belongs to the target EDA.
+cache. Exact fill belongs to the target EDA. Standalone apply can therefore
+emit valid zone outlines without pretending that an un-clipped outer contour
+is an exact native fill.
 
 Core postprocessors such as `viaStitch(...)` return normal `RoutedVia` objects.
 Their provenance may be retained in diagnostics or metrics, but it does not
@@ -134,7 +137,8 @@ itself does not return or directly mutate an EDA document. See
 ## Validation ownership
 
 The core reports rule compilation, routing completion, and portable geometry
-diagnostics. Final native validity belongs to the host. Depending on the
+diagnostics. Final native validity belongs to the host or an optional native
+verification stage. Depending on the
 selected operation, the host first persists requested effective rules, then
 replaces router-owned copper when present, refills zones, and runs native
 DRC/connectivity checks.

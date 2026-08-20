@@ -3,9 +3,10 @@
 EDA-neutral PCB routing contracts, DSL compiler, polygon/plane planning, and a
 single KRT backend.
 
-The host converts its native board into `RoutingBoard`, calls `run(...)`, and
-applies `RoutingResult` using native refill and DRC. Native editor structures
-are not part of the package API.
+A host can convert its native board into `RoutingBoard`, call `run(...)`, and
+apply `RoutingResult` using native refill and DRC. Native editor structures are
+not part of the core contract. A built-in KiCad file adapter is also exported
+for standalone use.
 
 ```js
 import { run } from "@easyeda-copilot/router"
@@ -26,10 +27,14 @@ required. Downloads are integrity-checked and cached. The optional
 `COPILOT_ROUTER_KRT_DIR` override is intended for development or air-gapped
 installations.
 
-The CLI accepts EDA-neutral JSON plus DSL source:
+The CLI accepts EDA-neutral JSON plus DSL source, or a native KiCad board:
 
 ```text
 copilot-router validate board.json --dsl routing.dsl.js
 copilot-router run board.json --dsl routing.dsl.js -o result.json
+copilot-router route board.kicad_pcb --dsl routing.dsl.js -o routed.kicad_pcb
 copilot-router doctor
 ```
+
+`route` does not require KiCad or `kicad-cli`. Native zone refill and final DRC
+are deliberately left to an installed host/native verification stage.
