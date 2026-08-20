@@ -11,12 +11,12 @@ design.
 
 - `cap_chain`: basic ordinary routing and connectivity;
 - `qfn_diffpair_escape`: dense-package escape plus differential routing;
-- `band_amp`: controlled-impedance declarations and explicit `viaFence(...)`.
+- `band_amp`: controlled-impedance declarations and explicit `viaStitch(...)` mode `along`.
 
 `band_amp` replaces `flat_hierarchy` in the focused set. It is a four-copper-
 layer, initially unrouted RF chain. Its native project does not provide a
 complete dielectric stack, so its DSL fixture must declare the missing stack
-properties before an impedance result can be accepted. The via-fence test uses
+properties before an impedance result can be accepted. The along-stitch test uses
 the actual routed RF-chain tracks and does not require a GND plane.
 
 ## Medium

@@ -87,7 +87,7 @@ connection settings. Zone priority is an internal deterministic output detail,
 not a router DSL field. `RoutedZone` is not an editor-specific filled-polygon
 cache. Exact fill belongs to the target EDA.
 
-Core postprocessors such as `viaFence(...)` return normal `RoutedVia` objects.
+Core postprocessors such as `viaStitch(...)` return normal `RoutedVia` objects.
 Their provenance may be retained in diagnostics or metrics, but it does not
 create another copper primitive or imply electrical connection merely because
 a net is assigned.

@@ -89,7 +89,7 @@ members are still completed by KRT's differential routing path.
 
 `powerNet(...)` does not make a net special. It supplies electrical geometry
 to the ordinary/main KRT pass; only differential pairs, matched groups and
-via-fence source nets belong to the logical special scope.
+`viaStitch(...)` mode-`along` source nets belong to the logical special scope.
 
 The DSL can select the QFN/QFP escape method without restating DRC geometry:
 
@@ -112,7 +112,7 @@ terminals but must not suppress a useful escape from a dense package. Pads
 already touching routed track/via copper are not fanned again.
 
 Automatic component fanout excludes nets owned by the special stage. Their
-diff-pair, matched-group, or via-fence router must leave the dense package from
+diff-pair, matched-group, or along-stitch router must leave the dense package from
 the original pads as one atomic geometry problem; asymmetric fixed stubs can
 otherwise make a routable pair fail clearance. Ordinary pad escapes are still
 reserved before special routing.
@@ -141,8 +141,8 @@ board. The deterministic variants include:
 The selected special candidate alone is copied forward. Rip-up in a losing
 candidate therefore cannot damage a pair routed by another candidate. KRT GND
 return vias are disabled during differential search because PowerBank showed
-real pair-via clearance errors; explicit `viaFence` or later plane stitching
-owns those vias with board-level context.
+real pair-via clearance errors; explicit return stitching or later plane
+stitching owns those vias with board-level context.
 
 `single_ended_followup_nets` are not silently accepted. The adapter invokes one
 scoped `route.py` follow-up with zero rip-up, verifies that all existing coupled
@@ -162,8 +162,8 @@ with short incomplete branches can become complete through this follow-up.
   `route_diff.py`.
 - Differential intra-pair matching is enabled only when a skew limit was
   compiled; no arbitrary `0.1 mm` requirement is invented.
-- Native GND return vias are not suppressed merely because a `viaFence` is
-  planned: the fence exists only after its source trace succeeds.
+- Native GND return vias are suppressed during differential search; explicit
+  `viaStitch(...)` mode `return` runs against final routed and plane geometry.
 - A mixed set of skew-constrained and unconstrained differential pairs fails
   preflight instead of globally imposing meanders on every pair.
 - Different match tolerances in one atomic special invocation also fail

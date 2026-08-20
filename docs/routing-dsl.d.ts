@@ -19,8 +19,6 @@ interface ViaOptions {
   minDiameterMm?: number;
   /** Hard minimum drill diameter. */
   minDrillMm?: number;
-  from?: PhysicalLayer;
-  to?: PhysicalLayer;
   maxCount?: number;
 }
 
@@ -46,10 +44,27 @@ interface RuleOptions {
 interface ImpedanceOptions {
   targetOhm: number;
   tolerancePercent?: number;
-  topology?: "microstrip" | "stripline" | "coplanar";
-  /** The nearest actual copper plane for this net is selected automatically. */
-  reference: { net: string };
-  coplanarGapMm?: number;
+  /** Omitted/auto selects the nearest unambiguous solid reference copper. */
+  referenceNet?: string | "auto";
+}
+
+interface ZoneOptions {
+  clearanceMm?: number;
+  minThicknessMm?: number;
+  fill?: {
+    style?: "solid" | "hatched";
+    hatchThicknessMm?: number;
+    hatchGapMm?: number;
+    hatchOrientationDeg?: number;
+  };
+  padConnection?: {
+    mode?: "solid" | "thermal" | "none";
+    thermalGapMm?: number;
+    spokeWidthMm?: number;
+    spokeCount?: number;
+    spokeAngleDeg?: number;
+  };
+  removeIslandsBelowMm2?: number;
 }
 
 declare function pad(component: string, pad: string | number): CopperTarget;
@@ -57,7 +72,7 @@ declare function pad(component: string, pad: string | number): CopperTarget;
 declare function component(designator: string): FanoutTarget;
 declare function net(name: string): CopperTarget;
 declare function board(): RegionSelector;
-/** Reserved and rejected until component-bounded regions are implemented. */
+/** Component-bounded region; currently implemented for viaStitch grid/around. */
 declare function components(...designators: string[]): RegionSelector;
 
 interface PolygonBuilder {
@@ -65,6 +80,7 @@ interface PolygonBuilder {
   on(layers: LayerSelector): this;
   compact(options?: { maxPadFreeGapWidths?: number }): this;
   maxPadFreeGapWidths(value: number): this;
+  zone(options: ZoneOptions): this;
 }
 
 declare function polygon(net: string): PolygonBuilder;
@@ -74,6 +90,7 @@ declare function plane(options: {
   layers?: LayerSelector;
   region?: RegionSelector;
   paddingMm?: number;
+  zone?: ZoneOptions;
   stitching?: false | true | {
     gridMm?: number;
     maxVisibleViaDistanceMm?: number;
@@ -116,20 +133,55 @@ declare function matchedGroup(id: string, options: {
   toleranceMm?: number;
 }): void;
 
-/** Route along[] in the existing special stage, then fence retained tracks on both sides. */
-declare function viaFence(id: string, options: {
-  along: string[];
-  net: string;
-  pitchMm?: number;
-  offsetMm?: number;
-  /** Rows on each side of the trace. Default: 2; range: 1..8. */
-  rows?: number;
-  /** Lateral center-to-center row spacing. Default: triangular pitch. */
-  rowSpacingMm?: number;
-  /** Shift every second row by pitchMm / 2. Default: true. */
-  stagger?: boolean;
-  via?: Omit<ViaOptions, "maxCount">;
-}): void;
+interface ViaStitchCommon {
+  via?: Pick<ViaOptions, "diameterMm" | "drillMm"> | "drc-min";
+  maxVias?: number;
+}
+
+type ViaStitchOptions =
+  | ViaStitchCommon & {
+      mode: "grid";
+      net: string;
+      region: RegionSelector;
+      pitchMm: number;
+      viaInPad?: boolean;
+    }
+  | ViaStitchCommon & {
+      mode: "along";
+      net: string;
+      routes: string[];
+      pitchMm?: number;
+      offsetMm?: number;
+      rows?: number;
+      rowSpacingMm?: number;
+      stagger?: boolean;
+    }
+  | ViaStitchCommon & {
+      mode: "around";
+      net: string;
+      target: RegionSelector | FanoutTarget;
+      pitchMm?: number;
+      offsetMm?: number;
+      rows?: number;
+      side?: "inside" | "outside";
+    }
+  | ViaStitchCommon & {
+      mode: "return";
+      referenceNet: string | "auto";
+      forNets?: string[];
+      maxDistanceMm?: number;
+    };
+
+declare function viaStitch(id: string, options: ViaStitchOptions): void;
+
+interface BusDetectOptions {
+  detectionRadiusMm?: number;
+  minNets?: number;
+  attractionRadiusMm?: number;
+}
+
+/** true emits only backend enablement; omitted numeric fields stay backend defaults. */
+declare function busDetect(enabled: boolean | BusDetectOptions): void;
 
 /** Configure automatic fanout for a component or one logical pad. */
 declare function fanout(target: FanoutTarget, options?: FanoutOptions): void;

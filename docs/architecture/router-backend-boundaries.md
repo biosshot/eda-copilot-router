@@ -38,8 +38,8 @@ The complete-cycle implementation uses adapters and six ordered stages:
    native EDA refill.
 2. Invoke the backend once for all special nets: every declared differential
    pair, every explicit equal-length group, and every net followed by a
-   `viaFence(...)` statement. After routing, the core materializes requested via
-   fences from the retained special-track geometry. Persist this copper as
+   `viaStitch(...)` mode-`along` statement. After routing, the core materializes
+   requested via rows from the retained special-track geometry. Persist this copper as
    protected and run native refill before the next backend invocation.
 3. Invoke the same backend once for all remaining non-GND nets, excluding the
    special nets from the ordinary pass.
@@ -142,10 +142,10 @@ These are known adapter limitations, not extra DSL restrictions:
   calls. A future implementation should retain one logical special stage while
   compiling each compatible rule group separately.
 
-`viaFence(...)` does not add a backend-specific route job or a seventh stage.
-Its `along` nets join the same special scope, then a core-owned postprocessor
+`viaStitch(...)` mode `along` does not add a backend-specific route job or a
+seventh stage. Its `routes` nets join the same special scope, then a core-owned postprocessor
 places ordinary net-assigned vias beside their routed tracks. A backend need
-not understand via fences, but it must preserve selected special copper and the
+not understand along-stitch placement, but it must preserve selected special copper and the
 remaining pass must treat the emitted vias as fixed obstacles. The presence of
 a fence via does not prove connectivity to a plane or other same-net copper;
 that remains a final native connectivity question.

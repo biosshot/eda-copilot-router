@@ -1,6 +1,6 @@
 # Local router DSL
 
-Status: next contract accepted; implementation migration pending
+Status: implemented public contract
 Updated: 2026-08-14
 
 ## Fixed decisions
@@ -183,8 +183,7 @@ signalNet("RF_IN_AC", {
   impedance: {
     targetOhm: 50,
     tolerancePercent: 10,
-    topology: "microstrip",
-    reference: { net: "GND" },
+    referenceNet: "GND",
   },
 })
 
@@ -194,32 +193,24 @@ diffPair("USB", {
   impedance: {
     targetOhm: 90,
     tolerancePercent: 10,
-    topology: "microstrip",
-    reference: { net: "GND" },
+    referenceNet: "auto",
   },
 })
 ```
 
-The reference layer is deliberately not part of the DSL. The compiler selects
-the nearest physically eligible copper carrying the requested reference net,
-using dielectric distance in the resolved stack. For stripline it resolves the
-nearest valid reference copper on both sides when the model requires both. The
-routed layer still comes from the net's effective `allowedLayers` rule.
+Topology, signal layer, reference layers, and coplanar gap are deliberately not
+authorable. The compiler evaluates effective `allowedLayers`, the resolved
+stack, board-wide plane intents, and imported solid reference zones. It then
+classifies microstrip, symmetric/asymmetric stripline, coplanar waveguide, or
+grounded coplanar waveguide and selects the nearest unambiguous physical
+solution. Omitted `referenceNet` is equivalent to `"auto"`.
 
-The first controlled-impedance contract supports `microstrip`, `stripline`, and
-`coplanar`. Topology, tolerance, and reference net may be omitted only when the
-imported board or assigned class resolves them unambiguously. The compiler
-never guesses a dielectric thickness, relative permittivity, or nonexistent
-reference plane. If no suitable reference copper can be proven, preflight
-reports `IMPEDANCE_REFERENCE_NOT_FOUND`.
-
-For microstrip and stripline the compiler normally derives track width. A
-coplanar constraint has two geometric variables: when an explicit or inherited
-preferred width exists, the compiler derives the coplanar gap; when an explicit
-gap exists, it may derive the width. If both are explicit, it validates them;
-if neither variable can be anchored, the declaration is ambiguous and fails
-preflight. Explicit width/gap constraints and the semantic impedance target
-must have a non-empty common solution.
+For coplanar structures the gap comes from the maximum applicable DRC and zone
+clearance, because that is the separation native refill will preserve. The
+compiler derives width unless `trackWidthMm` was explicitly supplied, in which
+case it verifies the achieved impedance and tolerance. It never guesses a
+dielectric thickness, relative permittivity, or reference net; incomplete or
+equally eligible reference geometry is a preflight error.
 
 ## Physical stack
 
@@ -301,7 +292,7 @@ program fails preflight with `DRC_APPLY_REQUIRED`; the caller must select
 
 ## Scope, cleanup, and quality
 
-The following statements are accepted for the next contract:
+The following statements are part of the implemented contract:
 
 ```js
 quality({ profile: "completion-first", maxCandidates: 3 })
@@ -342,116 +333,51 @@ quality policy   = portable search objective
 backend adapter  = engine-specific tuning
 ```
 
-## Via fences
+## Bus, impedance, zones, and via stitching
 
-`viaFence(...)` is a portable special-routing statement. It marks every net in
-`along` as special, routes those nets in the existing special stage alongside
-differential pairs and matched groups, and then adds a via array next to their
-actual retained track geometry before the remaining-routing stage starts.
+The accepted advanced contracts are implemented and maintained in
+[`advanced-routing-contracts.md`](./advanced-routing-contracts.md). In short:
+
+- `busDetect(true)` delegates automatic grouping to KRT and emits only `--bus`;
+  numeric detection controls are passed only when explicitly authored;
+- impedance intent contains target, tolerance, and an optional reference net.
+  The core derives topology, routing/reference layers, coplanar DRC gap, and
+  width from the stack and actual solid reference copper;
+- `ZoneOptions` is shared by `polygon(...).zone(...)` and `plane({ zone: ... })`;
+- `viaStitch(...)` is one discriminated intent with `grid`, `along`, `around`,
+  and `return` modes. The compatibility-only `viaFence` spelling compiles to
+  `viaStitch({ mode: "along" })` and has no separate intent or planner.
 
 ```js
-viaFence("RF_FENCE", {
-  along: [
-    "Net-(C1-Pad1)",
-    "RF_IN_AC",
-    "RF_OUT_DC",
-    "Net-(C5-Pad2)",
-  ],
-  net: "GND",
+busDetect(true)
+
+signalNet("RF_IN", {
+  impedance: { targetOhm: 50, tolerancePercent: 10, referenceNet: "auto" },
 })
-```
 
-The first argument is a stable fence name. `along` is a non-empty exact net
-list; it is not a net-name pattern. `net` is the net assigned to every emitted
-via. A fence is independent of impedance intent and may follow any routable
-net, not only a differential pair or RF net.
+polygon("GND").connect(net("GND")).on("TOP").compact().zone({
+  padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.25 },
+})
 
-Optional geometry controls are deliberately small:
+viaStitch("RF_RETURN", {
+  mode: "return",
+  referenceNet: "auto",
+  forNets: ["RF_IN"],
+  maxDistanceMm: 1,
+})
 
-```js
-viaFence("RF_FENCE", {
-  along: ["RF_IN_AC"],
+viaStitch("RF_GUARD", {
+  mode: "along",
   net: "GND",
+  routes: ["RF_IN"],
   pitchMm: 0.8,
-  offsetMm: 0.6,
-  rows: 2,
-  rowSpacingMm: 0.7,
-  stagger: true,
-  via: { diameterMm: 0.5, drillMm: 0.25 },
 })
 ```
 
-- candidates are always placed on both sides of the retained routed path.
-  There is no `sides` option until a portable directed-path selector can
-  define left and right without ambiguity;
-- omitted `rows` means two rows per side. Every second row is shifted by half
-  a pitch by default, forming a triangular lattice that covers the gaps in the
-  preceding row; `rows` is limited to 1..8;
-- omitted `rowSpacingMm` uses the triangular-lattice spacing
-  `pitchMm * sqrt(3) / 2`; `stagger: false` disables the half-pitch shift;
-- omitted via geometry is inherited from effective DRC for the fence net;
-- omitted `offsetMm` is the closest DRC-correct offset derived from the routed
-  signal width, effective clearance, and via diameter;
-- omitted `pitchMm` selects a dense, DRC-correct automatic pitch;
-- explicit values are requirements, not suggestions, and are rejected when
-  they conflict with effective rules.
-
-The feature adds no workflow phase and requires no via-fence implementation in
-an external router backend. The backend routes the special `along` nets; the
-router core post-processes their resulting tracks into via candidates. The
-generated vias are present before remaining routing and therefore act as normal
-obstacles for that pass.
-
-A via fence is not a plane or zone generator. A fence via may be assigned to
-`GND` without any GND plane in the same run. Net assignment alone does not
-claim that the via is electrically connected; later native copper, plane fill,
-or other routing must provide that connection, and final native verification
-is authoritative. Fence vias are ordinary `RoutingResult.copper.vias`; there
-is no fence-specific output geometry type and they do not create implicit
-preconnected pad groups.
-
-Placement is best-effort without weakening DRC:
-
-- a candidate that conflicts with pads, tracks, vias, zones, keepouts, the
-  board edge, or effective via rules is skipped;
-- if any `along` net is incomplete, no fence is emitted and
-  `VIA_FENCE_SOURCE_INCOMPLETE` records the exact missing nets;
-- if no candidate can be placed, the statement records
-  `VIA_FENCE_NOT_PLACED` and remaining routing still runs;
-- intermediate fence diagnostics do not decide board validity; the final
-  native verification does.
-
-## Portable advanced routing statements
-
-The next contract reserves portable statements/options for capabilities already
-available in KRT and meaningful for other backends:
-
-- explicit `busGroup(...)` rather than backend-only automatic bus detection;
-- `matchedGroup(...)` with exactly one of length tolerance in millimetres or
-  propagation-delay tolerance in picoseconds;
-- AC-coupled differential-pair matching;
-- automatic return vias near differential-pair signal vias, distinct from the
-  explicit net-assigned `viaFence(...)` statement;
-- explicit BGA fanout selection remains future work. QFN/QFP fanout supports
-  `fanout(component(...), { method: "auto" | "stub" | "underpad",
-  extensionMm })`; width, clearance, grid and via geometry remain compiled
-  from DRC rather than duplicated in the DSL;
-- teardrop post-processing;
-- `onlyComponents(...)` as a portable scope selector.
-
-Raw A* costs, MPS/inside-out switches, grid resolution, raw iteration and rip-up
-limits, and proximity penalties remain adapter mappings of `quality(...)`.
-Polarity/pin swaps and schematic rewrites remain outside this copper-only
-contract until the result model can represent an explicit schematic/netlist
-patch.
-
-## Still open before implementation
-
-- exact option names for the reserved advanced routing statements;
-- which optional stack process fields are needed beyond impedance and
-  current/via calculations;
-- adapter capability diagnostics for features that a selected backend cannot
-  implement.
+Raw A* costs, MPS/inside-out switches, grid resolution, raw iteration and
+rip-up limits, and proximity penalties remain adapter mappings of
+`quality(...)`. Polarity/pin swaps and schematic rewrites remain outside this
+copper-only contract.
 
 ## Rule semantics
 
