@@ -75,13 +75,13 @@ lossless-translation failures remain errors; only source-versus-DSL value
 differences are resolved by DSL precedence.
 
 Power-current intent is compiled in the core, not in an LLM or backend. A
-declared power net may supply `maxCurrentA`, `minTrackWidthMm`, both, or neither
-when its effective class already supplies the width. When both are present,
-the stricter minimum wins. Current-derived width uses the physical native
+declared power net may supply `maxCurrentA`, nominal `trackWidthMm`, hard
+`minTrackWidthMm`, any combination of them, or none when its effective class
+already supplies the geometry. Current-derived width uses the physical native
 stackup when present, otherwise the documented 1 oz baseline, with
 `maxTempRiseC=16` by default. Calculated width is the preferred trunk width,
-not a pad-escape minimum. Short neck-downs remain legal down to the fixed 0.127
-mm hard floor. **All backend neck-down mechanisms are always enabled**, including
+not a pad-escape minimum. Short neck-downs remain legal down to the effective
+fab/DRC minimum (0.127 mm by default). **All backend neck-down mechanisms are always enabled**, including
 KRT impedance neck-down and its normal power-tap/pad-escape neck-down. No adapter
 may emit a `--no-*-neckdown` option or a `NECKDOWN=0` environment override.
 Neck-down still may not cross the effective compiled DRC minimum. The

@@ -114,11 +114,13 @@ function optionalLayer(source: Record<string, unknown>, key: string) {
 function optionalVia(source: Record<string, unknown>, label = "via"): { via?: ViaConstraint } {
   if (source.via === undefined) return {}
   const via = object(source.via, label)
-  assertKnownKeys(via, ["diameterMm", "drillMm", "from", "to", "maxCount"], label)
+  assertKnownKeys(via, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "from", "to", "maxCount"], label)
   return {
     via: {
       ...optionalPositive(via, "diameterMm"),
       ...optionalPositive(via, "drillMm"),
+      ...optionalPositive(via, "minDiameterMm"),
+      ...optionalPositive(via, "minDrillMm"),
       ...(via.from === undefined ? {} : { from: canonicalPhysicalLayer(via.from, `${label}.from`) }),
       ...(via.to === undefined ? {} : { to: canonicalPhysicalLayer(via.to, `${label}.to`) }),
       ...(via.maxCount === undefined ? {} : { maxCount: integer(via.maxCount, `${label}.maxCount`, 0) }),
@@ -152,7 +154,7 @@ function optionalImpedance(source: Record<string, unknown>): { impedance?: Imped
 }
 
 const RULE_KEYS = [
-  "trackWidthMm", "minTrackWidthMm", "preferredTrackWidthMm", "clearanceMm",
+  "trackWidthMm", "minTrackWidthMm", "clearanceMm",
   "edgeClearanceMm", "holeToHoleClearanceMm", "allowedLayers", "via",
 ] as const
 
@@ -160,7 +162,6 @@ function ruleFields(source: Record<string, unknown>) {
   return {
     ...optionalPositive(source, "trackWidthMm"),
     ...optionalPositive(source, "minTrackWidthMm"),
-    ...optionalPositive(source, "preferredTrackWidthMm"),
     ...optionalPositive(source, "clearanceMm"),
     ...optionalPositive(source, "edgeClearanceMm"),
     ...optionalPositive(source, "holeToHoleClearanceMm"),

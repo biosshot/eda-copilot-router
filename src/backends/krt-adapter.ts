@@ -1238,7 +1238,7 @@ function commonArgs(
   pushNumericArg(args, "--direction-preference-cost", spec.directionPreferenceCost)
   if (spec.debugMemory) args.push("--debug-memory")
   args.push("--keep-input-copper", "--no-fix-drc-settings")
-  // args.push("--fab-overrides", resolve(spec.fabOverridesPath))
+  args.push("--fab-overrides", resolve(spec.fabOverridesPath))
   return args
 }
 

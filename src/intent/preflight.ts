@@ -258,10 +258,9 @@ function applyAbsolute(
     clearanceMm?: number
     edgeClearanceMm?: number
     holeToHoleClearanceMm?: number
-    preferredTrackWidthMm?: number
     maxLengthMm?: number
     allowedLayers?: LayerSelector
-    via?: { diameterMm?: number; drillMm?: number }
+    via?: { diameterMm?: number; drillMm?: number; minDiameterMm?: number; minDrillMm?: number }
     impedance?: {
       targetOhm: number
       tolerancePercent?: number
@@ -271,12 +270,12 @@ function applyAbsolute(
   },
   board: RoutingBoard,
 ): RoutingRuleValues {
-  const exact = intent.trackWidthMm
-  const minimum = exact ?? intent.minTrackWidthMm ?? base.minTrackWidthMm
+  const minimum = intent.minTrackWidthMm ?? base.minTrackWidthMm
+  const preferred = intent.trackWidthMm ?? Math.max(base.preferredTrackWidthMm, minimum)
   return {
     ...base,
     minTrackWidthMm: minimum,
-    preferredTrackWidthMm: intent.preferredTrackWidthMm ?? exact ?? Math.max(base.preferredTrackWidthMm, minimum),
+    preferredTrackWidthMm: preferred,
     ...(intent.clearanceMm === undefined ? {} : { clearanceMm: intent.clearanceMm }),
     ...(intent.edgeClearanceMm === undefined ? {} : { edgeClearanceMm: intent.edgeClearanceMm }),
     ...(intent.holeToHoleClearanceMm === undefined ? {} : { holeToHoleClearanceMm: intent.holeToHoleClearanceMm }),
@@ -290,10 +289,12 @@ function applyAbsolute(
     }),
     via: {
       ...base.via,
-      minDiameterMm: intent.via?.diameterMm ?? base.via.minDiameterMm,
-      preferredDiameterMm: intent.via?.diameterMm ?? base.via.preferredDiameterMm,
-      minDrillMm: intent.via?.drillMm ?? base.via.minDrillMm,
-      preferredDrillMm: intent.via?.drillMm ?? base.via.preferredDrillMm,
+      minDiameterMm: intent.via?.minDiameterMm ?? base.via.minDiameterMm,
+      preferredDiameterMm: intent.via?.diameterMm
+        ?? Math.max(base.via.preferredDiameterMm, intent.via?.minDiameterMm ?? base.via.minDiameterMm),
+      minDrillMm: intent.via?.minDrillMm ?? base.via.minDrillMm,
+      preferredDrillMm: intent.via?.drillMm
+        ?? Math.max(base.via.preferredDrillMm, intent.via?.minDrillMm ?? base.via.minDrillMm),
     },
   }
 }
@@ -477,28 +478,29 @@ export function compileRoutingRules(
     ).map((layer) => calculateTrackWidthMm(
       power.maxCurrentA!, power.maxTempRiseC ?? DEFAULT_TEMP_RISE_C, layer.thicknessMm, layer.external,
     )))
+    const explicit = applyAbsolute(base, {
+      trackWidthMm: power.trackWidthMm,
+      minTrackWidthMm: power.minTrackWidthMm,
+      clearanceMm: power.clearanceMm,
+      allowedLayers: power.allowedLayers,
+      via: power.via,
+    }, board)
     const preferredWidth = roundedUp(Math.max(
       HARD_MIN_TRACK_WIDTH_MM,
-      base.preferredTrackWidthMm,
+      explicit.preferredTrackWidthMm,
       physicalWidth,
-      power.minTrackWidthMm ?? 0,
     ))
     const maximum = Math.min(power.maxTrackWidthMm ?? widthCeiling, 10)
     if (preferredWidth > maximum + EPSILON) diagnostics.push(diagnostic(
       "DSL_RULE_CONFLICT", `${power.net} needs ${preferredWidth.toFixed(2)} mm copper, above maxTrackWidthMm=${maximum.toFixed(2)} mm.`,
     ))
-    const explicit = applyAbsolute(base, {
-      clearanceMm: power.clearanceMm,
-      allowedLayers: power.allowedLayers,
-      via: power.via,
-    }, board)
     const requiredArea = preferredWidth * Math.max(...copperThicknesses(calculationBoard, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
     const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
     const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
     if (requiredParallelVias > 1) required.add("parallel-vias")
     byNet.set(power.net, {
       ...explicit,
-      minTrackWidthMm: HARD_MIN_TRACK_WIDTH_MM,
+      minTrackWidthMm: Math.max(explicit.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
       preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, preferredWidth),
       via: {
         ...explicit.via,
@@ -551,15 +553,14 @@ export function compileRoutingRules(
     checkNet(fence.net)
     for (const net of fence.along) checkNet(net)
   }
-  // runAll() deliberately persists the universal KRT neckdown floor. This keeps
-  // the rules used by the router and the post-route verifier consistent while
-  // preserving boards that already permit a smaller feature.
+  // runAll() persists the universal KRT neckdown floor without weakening a
+  // stricter imported or DSL hard minimum.
   if (program.operation === "all") for (const { name } of board.nets) {
     if (!selected(name) || /^GND$/i.test(name)) continue
     const values = byNet.get(name) ?? board.rules.default
     byNet.set(name, {
       ...values,
-      minTrackWidthMm: Math.min(values.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
+      minTrackWidthMm: Math.max(values.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
     })
   }
   if (program.operation !== "apply-drc") required.add("ordinary-routing")
@@ -576,6 +577,27 @@ export function compileRoutingRules(
       })),
     } : {}),
   }
+  for (const { scope, values } of [
+    { scope: "default", values: effective.default },
+    ...effective.nets.map(({ net, values }) => ({ scope: `net ${net}`, values })),
+  ]) {
+    if (values.preferredTrackWidthMm + EPSILON < values.minTrackWidthMm) diagnostics.push(diagnostic(
+      "DSL_RULE_CONFLICT",
+      `${scope} nominal track width ${values.preferredTrackWidthMm} mm is below its hard minimum ${values.minTrackWidthMm} mm.`,
+    ))
+    if (values.via.preferredDiameterMm + EPSILON < values.via.minDiameterMm) diagnostics.push(diagnostic(
+      "DSL_VIA_CONFLICT",
+      `${scope} nominal via diameter ${values.via.preferredDiameterMm} mm is below its hard minimum ${values.via.minDiameterMm} mm.`,
+    ))
+    if (values.via.preferredDrillMm + EPSILON < values.via.minDrillMm) diagnostics.push(diagnostic(
+      "DSL_VIA_CONFLICT",
+      `${scope} nominal via drill ${values.via.preferredDrillMm} mm is below its hard minimum ${values.via.minDrillMm} mm.`,
+    ))
+    if (values.via.preferredDrillMm + EPSILON >= values.via.preferredDiameterMm) diagnostics.push(diagnostic(
+      "DSL_VIA_CONFLICT",
+      `${scope} nominal via drill must be smaller than its nominal diameter.`,
+    ))
+  }
   const overriddenFields = [
     ...changed("default", sourceDefault, effectiveDefault),
     ...effective.nets.flatMap(({ net, values }) => changed(
@@ -583,14 +605,8 @@ export function compileRoutingRules(
     )),
   ]
   if (program.operation === "route") {
-    const powerNets = new Set(program.powerNets.map((item) => item.net))
     const weakening = overriddenFields.filter((item) => {
       if (typeof item.source !== "number" || typeof item.effective !== "number") return false
-      if (item.field === "minTrackWidthMm"
-        && typeof item.scope === "object"
-        && "net" in item.scope
-        && powerNets.has(item.scope.net)
-        && Math.abs(item.effective - HARD_MIN_TRACK_WIDTH_MM) <= EPSILON) return false
       if (/maxLength|maxSkew|maxUncoupled|tolerance/i.test(item.field)) return item.effective > item.source
       return /clearance|minTrackWidth|diameter|drill|gap/i.test(item.field) && item.effective < item.source
     })

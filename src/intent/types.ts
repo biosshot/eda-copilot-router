@@ -62,6 +62,8 @@ export type PlaneIntent = Readonly<{
 }>
 
 export type ViaConstraint = ViaGeometryIntent & Readonly<{
+  minDiameterMm?: number
+  minDrillMm?: number
   maxCount?: number
 }>
 
@@ -77,9 +79,10 @@ export type ImpedanceConstraint = Readonly<{
 }>
 
 export type RuleIntent = Readonly<{
+  /** Nominal/preferred routed width. */
   trackWidthMm?: number
+  /** Hard lower bound, including neck-down geometry. */
   minTrackWidthMm?: number
-  preferredTrackWidthMm?: number
   clearanceMm?: number
   edgeClearanceMm?: number
   holeToHoleClearanceMm?: number
@@ -87,16 +90,12 @@ export type RuleIntent = Readonly<{
   via?: ViaConstraint
 }>
 
-export type DrcIntent = RuleIntent & Readonly<{
-  preferredTrackWidthMm?: number
-  holeToHoleClearanceMm?: number
-}>
+export type DrcIntent = RuleIntent
 
 export type NetClassIntent = RuleIntent & Readonly<{
   kind: "net-class"
   name: string
   nets: readonly string[]
-  preferredTrackWidthMm?: number
 }>
 
 export type SignalNetIntent = RuleIntent & Readonly<{

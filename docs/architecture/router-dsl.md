@@ -113,11 +113,12 @@ taps and may neck down to `tapWidthMm` (default `drc-min`). Power width and
 parallel-via requirements apply to the trunk, not to every control/sense pad.
 This distinction is required rather than guessed from geometry.
 
-`maxCurrentA` and `minTrackWidthMm` are compatible, not mutually exclusive. If
-both are present, the effective trunk minimum is the stricter of the
-current-derived width and the explicit minimum. If neither is present, the
-power net inherits its width from its named class or effective DRC. The DSL
-does not require an LLM to repeat a width already supplied by the board.
+`maxCurrentA`, `trackWidthMm`, and `minTrackWidthMm` are compatible. The
+current-derived width and `trackWidthMm` select the nominal high-current trunk
+width; `minTrackWidthMm` remains the hard lower bound for legal neck-downs. If
+none are present, the power net inherits both values from its named class or
+effective DRC. The DSL does not require an LLM to repeat geometry already
+supplied by the board.
 
 ## Global DRC and named net classes
 
@@ -131,14 +132,12 @@ drc({
   edgeClearanceMm: 0.5,
   holeToHoleClearanceMm: 0.25,
   minTrackWidthMm: 0.127,
-  preferredTrackWidthMm: 0.254,
+  trackWidthMm: 0.254,
   via: {
     minDiameterMm: 0.45,
-    preferredDiameterMm: 0.6,
+    diameterMm: 0.6,
     minDrillMm: 0.2,
-    preferredDrillMm: 0.3,
-    minAnnularRingMm: 0.1,
-    viaInPad: "allow",
+    drillMm: 0.3,
   },
 })
 ```
@@ -150,10 +149,10 @@ special nets that share geometry but are not necessarily power nets:
 netClass("WIDE_SIGNALS", {
   nets: ["LED_A", "LED_B", "MOTOR_SENSE"],
   minTrackWidthMm: 0.3,
-  preferredTrackWidthMm: 0.5,
+  trackWidthMm: 0.5,
   clearanceMm: 0.2,
   allowedLayers: "OUTER",
-  via: { preferredDiameterMm: 0.8, preferredDrillMm: 0.4 },
+  via: { diameterMm: 0.8, drillMm: 0.4 },
 })
 ```
 
@@ -161,6 +160,9 @@ All class fields except the class name and non-empty net membership are
 optional and inherit from global DRC. An explicit per-net declaration may
 further specialize its assigned class. Effective precedence is imported DRC,
 then `drc(...)`, then `netClass(...)`, then explicit per-net/special intent.
+`trackWidthMm` and `via.diameterMm` / `via.drillMm` are nominal routing
+geometry. Their `min*` counterparts are hard lower bounds; set nominal and
+minimum to the same value when neck-down must be forbidden.
 Semantic requirements such as current or impedance are compatibility checks
 and derived constraints; an explicit value that makes them impossible is a DSL
 error.

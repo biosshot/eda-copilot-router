@@ -52,13 +52,22 @@ function layerSelector(value: unknown, path: string, diagnostics: RoutingDiagnos
 
 function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], allowMaxCount = true) {
   if (value === undefined) return
-  exactKeys(value, ["diameterMm", "drillMm", "from", "to", ...(allowMaxCount ? ["maxCount"] : [])], diagnostics, path)
+  exactKeys(value, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "from", "to", ...(allowMaxCount ? ["maxCount"] : [])], diagnostics, path)
   const item = object(value) ? value : {}
-  for (const key of ["diameterMm", "drillMm"] as const) if (item[key] !== undefined && !positive(item[key])) {
+  for (const key of ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm"] as const) if (item[key] !== undefined && !positive(item[key])) {
     diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
   }
   if (positive(item.diameterMm) && positive(item.drillMm) && Number(item.drillMm) >= Number(item.diameterMm)) {
     diagnostics.push(error("DSL_VIA_CONFLICT", `${path} drill must be smaller than diameter.`, path))
+  }
+  if (positive(item.minDiameterMm) && positive(item.minDrillMm) && Number(item.minDrillMm) >= Number(item.minDiameterMm)) {
+    diagnostics.push(error("DSL_VIA_CONFLICT", `${path} minimum drill must be smaller than minimum diameter.`, path))
+  }
+  if (positive(item.minDiameterMm) && positive(item.diameterMm) && Number(item.minDiameterMm) > Number(item.diameterMm)) {
+    diagnostics.push(error("DSL_VIA_CONFLICT", `${path} minimum diameter exceeds nominal diameter.`, path))
+  }
+  if (positive(item.minDrillMm) && positive(item.drillMm) && Number(item.minDrillMm) > Number(item.drillMm)) {
+    diagnostics.push(error("DSL_VIA_CONFLICT", `${path} minimum drill exceeds nominal drill.`, path))
   }
   for (const key of ["from", "to"] as const) if (item[key] !== undefined
     && (typeof item[key] !== "string" || !/^(TOP|BOTTOM|INNER_(?:[1-9]|[12][0-9]|30))$/.test(String(item[key])))) {
@@ -87,14 +96,18 @@ function impedance(value: unknown, path: string, diagnostics: RoutingDiagnostic[
 }
 
 function rule(value: Record<string, unknown>, path: string, diagnostics: RoutingDiagnostic[]) {
-  for (const key of ["trackWidthMm", "minTrackWidthMm", "preferredTrackWidthMm", "clearanceMm", "edgeClearanceMm", "holeToHoleClearanceMm"] as const) {
+  for (const key of ["trackWidthMm", "minTrackWidthMm", "clearanceMm", "edgeClearanceMm", "holeToHoleClearanceMm"] as const) {
     if (value[key] !== undefined && !positive(value[key])) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
+  }
+  if (positive(value.minTrackWidthMm) && positive(value.trackWidthMm)
+    && Number(value.minTrackWidthMm) > Number(value.trackWidthMm)) {
+    diagnostics.push(error("DSL_RULE_CONFLICT", `${path} minimum track width exceeds nominal track width.`, path))
   }
   if (value.allowedLayers !== undefined) layerSelector(value.allowedLayers, `${path}.allowedLayers`, diagnostics)
   via(value.via, `${path}.via`, diagnostics)
 }
 
-const RULE_KEYS = ["trackWidthMm", "minTrackWidthMm", "preferredTrackWidthMm", "clearanceMm", "edgeClearanceMm", "holeToHoleClearanceMm", "allowedLayers", "via"]
+const RULE_KEYS = ["trackWidthMm", "minTrackWidthMm", "clearanceMm", "edgeClearanceMm", "holeToHoleClearanceMm", "allowedLayers", "via"]
 
 export function validateRoutingProgram(program: RoutingProgram): ProgramValidation {
   const diagnostics: RoutingDiagnostic[] = []

@@ -11,8 +11,14 @@ type RegionSelector = object;
 type FanoutTarget = object;
 
 interface ViaOptions {
+  /** Nominal/preferred via diameter. */
   diameterMm?: number;
+  /** Nominal/preferred drill diameter. */
   drillMm?: number;
+  /** Hard minimum via diameter. */
+  minDiameterMm?: number;
+  /** Hard minimum drill diameter. */
+  minDrillMm?: number;
   from?: PhysicalLayer;
   to?: PhysicalLayer;
   maxCount?: number;
@@ -26,9 +32,10 @@ interface FanoutOptions {
 }
 
 interface RuleOptions {
+  /** Nominal/preferred width used for ordinary routing. */
   trackWidthMm?: number;
+  /** Hard lower bound used by neck-down and final validation. */
   minTrackWidthMm?: number;
-  preferredTrackWidthMm?: number;
   clearanceMm?: number;
   edgeClearanceMm?: number;
   holeToHoleClearanceMm?: number;

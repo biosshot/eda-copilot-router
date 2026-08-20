@@ -9,21 +9,21 @@ stack({
 netClass("POWER_5A_EASYEDA", {
   nets: ["BAT_POS", "VSYS_CONV", "VSYS_PORT"],
   minTrackWidthMm: 0.127,
-  preferredTrackWidthMm: 1.85,
+  trackWidthMm: 1.85,
   via: { diameterMm: 0.6, drillMm: 0.3 },
   allowedLayers: "OUTER",
 })
 netClass("SWITCH_5A_EASYEDA", {
   nets: ["Net-(C2-Pad2)"],
   minTrackWidthMm: 0.127,
-  preferredTrackWidthMm: 1.85,
+  trackWidthMm: 1.85,
   via: { diameterMm: 0.6, drillMm: 0.3 },
   allowedLayers: "ALL",
 })
 netClass("USB_POWER_EASYEDA", {
   nets: ["USB_VBUS", "USB_A1_VBUS", "USB_A2_VBUS"],
   minTrackWidthMm: 0.127,
-  preferredTrackWidthMm: 0.95,
+  trackWidthMm: 0.95,
   via: { diameterMm: 0.6, drillMm: 0.3 },
   allowedLayers: "OUTER",
 })

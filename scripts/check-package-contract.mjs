@@ -259,7 +259,7 @@ assert.equal(applyResult.status, "complete")
 assert.equal(applyResult.operation, "apply-drc")
 assert.equal(applyResult.rules.applyRequested, true)
 assert.equal(applyResult.copper, undefined)
-assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
+assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.via.minParallelCount, 2)
 
@@ -276,6 +276,32 @@ assert.equal(namedClassResult.status, "complete")
 assert.equal(namedClassResult.rules.effective.default.clearanceMm, 0.22)
 assert.equal(namedClassResult.rules.effective.netClasses[0].name, "RF")
 assert.equal(namedClassResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.31)
+assert.equal(namedClassResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
+
+const splitNominalAndMinimum = await api.run({
+  board,
+  dsl: `
+    drc({
+      minTrackWidthMm: 0.127,
+      trackWidthMm: 0.254,
+      via: { minDiameterMm: 0.45, diameterMm: 0.6, minDrillMm: 0.2, drillMm: 0.3 }
+    })
+    applyDrcRules()
+  `,
+})
+assert.equal(splitNominalAndMinimum.status, "complete")
+assert.equal(splitNominalAndMinimum.rules.effective.default.minTrackWidthMm, 0.127)
+assert.equal(splitNominalAndMinimum.rules.effective.default.preferredTrackWidthMm, 0.254)
+assert.deepEqual(splitNominalAndMinimum.rules.effective.default.via, {
+  minDiameterMm: 0.45,
+  preferredDiameterMm: 0.6,
+  minDrillMm: 0.2,
+  preferredDrillMm: 0.3,
+})
+assert.throws(
+  () => dsl.compileRoutingDsl(`drc({ preferredTrackWidthMm: 0.25 }); applyDrcRules()`),
+  /unknown field.*preferredTrackWidthMm/i,
+)
 
 const belowHardFloor = await api.run({
   board,
@@ -340,7 +366,7 @@ const routed = await api.run({ board, dsl: "runAll()", backend })
 assert.equal(routed.status, "complete")
 assert.equal(routed.operation, "all")
 assert.equal(routed.rules.applyRequested, true)
-assert.equal(routed.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
+assert.equal(routed.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
 
@@ -638,7 +664,7 @@ const groundAndPowerResult = await api.run({
   `,
 })
 assert.equal(groundAndPowerResult.status, "complete")
-assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.127)
+assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 1.85)
 assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 1.85)
 assert.deepEqual(groundAndPowerResult.copper.zones.map((zone) => ({
   net: zone.net, priority: zone.priority, minThicknessMm: zone.minThicknessMm,
@@ -653,7 +679,7 @@ const weakOnlyRouting = await api.run({
   backend,
 })
 assert.equal(weakOnlyRouting.status, "error")
-assert.ok(weakOnlyRouting.diagnostics.some((item) => item.code === "DRC_APPLY_REQUIRED"))
+assert.ok(weakOnlyRouting.diagnostics.some((item) => item.code === "DSL_RULE_CONFLICT"))
 assert.equal(backendCalls, 2, "preflight must reject before backend")
 
 const weakAll = await api.run({
@@ -661,9 +687,9 @@ const weakAll = await api.run({
   dsl: `signalNet("VCC", { trackWidthMm: 0.1 }); runAll()`,
   backend,
 })
-assert.equal(weakAll.status, "complete")
-assert.equal(weakAll.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.1)
-assert.equal(backendCalls, 3)
+assert.equal(weakAll.status, "error")
+assert.ok(weakAll.diagnostics.some((item) => item.code === "DSL_RULE_CONFLICT"))
+assert.equal(backendCalls, 2)
 
 let wasmCalls = 0
 let wasmInput
