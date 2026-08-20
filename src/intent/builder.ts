@@ -116,14 +116,13 @@ function optionalLayer(source: Record<string, unknown>, key: string) {
 function optionalVia(source: Record<string, unknown>, label = "via"): { via?: ViaConstraint } {
   if (source.via === undefined) return {}
   const via = object(source.via, label)
-  assertKnownKeys(via, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "maxCount"], label)
+  assertKnownKeys(via, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm"], label)
   return {
     via: {
       ...optionalPositive(via, "diameterMm"),
       ...optionalPositive(via, "drillMm"),
       ...optionalPositive(via, "minDiameterMm"),
       ...optionalPositive(via, "minDrillMm"),
-      ...(via.maxCount === undefined ? {} : { maxCount: integer(via.maxCount, `${label}.maxCount`, 0) }),
     },
   }
 }
@@ -288,8 +287,6 @@ class RoutingDslBuilder {
       diffPair: (id: string, options: unknown) => this.diffPair(id, options),
       matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
       viaStitch: (id: string, options: unknown) => this.viaStitch(id, options),
-      /** @deprecated Compatibility alias; compiles to mode: "along". */
-      viaFence: (id: string, options: unknown) => this.viaFenceAlias(id, options),
       fanout: (target: FanoutTarget, options: unknown = {}) => this.fanout(target, options),
       disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
       stack: (options: unknown) => this.stack(options),
@@ -451,11 +448,11 @@ class RoutingDslBuilder {
 
   private signalNet(net: string, input: unknown): undefined {
     const source = object(input, "signalNet options")
-    assertKnownKeys(source, ["netClass", "maxLengthMm", "impedance", ...RULE_KEYS], "signalNet")
+    assertKnownKeys(source, ["netClass", "impedance", ...RULE_KEYS], "signalNet")
     this.signalNets.push({
       kind: "signal-net", net: nonEmpty(net, "signal net"),
       ...(source.netClass === undefined ? {} : { netClass: nonEmpty(source.netClass, "signalNet.netClass") }),
-      ...ruleFields(source), ...optionalPositive(source, "maxLengthMm"), ...optionalImpedance(source),
+      ...ruleFields(source), ...optionalImpedance(source),
     })
     return undefined
   }
@@ -531,13 +528,6 @@ class RoutingDslBuilder {
       this.viaStitches.push({ ...common, mode, referenceNet: referenceNet === "auto" ? "auto" : referenceNet, ...(source.forNets === undefined ? {} : { forNets: [...new Set(source.forNets.map((item, index) => nonEmpty(item, `viaStitch.forNets[${index}]`)))] }), ...optionalPositive(source, "maxDistanceMm") })
     } else throw new TypeError("viaStitch.mode must be grid, along, around, or return")
     return undefined
-  }
-
-  private viaFenceAlias(id: string, input: unknown): undefined {
-    const source = object(input, "viaFence options")
-    assertKnownKeys(source, ["along", "net", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], "viaFence")
-    const { along, ...rest } = source
-    return this.viaStitch(id, { ...rest, mode: "along", routes: along })
   }
 
   private busDetect(value: unknown): undefined {

@@ -286,7 +286,6 @@ assert.equal(applyResult.rules.applyRequested, true)
 assert.equal(applyResult.copper, undefined)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
 assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
-assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.via.minParallelCount, 2)
 
 const namedClassResult = await api.run({
   board,
@@ -459,7 +458,7 @@ const incompleteFence = await api.run({
 assert.equal(incompleteFence.copper.vias.length, 0)
 assert.ok(incompleteFence.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_SOURCE_INCOMPLETE"))
 
-const oneViaFence = api.planViaStitches(
+const oneViaStitch = api.planViaStitches(
   board,
   {
     tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 0.8, y: 0.8 }, { x: 0.81, y: 0.8 }] }],
@@ -469,8 +468,8 @@ const oneViaFence = api.planViaStitches(
   board.rules,
   { completedNets: ["VCC"] },
 )
-assert.equal(oneViaFence.vias.length, 0, "one legal via must be discarded instead of reporting a successful fence")
-assert.ok(oneViaFence.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_INSUFFICIENT"))
+assert.equal(oneViaStitch.vias.length, 0, "one legal via must be discarded instead of reporting a successful stitch")
+assert.ok(oneViaStitch.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_INSUFFICIENT"))
 
 const singleBalancedProfiles = []
 const singleBalancedBackend = {

@@ -83,7 +83,6 @@ export type PlaneIntent = Readonly<{
 export type ViaConstraint = ViaGeometryIntent & Readonly<{
   minDiameterMm?: number
   minDrillMm?: number
-  maxCount?: number
 }>
 
 export type ImpedanceConstraint = Readonly<{
@@ -125,7 +124,6 @@ export type SignalNetIntent = RuleIntent & Readonly<{
   kind: "signal-net"
   net: string
   netClass?: string
-  maxLengthMm?: number
   impedance?: ImpedanceConstraint
 }>
 

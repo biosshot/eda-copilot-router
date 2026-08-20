@@ -82,7 +82,7 @@ but controlled-impedance routing does not guess an unknown dielectric thickness
 or relative permittivity.
 
 ```js
-signalNet("CLK", { trackWidthMm: 0.2, clearanceMm: 0.2, maxLengthMm: 40 })
+signalNet("CLK", { trackWidthMm: 0.2, clearanceMm: 0.2 })
 powerNet("VBUS", {
   maxCurrentA: 2,
   maxTempRiseC: 16,
@@ -345,8 +345,7 @@ The accepted advanced contracts are implemented and maintained in
   width from the stack and actual solid reference copper;
 - `ZoneOptions` is shared by `polygon(...).zone(...)` and `plane({ zone: ... })`;
 - `viaStitch(...)` is one discriminated intent with `grid`, `along`, `around`,
-  and `return` modes. The compatibility-only `viaFence` spelling compiles to
-  `viaStitch({ mode: "along" })` and has no separate intent or planner.
+  and `return` modes.
 
 ```js
 busDetect(true)

@@ -122,14 +122,6 @@ function ruleValues(value: unknown, diagnostics: RoutingDiagnostic[], path: stri
     for (const field of ["minDiameterMm", "preferredDiameterMm", "minDrillMm", "preferredDrillMm"] as const) {
       if (!positive(value.via[field])) error(diagnostics, "ROUTING_RULE_INVALID", `${path}.via.${field} must be > 0.`, `${path}.via.${field}`)
     }
-    const minParallelCount = value.via.minParallelCount
-    if (minParallelCount !== undefined
-      && (!finite(minParallelCount) || !Number.isInteger(minParallelCount) || minParallelCount < 1)) error(
-      diagnostics,
-      "ROUTING_RULE_INVALID",
-      `${path}.via.minParallelCount must be a positive integer.`,
-      `${path}.via.minParallelCount`,
-    )
     if (finite(value.via.minDiameterMm) && finite(value.via.minDrillMm)
       && value.via.minDrillMm >= value.via.minDiameterMm) error(
       diagnostics, "ROUTING_RULE_CONFLICT", `${path} via drill must be smaller than diameter.`, `${path}.via`,

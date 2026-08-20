@@ -54,9 +54,9 @@ function layerSelector(value: unknown, path: string, diagnostics: RoutingDiagnos
   diagnostics.push(error("DSL_LAYER_INVALID", `${path} is invalid.`, path))
 }
 
-function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], allowMaxCount = true) {
+function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[]) {
   if (value === undefined) return
-  exactKeys(value, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", ...(allowMaxCount ? ["maxCount"] : [])], diagnostics, path)
+  exactKeys(value, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm"], diagnostics, path)
   const item = object(value) ? value : {}
   for (const key of ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm"] as const) if (item[key] !== undefined && !positive(item[key])) {
     diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
@@ -72,9 +72,6 @@ function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], all
   }
   if (positive(item.minDrillMm) && positive(item.drillMm) && Number(item.minDrillMm) > Number(item.drillMm)) {
     diagnostics.push(error("DSL_VIA_CONFLICT", `${path} minimum drill exceeds nominal drill.`, path))
-  }
-  if (item.maxCount !== undefined && (!Number.isInteger(item.maxCount) || Number(item.maxCount) < 0)) {
-    diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxCount must be an integer >= 0.`, `${path}.maxCount`))
   }
 }
 
@@ -179,13 +176,13 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (item.stitching !== false) {
       exactKeys(item.stitching, ["gridMm", "maxPadViaDistanceMm", "via", "viaInPad", "maxVias"], diagnostics, `${path}.stitching`)
       const stitching = object(item.stitching) ? item.stitching : {}
-      if (stitching.via !== "drc-min") via(stitching.via, `${path}.stitching.via`, diagnostics, false)
+      if (stitching.via !== "drc-min") via(stitching.via, `${path}.stitching.via`, diagnostics)
     }
     zone(item.zone, `${path}.zone`, diagnostics)
   })
 
   signalNets.forEach((raw, index) => {
-    const path = `signalNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "maxLengthMm", "impedance", ...RULE_KEYS], diagnostics, path)
+    const path = `signalNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "impedance", ...RULE_KEYS], diagnostics, path)
     const item = object(raw) ? raw : {}; if (item.kind !== "signal-net" || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_SIGNAL_INVALID", `${path} is invalid.`, path))
     rule(item, path, diagnostics); impedance(item.impedance, `${path}.impedance`, diagnostics)
   })
@@ -254,7 +251,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (item.rowSpacingMm !== undefined && !positive(item.rowSpacingMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rowSpacingMm must be > 0.`, `${path}.rowSpacingMm`))
     if (item.stagger !== undefined && typeof item.stagger !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.stagger must be boolean.`, `${path}.stagger`))
     if (item.maxVias !== undefined && (!Number.isInteger(item.maxVias) || Number(item.maxVias) < 1)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxVias must be an integer >= 1.`, `${path}.maxVias`))
-    if (item.via !== "drc-min") via(item.via, `${path}.via`, diagnostics, false)
+    if (item.via !== "drc-min") via(item.via, `${path}.via`, diagnostics)
   })
 
   fanouts.forEach((raw, index) => {

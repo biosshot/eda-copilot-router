@@ -19,7 +19,6 @@ interface ViaOptions {
   minDiameterMm?: number;
   /** Hard minimum drill diameter. */
   minDrillMm?: number;
-  maxCount?: number;
 }
 
 interface FanoutOptions {
@@ -105,7 +104,6 @@ declare function netClass(name: string, options: RuleOptions & { nets: string[] 
 
 declare function signalNet(net: string, options?: RuleOptions & {
   netClass?: string;
-  maxLengthMm?: number;
   impedance?: ImpedanceOptions;
 }): void;
 

@@ -22,7 +22,6 @@ import {
 
 const COPPER_MM_PER_OZ = 0.03479
 const DEFAULT_TEMP_RISE_C = 16
-const DEFAULT_VIA_PLATING_UM = 20
 const WIDTH_GRID_MM = 0.05
 /**
  * Absolute manufacturing/search floor for a short neck-down. Power-current
@@ -309,7 +308,6 @@ function applyAbsolute(
     clearanceMm?: number
     edgeClearanceMm?: number
     holeToHoleClearanceMm?: number
-    maxLengthMm?: number
     allowedLayers?: LayerSelector
     via?: { diameterMm?: number; drillMm?: number; minDiameterMm?: number; minDrillMm?: number }
     impedance?: {
@@ -329,7 +327,6 @@ function applyAbsolute(
     ...(intent.clearanceMm === undefined ? {} : { clearanceMm: intent.clearanceMm }),
     ...(intent.edgeClearanceMm === undefined ? {} : { edgeClearanceMm: intent.edgeClearanceMm }),
     ...(intent.holeToHoleClearanceMm === undefined ? {} : { holeToHoleClearanceMm: intent.holeToHoleClearanceMm }),
-    ...(intent.maxLengthMm === undefined ? {} : { maxLengthMm: intent.maxLengthMm }),
     ...(intent.allowedLayers === undefined ? {} : { allowedLayers: selectedLayers(board, intent.allowedLayers) }),
     ...(intent.impedance === undefined ? {} : {
       impedanceOhm: intent.impedance.targetOhm,
@@ -510,7 +507,6 @@ export function compileRoutingRules(
     ?? board.stackup?.fallbackCopperThicknessOz ?? 1
   const calculationBoard: RoutingBoard = { ...board, stackup: effectiveStackup(board, program) }
   const widthCeiling = program.stack?.maxTrackWidthMm ?? 10
-  const platingUm = program.stack?.viaPlatingThicknessUm ?? DEFAULT_VIA_PLATING_UM
   for (const power of program.powerNets) {
     checkNet(power.net); checkLayers(power.allowedLayers)
     for (const target of power.powerPads ?? []) {
@@ -548,20 +544,11 @@ export function compileRoutingRules(
     if (preferredWidth > maximum + EPSILON) diagnostics.push(diagnostic(
       "DSL_RULE_CONFLICT", `${power.net} needs ${preferredWidth.toFixed(2)} mm copper, above maxTrackWidthMm=${maximum.toFixed(2)} mm.`,
     ))
-    const requiredArea = preferredWidth * Math.max(...copperThicknesses(calculationBoard, power.allowedLayers, fallbackOz).map((layer) => layer.thicknessMm))
-    const barrelArea = Math.PI * explicit.via.preferredDrillMm * platingUm / 1_000
-    const requiredParallelVias = Math.max(1, Math.ceil(requiredArea / barrelArea - EPSILON))
-    if (requiredParallelVias > 1) required.add("parallel-vias")
     byNet.set(power.net, {
       ...explicit,
       minTrackWidthMm: Math.max(explicit.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
       preferredTrackWidthMm: Math.max(explicit.preferredTrackWidthMm, preferredWidth),
-      via: {
-        ...explicit.via,
-        minParallelCount: requiredParallelVias,
-      },
     })
-    if (!Number.isFinite(requiredParallelVias)) diagnostics.push(diagnostic("DSL_VIA_CONFLICT", `${power.net} has invalid via current geometry.`))
   }
   for (const pair of program.differentialPairs) {
     required.add("differential-pairs")

@@ -10,7 +10,7 @@ import type {
 } from "./contracts.js"
 import { planRoutingCopper } from "./copper-planner.js"
 import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
-import { planViaStitches } from "./via-fence.js"
+import { planViaStitches } from "./via-stitch.js"
 
 export type RunRequest = Readonly<{
   board: RoutingBoard

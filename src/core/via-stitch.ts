@@ -473,8 +473,3 @@ export function planViaStitches(
   }
   return { vias, diagnostics }
 }
-
-/** @deprecated Use planViaStitches with mode: "along". */
-export const planViaFences = planViaStitches
-export type ViaFencePlan = ViaStitchPlan
-export type ViaFenceSourceCompletion = ViaStitchSourceCompletion

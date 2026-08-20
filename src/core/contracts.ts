@@ -123,8 +123,6 @@ export type ViaRules = Readonly<{
   preferredDiameterMm: Millimeters
   minDrillMm: Millimeters
   preferredDrillMm: Millimeters
-  /** Minimum number of equivalent vias at one layer transition. */
-  minParallelCount?: number
 }>
 
 export type DifferentialRules = Readonly<{
@@ -143,7 +141,6 @@ export type RoutingRuleValues = Readonly<{
   preferredTrackWidthMm: Millimeters
   via: ViaRules
   allowedLayers?: readonly string[]
-  maxLengthMm?: Millimeters
   impedanceOhm?: number
   impedanceTolerancePercent?: number
   impedanceTopology?: "microstrip" | "stripline" | "coplanar-waveguide" | "grounded-coplanar-waveguide"

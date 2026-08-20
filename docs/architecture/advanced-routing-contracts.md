@@ -153,6 +153,5 @@ copper and hole spacing, effective per-net rules, duplicate suppression, and
 - `around` follows an offset contour after main routing. Board contours default
   to `inside`; component and pad contours default to `outside`.
 
-The former `viaFence` surface is a compatibility alias that compiles directly
-to `viaStitch({ mode: "along" })`; there is no separate fence intent or
-implementation.
+The public contract exposes only `viaStitch`; fence-shaped placement uses its
+`along` mode rather than a separate intent.
