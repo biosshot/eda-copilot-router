@@ -24,6 +24,25 @@ export type RegionSelector =
   | Readonly<{ kind: "board" }>
   | Readonly<{ kind: "components"; designators: readonly string[] }>
 
+export type ZoneOptions = Readonly<{
+  clearanceMm?: number
+  minThicknessMm?: number
+  fill?: Readonly<{
+    style?: "solid" | "hatched"
+    hatchThicknessMm?: number
+    hatchGapMm?: number
+    hatchOrientationDeg?: number
+  }>
+  padConnection?: Readonly<{
+    mode?: "solid" | "thermal" | "none"
+    thermalGapMm?: number
+    spokeWidthMm?: number
+    spokeCount?: number
+    spokeAngleDeg?: number
+  }>
+  removeIslandsBelowMm2?: number
+}>
+
 export type PolygonIntent = Readonly<{
   kind: "polygon"
   net: string
@@ -33,13 +52,12 @@ export type PolygonIntent = Readonly<{
   /** Compiler-owned stable order. It is deliberately not authorable in the DSL. */
   priority: number
   maxPadFreeGapWidths: number
+  zone?: ZoneOptions
 }>
 
 export type ViaGeometryIntent = Readonly<{
   diameterMm?: number
   drillMm?: number
-  from?: string
-  to?: string
 }>
 
 export type PlaneStitchingIntent = false | Readonly<{
@@ -59,6 +77,7 @@ export type PlaneIntent = Readonly<{
   /** Compiler-owned. Board-wide GND is always the lowest-priority zone. */
   priority: number
   stitching: PlaneStitchingIntent
+  zone?: ZoneOptions
 }>
 
 export type ViaConstraint = ViaGeometryIntent & Readonly<{
@@ -67,16 +86,20 @@ export type ViaConstraint = ViaGeometryIntent & Readonly<{
   maxCount?: number
 }>
 
-export type ImpedanceTopology = "microstrip" | "stripline" | "coplanar"
-
 export type ImpedanceConstraint = Readonly<{
   targetOhm: number
   tolerancePercent?: number
-  topology?: ImpedanceTopology
-  reference?: Readonly<{ net: string }>
-  /** Lateral ground gap for coplanar geometry. */
-  coplanarGapMm?: number
+  /** Omitted and "auto" both select the physically nearest unambiguous reference copper. */
+  referenceNet?: string | "auto"
 }>
+
+export type BusDetectOptions = Readonly<{
+  detectionRadiusMm?: number
+  minNets?: number
+  attractionRadiusMm?: number
+}>
+
+export type BusDetectIntent = true | BusDetectOptions
 
 export type RuleIntent = Readonly<{
   /** Nominal/preferred routed width. */
@@ -135,21 +158,49 @@ export type MatchedGroupIntent = Readonly<{
   toleranceMm?: number
 }>
 
-export type ViaFenceIntent = Readonly<{
-  kind: "via-fence"
+export type ViaStitchCommon = Readonly<{
   id: string
-  along: readonly string[]
-  net: string
-  pitchMm?: number
-  offsetMm?: number
-  /** Number of rows on each side of the routed centerline. Default: 2. */
-  rows?: number
-  /** Lateral center-to-center distance between adjacent rows. */
-  rowSpacingMm?: number
-  /** Shift every second row by half a pitch to form a triangular lattice. Default: true. */
-  stagger?: boolean
-  via?: ViaGeometryIntent
+  via?: "drc-min" | Readonly<Pick<ViaGeometryIntent, "diameterMm" | "drillMm">>
+  maxVias?: number
 }>
+
+export type ViaStitchIntent =
+  | ViaStitchCommon & Readonly<{
+      kind: "via-stitch"
+      mode: "grid"
+      net: string
+      region: RegionSelector
+      pitchMm: number
+      viaInPad?: boolean
+    }>
+  | ViaStitchCommon & Readonly<{
+      kind: "via-stitch"
+      mode: "along"
+      net: string
+      routes: readonly string[]
+      pitchMm?: number
+      offsetMm?: number
+      rows?: number
+      rowSpacingMm?: number
+      stagger?: boolean
+    }>
+  | ViaStitchCommon & Readonly<{
+      kind: "via-stitch"
+      mode: "around"
+      net: string
+      target: RegionSelector | FanoutTarget
+      pitchMm?: number
+      offsetMm?: number
+      rows?: number
+      side?: "inside" | "outside"
+    }>
+  | ViaStitchCommon & Readonly<{
+      kind: "via-stitch"
+      mode: "return"
+      referenceNet: string | "auto"
+      forNets?: readonly string[]
+      maxDistanceMm?: number
+    }>
 
 export type StackCopperLayerIntent = Readonly<{
   name: string
@@ -199,7 +250,7 @@ export type RoutingProgram = Readonly<{
   powerNets: readonly PowerNetIntent[]
   differentialPairs: readonly DifferentialPairIntent[]
   matchedGroups: readonly MatchedGroupIntent[]
-  viaFences: readonly ViaFenceIntent[]
+  viaStitches: readonly ViaStitchIntent[]
   /** Explicit policy overrides for automatic dense-package fanout. */
   fanouts: readonly FanoutIntent[]
   /** Components or logical pads that automatic dense-package fanout must leave untouched. */
@@ -208,6 +259,7 @@ export type RoutingProgram = Readonly<{
   drc?: DrcIntent
   stack?: StackIntent
   quality?: RoutingPolicy
+  busDetect?: BusDetectIntent
   onlyNets?: readonly string[]
   ignoreNets: readonly string[]
   clearRouting?: ClearRoutingIntent

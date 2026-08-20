@@ -162,7 +162,7 @@ export type KrtStageSpec = {
   remainingNets: readonly string[]
   /** Match P/N inside each pair only when native DRC or DSL requested skew. */
   matchDifferentialPairLengths?: boolean
-  /** A later explicit viaFence owns return vias for every routed pair. */
+  /** Core-owned return-via stitching replaces KRT's search-time return-via heuristic. */
   suppressGroundReturnVias?: boolean
   /** Exact pre-existing nets KRT may rip only when they block remainingNets. */
   ripExistingNets?: readonly string[]
@@ -199,6 +199,12 @@ export type KrtStageSpec = {
   directionPreferenceCost?: number
   collectStats?: boolean
   debugMemory?: boolean
+  /** Native route.py bus detection. true emits only --bus and preserves KRT defaults. */
+  busDetect?: true | Readonly<{
+    detectionRadiusMm?: number
+    minNets?: number
+    attractionRadiusMm?: number
+  }>
   /** Exact native filled copper was materialized as locked same-net tracks. */
   filledCopperProxy?: boolean
   /** Managed KRT patch stamps exact native filled polygons as net-aware obstacles. */
@@ -1299,6 +1305,14 @@ function remainingArgs(
   // silently flatten stricter classes.
   const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
   args.push("--nets", ...nets)
+  if (spec.busDetect) {
+    args.push("--bus")
+    if (spec.busDetect !== true) {
+      pushNumericArg(args, "--bus-detection-radius", spec.busDetect.detectionRadiusMm)
+      pushNumericArg(args, "--bus-min-nets", spec.busDetect.minNets)
+      pushNumericArg(args, "--bus-attraction-radius", spec.busDetect.attractionRadiusMm)
+    }
+  }
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
   if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets)
   if (spec.collectStats) args.push("--stats")
@@ -1310,6 +1324,16 @@ function remainingArgs(
 
   // console.log(args)
   return args //.slice(0, 2)
+}
+
+/** Deterministic command-contract helper used by adapter contract tests. */
+export function buildKrtRemainingArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtStageSpec,
+  nets: readonly string[],
+) {
+  return remainingArgs(inputBoard, outputBoard, spec, [...nets])
 }
 
 function qfnFanoutArgs(
@@ -2154,8 +2178,8 @@ export async function runKrtSpecial(
       maxRipup: variant.maxRipup,
       specialMaxCandidates: 1,
       // Return-via generation is deliberately outside differential search.
-      // It created real pair-via DRC errors on PowerBank and a later viaFence
-      // or plane-stitching stage has exact board-level context.
+      // It created real pair-via DRC errors on PowerBank; core-owned return
+      // stitching or plane stitching has exact final board-level context.
       suppressGroundReturnVias: normalized.pairs.length ? true : spec.suppressGroundReturnVias,
       protectSpecialOutput: false,
     }

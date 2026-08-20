@@ -10,7 +10,7 @@ import type {
 } from "./contracts.js"
 import { planRoutingCopper } from "./copper-planner.js"
 import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
-import { planViaFences } from "./via-fence.js"
+import { planViaStitches } from "./via-fence.js"
 
 export type RunRequest = Readonly<{
   board: RoutingBoard
@@ -69,7 +69,11 @@ function backendProgram(program: RoutingProgram): RoutingProgram {
     powerNets: program.powerNets.filter((item) => selected(item.net)),
     differentialPairs: program.differentialPairs.filter((item) => selected(item.positive) && selected(item.negative)),
     matchedGroups: program.matchedGroups.filter((item) => item.nets.every(selected)),
-    viaFences: program.viaFences.filter((item) => item.along.every(selected)),
+    viaStitches: program.viaStitches.filter((item) => {
+      if (item.mode === "along") return item.routes.every(selected)
+      if (item.mode === "return" && item.forNets) return item.forNets.every(selected)
+      return true
+    }),
   }
 }
 
@@ -107,11 +111,11 @@ function finiteMetric(value: unknown, fallback: number) {
   return Number.isFinite(number) ? number : fallback
 }
 
-function completedViaFenceSourceNets(
+function completedViaStitchSourceNets(
   result: BackendRouteResult,
-  fences: RoutingProgram["viaFences"],
+  stitches: RoutingProgram["viaStitches"],
 ) {
-  const sourceNets = [...new Set(fences.flatMap((fence) => fence.along))]
+  const sourceNets = [...new Set(stitches.flatMap((stitch) => stitch.mode === "along" ? stitch.routes : []))]
   if (result.metrics?.openNets) {
     const open = new Set(result.metrics.openNets)
     return sourceNets.filter((net) => !open.has(net))
@@ -155,7 +159,8 @@ async function routeCandidate(
     // budget for cheap stage-local variants (for example KRT special routing).
     policy: { ...policy, profile },
   }
-  const needsSpecialStage = request.program.viaFences.length > 0
+  const alongStitches = request.program.viaStitches.filter((item) => item.mode === "along")
+  const needsSpecialStage = alongStitches.length > 0
   if (!needsSpecialStage || !backend.routeSpecial || !backend.routeRemaining) {
     return await backend.route(scoped)
   }
@@ -167,12 +172,12 @@ async function routeCandidate(
       editable: request.board.copper.editable,
     },
   }
-  const fences = planViaFences(
+  const fences = planViaStitches(
     fenceBoard,
     special.copper,
-    request.program.viaFences,
+    alongStitches,
     request.rules,
-    { completedNets: completedViaFenceSourceNets(special, request.program.viaFences) },
+    { completedNets: completedViaStitchSourceNets(special, alongStitches), modes: ["along"] },
   )
   const fenceCopper: RoutingCopper = { tracks: [], vias: fences.vias, zones: [] }
   const remaining = await backend.routeRemaining({
@@ -203,7 +208,7 @@ async function routeCandidate(
       ...(routedNetCount === undefined ? {} : { routedNetCount }),
       ...(!special.metrics?.openNets && !remaining.metrics?.openNets ? {} : { openNets }),
       viaCount: special.copper.vias.length + fences.vias.length + remaining.copper.vias.length,
-      details: { ...remaining.metrics?.details, special: special.metrics?.details, viaFenceCount: fences.vias.length },
+      details: { ...remaining.metrics?.details, special: special.metrics?.details, viaStitchAlongCount: fences.vias.length },
     },
   }
 }
@@ -383,39 +388,66 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   const backendResult = selected.result
 
   try {
-    const fenceBoard: RoutingBoard = {
+    const stitchBoard: RoutingBoard = {
       ...transactionBoard,
       copper: {
         fixed: mergeCopper(transactionBoard.copper.fixed, planned.copper),
         editable: backendResult.copper,
       },
     }
-    const alreadyFenced = backendResult.copper.vias.some((via) => String(via.id ?? "").startsWith("via-fence:"))
+    const alongStitches = backendProgram(program).viaStitches.filter((item) => item.mode === "along")
+    const alreadyFenced = backendResult.copper.vias.some((via) => String(via.id ?? "").startsWith("via-stitch:"))
     const fences = alreadyFenced
       ? { vias: [], diagnostics: [] as RoutingDiagnostic[] }
-      : planViaFences(
-        fenceBoard,
+      : planViaStitches(
+        stitchBoard,
         backendResult.copper,
-        backendProgram(program).viaFences,
+        alongStitches,
         compiled.effective,
-        { completedNets: completedViaFenceSourceNets(backendResult, backendProgram(program).viaFences) },
+        { completedNets: completedViaStitchSourceNets(backendResult, alongStitches), modes: ["along"] },
       )
     const routedWithFences = mergeCopper(backendResult.copper, { tracks: [], vias: fences.vias, zones: [] })
+    const postRouteStitches = backendProgram(program).viaStitches
+    const defaultReturnNets = [...new Set([
+      ...backendProgram(program).signalNets.map((item) => item.net),
+      ...backendProgram(program).differentialPairs.flatMap((item) => [item.positive, item.negative]),
+    ])]
     const planeBoard: RoutingBoard = {
-      ...fenceBoard,
-      copper: { ...fenceBoard.copper, editable: routedWithFences },
+      ...stitchBoard,
+      copper: { ...stitchBoard.copper, editable: routedWithFences },
     }
     const planes = planRoutingCopper(planeBoard, program, compiled.effective, {
       compact: false,
       planes: true,
     })
-    const resultCopper = mergeCopper(mergeCopper(planned.copper, routedWithFences), planes.copper)
+    const routedAndPlanes = mergeCopper(routedWithFences, planes.copper)
+    const returns = planViaStitches(
+      { ...planeBoard, copper: { ...planeBoard.copper, editable: routedAndPlanes } },
+      routedAndPlanes,
+      postRouteStitches,
+      compiled.effective,
+      { completedNets: [], modes: ["return"], defaultReturnNets },
+    )
+    const routedWithReturns = mergeCopper(routedAndPlanes, { tracks: [], vias: returns.vias, zones: [] })
+    const finalStitches = planViaStitches(
+      { ...planeBoard, copper: { ...planeBoard.copper, editable: routedWithReturns } },
+      routedWithReturns,
+      postRouteStitches,
+      compiled.effective,
+      { completedNets: [], modes: ["grid", "around"] },
+    )
+    const resultCopper = mergeCopper(
+      mergeCopper(planned.copper, routedAndPlanes),
+      { tracks: [], vias: [...returns.vias, ...finalStitches.vias], zones: [] },
+    )
     const copperValidation = validateRoutingCopper(resultCopper, request.board)
     const diagnostics = [
       ...compiled.diagnostics,
       ...planned.diagnostics,
       ...planes.diagnostics,
       ...fences.diagnostics,
+      ...returns.diagnostics,
+      ...finalStitches.diagnostics,
       ...backendPreflight,
       ...(backendResult.diagnostics ?? []),
       ...copperValidation.diagnostics,

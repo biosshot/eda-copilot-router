@@ -14,8 +14,12 @@ function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
+function finite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
 function positive(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
+  return finite(value) && value > 0
 }
 
 function nonNegative(value: unknown) {
@@ -52,7 +56,7 @@ function layerSelector(value: unknown, path: string, diagnostics: RoutingDiagnos
 
 function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], allowMaxCount = true) {
   if (value === undefined) return
-  exactKeys(value, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "from", "to", ...(allowMaxCount ? ["maxCount"] : [])], diagnostics, path)
+  exactKeys(value, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", ...(allowMaxCount ? ["maxCount"] : [])], diagnostics, path)
   const item = object(value) ? value : {}
   for (const key of ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm"] as const) if (item[key] !== undefined && !positive(item[key])) {
     diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
@@ -69,10 +73,6 @@ function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], all
   if (positive(item.minDrillMm) && positive(item.drillMm) && Number(item.minDrillMm) > Number(item.drillMm)) {
     diagnostics.push(error("DSL_VIA_CONFLICT", `${path} minimum drill exceeds nominal drill.`, path))
   }
-  for (const key of ["from", "to"] as const) if (item[key] !== undefined
-    && (typeof item[key] !== "string" || !/^(TOP|BOTTOM|INNER_(?:[1-9]|[12][0-9]|30))$/.test(String(item[key])))) {
-    diagnostics.push(error("DSL_LAYER_INVALID", `${path}.${key} is not a canonical physical layer.`, `${path}.${key}`))
-  }
   if (item.maxCount !== undefined && (!Number.isInteger(item.maxCount) || Number(item.maxCount) < 0)) {
     diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxCount must be an integer >= 0.`, `${path}.maxCount`))
   }
@@ -80,18 +80,35 @@ function via(value: unknown, path: string, diagnostics: RoutingDiagnostic[], all
 
 function impedance(value: unknown, path: string, diagnostics: RoutingDiagnostic[]) {
   if (value === undefined) return
-  exactKeys(value, ["targetOhm", "tolerancePercent", "topology", "reference", "coplanarGapMm"], diagnostics, path)
+  exactKeys(value, ["targetOhm", "tolerancePercent", "referenceNet"], diagnostics, path)
   const item = object(value) ? value : {}
   if (!positive(item.targetOhm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.targetOhm must be > 0.`, `${path}.targetOhm`))
   if (item.tolerancePercent !== undefined && !positive(item.tolerancePercent)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.tolerancePercent must be > 0.`, `${path}.tolerancePercent`))
-  if (item.topology !== undefined && !["microstrip", "stripline", "coplanar"].includes(String(item.topology))) {
-    diagnostics.push(error("DSL_IMPEDANCE_TOPOLOGY_INVALID", `${path}.topology is invalid.`, `${path}.topology`))
+  if (item.referenceNet !== undefined && (typeof item.referenceNet !== "string" || !item.referenceNet)) diagnostics.push(error("DSL_REFERENCE_NET_INVALID", `${path}.referenceNet must be a net name or auto.`, `${path}.referenceNet`))
+}
+
+function zone(value: unknown, path: string, diagnostics: RoutingDiagnostic[]) {
+  if (value === undefined) return
+  exactKeys(value, ["clearanceMm", "minThicknessMm", "fill", "padConnection", "removeIslandsBelowMm2"], diagnostics, path)
+  const item = object(value) ? value : {}
+  for (const key of ["clearanceMm", "minThicknessMm"] as const) if (item[key] !== undefined && !positive(item[key])) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
+  if (item.removeIslandsBelowMm2 !== undefined && !nonNegative(item.removeIslandsBelowMm2)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.removeIslandsBelowMm2 must be >= 0.`, `${path}.removeIslandsBelowMm2`))
+  if (item.fill !== undefined) {
+    exactKeys(item.fill, ["style", "hatchThicknessMm", "hatchGapMm", "hatchOrientationDeg"], diagnostics, `${path}.fill`)
+    const fill = object(item.fill) ? item.fill : {}
+    if (fill.style !== undefined && !['solid', 'hatched'].includes(String(fill.style))) diagnostics.push(error("DSL_ZONE_FILL_INVALID", `${path}.fill.style is invalid.`, `${path}.fill.style`))
+    for (const key of ["hatchThicknessMm", "hatchGapMm"] as const) if (fill[key] !== undefined && !positive(fill[key])) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.fill.${key} must be > 0.`, `${path}.fill.${key}`))
+    if (fill.hatchOrientationDeg !== undefined && !finite(fill.hatchOrientationDeg)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.fill.hatchOrientationDeg must be finite.`, `${path}.fill.hatchOrientationDeg`))
+    if (fill.style !== "hatched" && [fill.hatchThicknessMm, fill.hatchGapMm, fill.hatchOrientationDeg].some((field) => field !== undefined)) diagnostics.push(error("DSL_ZONE_FILL_CONFLICT", `${path} hatch fields require hatched fill.`, `${path}.fill`))
   }
-  if (item.coplanarGapMm !== undefined && !positive(item.coplanarGapMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.coplanarGapMm must be > 0.`, `${path}.coplanarGapMm`))
-  if (item.reference !== undefined) {
-    exactKeys(item.reference, ["net"], diagnostics, `${path}.reference`)
-    const reference = object(item.reference) ? item.reference : {}
-    if (typeof reference.net !== "string" || !reference.net) diagnostics.push(error("DSL_REFERENCE_NET_INVALID", `${path}.reference.net is required.`, `${path}.reference.net`))
+  if (item.padConnection !== undefined) {
+    exactKeys(item.padConnection, ["mode", "thermalGapMm", "spokeWidthMm", "spokeCount", "spokeAngleDeg"], diagnostics, `${path}.padConnection`)
+    const pad = object(item.padConnection) ? item.padConnection : {}
+    if (pad.mode !== undefined && !['solid', 'thermal', 'none'].includes(String(pad.mode))) diagnostics.push(error("DSL_ZONE_CONNECTION_INVALID", `${path}.padConnection.mode is invalid.`, `${path}.padConnection.mode`))
+    for (const key of ["thermalGapMm", "spokeWidthMm"] as const) if (pad[key] !== undefined && !positive(pad[key])) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.padConnection.${key} must be > 0.`, `${path}.padConnection.${key}`))
+    if (pad.spokeCount !== undefined && (!Number.isInteger(pad.spokeCount) || Number(pad.spokeCount) < 2 || Number(pad.spokeCount) > 8)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.padConnection.spokeCount must be 2..8.`, `${path}.padConnection.spokeCount`))
+    if (pad.spokeAngleDeg !== undefined && !finite(pad.spokeAngleDeg)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.padConnection.spokeAngleDeg must be finite.`, `${path}.padConnection.spokeAngleDeg`))
+    if (pad.mode !== "thermal" && [pad.thermalGapMm, pad.spokeWidthMm, pad.spokeCount, pad.spokeAngleDeg].some((field) => field !== undefined)) diagnostics.push(error("DSL_ZONE_CONNECTION_CONFLICT", `${path} thermal fields require thermal mode.`, `${path}.padConnection`))
   }
 }
 
@@ -113,8 +130,8 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   const diagnostics: RoutingDiagnostic[] = []
   if (!program || typeof program !== "object") return { valid: false, diagnostics: [error("DSL_PROGRAM_REQUIRED", "Routing program is required.")] }
   exactKeys(program, [
-    "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaFences",
-    "fanouts", "fanoutExclusions", "netClasses", "drc", "stack", "quality", "onlyNets", "ignoreNets", "clearRouting", "operation",
+    "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaStitches",
+    "fanouts", "fanoutExclusions", "netClasses", "drc", "stack", "quality", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
   ], diagnostics, "program")
   if (!["apply-drc", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
   const polygons = array(program.polygons, "polygons", diagnostics)
@@ -123,7 +140,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   const powerNets = array(program.powerNets, "powerNets", diagnostics)
   const pairs = array(program.differentialPairs, "differentialPairs", diagnostics)
   const groups = array(program.matchedGroups, "matchedGroups", diagnostics)
-  const fences = array(program.viaFences, "viaFences", diagnostics)
+  const stitches = array(program.viaStitches, "viaStitches", diagnostics)
   const fanouts = array(program.fanouts, "fanouts", diagnostics)
   const fanoutExclusions = array(program.fanoutExclusions, "fanoutExclusions", diagnostics)
   const classes = array(program.netClasses, "netClasses", diagnostics)
@@ -131,12 +148,13 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   const ids = new Set<string>()
 
   polygons.forEach((raw, index) => {
-    const path = `polygons[${index}]`; exactKeys(raw, ["kind", "net", "targets", "layers", "mode", "priority", "maxPadFreeGapWidths"], diagnostics, path)
+    const path = `polygons[${index}]`; exactKeys(raw, ["kind", "net", "targets", "layers", "mode", "priority", "maxPadFreeGapWidths", "zone"], diagnostics, path)
     const item = object(raw) ? raw : {}
     if (item.kind !== "polygon" || typeof item.net !== "string" || !item.net || item.mode !== "compact") diagnostics.push(error("DSL_POLYGON_INVALID", `${path} is incomplete.`, path))
     layerSelector(item.layers, `${path}.layers`, diagnostics)
     if (!nonNegative(item.priority) || !Number.isInteger(item.priority)) diagnostics.push(error("DSL_INTERNAL_PRIORITY_INVALID", `${path}.priority is invalid.`, `${path}.priority`))
     if (!positive(item.maxPadFreeGapWidths)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxPadFreeGapWidths must be > 0.`, `${path}.maxPadFreeGapWidths`))
+    zone(item.zone, `${path}.zone`, diagnostics)
     const targets = array(item.targets, `${path}.targets`, diagnostics)
     if (!targets.length) diagnostics.push(error("DSL_POLYGON_INVALID", `${path} needs targets.`, path))
     targets.forEach((targetRaw, targetIndex) => {
@@ -152,7 +170,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   })
 
   planes.forEach((raw, index) => {
-    const path = `planes[${index}]`; exactKeys(raw, ["kind", "net", "layers", "region", "paddingMm", "priority", "stitching"], diagnostics, path)
+    const path = `planes[${index}]`; exactKeys(raw, ["kind", "net", "layers", "region", "paddingMm", "priority", "stitching", "zone"], diagnostics, path)
     const item = object(raw) ? raw : {}
     if (item.kind !== "plane" || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_PLANE_INVALID", `${path} is invalid.`, path))
     layerSelector(item.layers, `${path}.layers`, diagnostics)
@@ -163,6 +181,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
       const stitching = object(item.stitching) ? item.stitching : {}
       if (stitching.via !== "drc-min") via(stitching.via, `${path}.stitching.via`, diagnostics, false)
     }
+    zone(item.zone, `${path}.zone`, diagnostics)
   })
 
   signalNets.forEach((raw, index) => {
@@ -197,17 +216,45 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (id && ids.has(id)) diagnostics.push(error("DSL_DUPLICATE_ID", `Duplicate special id ${id}.`, `${path}.id`)); if (id) ids.add(id)
   })
 
-  fences.forEach((raw, index) => {
-    const path = `viaFences[${index}]`; exactKeys(raw, ["kind", "id", "along", "net", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], diagnostics, path)
+  stitches.forEach((raw, index) => {
+    const path = `viaStitches[${index}]`
     const item = object(raw) ? raw : {}; const id = typeof item.id === "string" ? item.id : ""
-    if (!id || item.kind !== "via-fence" || !Array.isArray(item.along) || !item.along.length || !item.along.every((net) => typeof net === "string" && net) || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_VIA_FENCE_INVALID", `${path} is incomplete.`, path))
+    const common = ["kind", "id", "mode", "via", "maxVias"]
+    const specific = item.mode === "grid" ? ["net", "region", "pitchMm", "viaInPad"]
+      : item.mode === "along" ? ["net", "routes", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger"]
+      : item.mode === "around" ? ["net", "target", "pitchMm", "offsetMm", "rows", "side"]
+      : item.mode === "return" ? ["referenceNet", "forNets", "maxDistanceMm"] : []
+    exactKeys(raw, [...common, ...specific], diagnostics, path)
+    if (!id || item.kind !== "via-stitch" || !["grid", "along", "around", "return"].includes(String(item.mode))) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path} is incomplete.`, path))
     if (id && ids.has(id)) diagnostics.push(error("DSL_DUPLICATE_ID", `Duplicate special id ${id}.`, `${path}.id`)); if (id) ids.add(id)
+    if (item.mode !== "return" && (typeof item.net !== "string" || !item.net)) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path}.net is required.`, `${path}.net`))
+    if (item.mode === "along" && (!Array.isArray(item.routes) || !item.routes.length || !item.routes.every((net) => typeof net === "string" && net))) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path}.routes is invalid.`, `${path}.routes`))
+    if (item.mode === "return" && (typeof item.referenceNet !== "string" || !item.referenceNet)) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path}.referenceNet is required.`, `${path}.referenceNet`))
+    if (item.mode === "grid") {
+      const region = object(item.region) ? item.region : {}
+      exactKeys(region, region.kind === "components" ? ["kind", "designators"] : ["kind"], diagnostics, `${path}.region`)
+      if (region.kind !== "board" && (region.kind !== "components" || !Array.isArray(region.designators)
+        || !region.designators.length || !region.designators.every((name) => typeof name === "string" && name))) diagnostics.push(error("DSL_REGION_INVALID", `${path}.region is invalid.`, `${path}.region`))
+      if (item.pitchMm === undefined) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.pitchMm must be > 0.`, `${path}.pitchMm`))
+      if (item.viaInPad !== undefined && typeof item.viaInPad !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.viaInPad must be boolean.`, `${path}.viaInPad`))
+    }
+    if (item.mode === "around") {
+      const target = object(item.target) ? item.target : {}
+      if (!["board", "components", "component", "pad"].includes(String(target.kind))) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path}.target is invalid.`, `${path}.target`))
+      if (item.side !== undefined && item.side !== "inside" && item.side !== "outside") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.side must be inside or outside.`, `${path}.side`))
+    }
+    if (item.mode === "return") {
+      if (item.forNets !== undefined && (!Array.isArray(item.forNets) || !item.forNets.length
+        || !item.forNets.every((net) => typeof net === "string" && net))) diagnostics.push(error("DSL_VIA_STITCH_INVALID", `${path}.forNets is invalid.`, `${path}.forNets`))
+      if (item.maxDistanceMm !== undefined && !positive(item.maxDistanceMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxDistanceMm must be > 0.`, `${path}.maxDistanceMm`))
+    }
     if (item.pitchMm !== undefined && !positive(item.pitchMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.pitchMm must be > 0.`, `${path}.pitchMm`))
     if (item.offsetMm !== undefined && !positive(item.offsetMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.offsetMm must be > 0.`, `${path}.offsetMm`))
     if (item.rows !== undefined && (!Number.isInteger(item.rows) || Number(item.rows) < 1 || Number(item.rows) > 8)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rows must be an integer from 1 to 8.`, `${path}.rows`))
     if (item.rowSpacingMm !== undefined && !positive(item.rowSpacingMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rowSpacingMm must be > 0.`, `${path}.rowSpacingMm`))
     if (item.stagger !== undefined && typeof item.stagger !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.stagger must be boolean.`, `${path}.stagger`))
-    via(item.via, `${path}.via`, diagnostics, false)
+    if (item.maxVias !== undefined && (!Number.isInteger(item.maxVias) || Number(item.maxVias) < 1)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxVias must be an integer >= 1.`, `${path}.maxVias`))
+    if (item.via !== "drc-min") via(item.via, `${path}.via`, diagnostics, false)
   })
 
   fanouts.forEach((raw, index) => {
@@ -272,6 +319,11 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     exactKeys(program.quality, ["profile", "maxCandidates", "meander"], diagnostics, "quality")
     if (program.quality.maxCandidates !== undefined && (!Number.isInteger(program.quality.maxCandidates) || program.quality.maxCandidates < 1 || program.quality.maxCandidates > 16)) diagnostics.push(error("DSL_CANDIDATE_LIMIT", "quality.maxCandidates must be 1..16.", "quality.maxCandidates"))
     if (program.quality.profile !== undefined && !["fast", "balanced", "quality-first", "completion-first"].includes(program.quality.profile)) diagnostics.push(error("DSL_QUALITY_PROFILE_INVALID", "quality.profile is invalid.", "quality.profile"))
+  }
+  if (program.busDetect !== undefined && program.busDetect !== true) {
+    exactKeys(program.busDetect, ["detectionRadiusMm", "minNets", "attractionRadiusMm"], diagnostics, "busDetect")
+    if (program.busDetect.minNets !== undefined && (!Number.isInteger(program.busDetect.minNets) || program.busDetect.minNets < 2)) diagnostics.push(error("DSL_VALUE_INVALID", "busDetect.minNets must be an integer >= 2.", "busDetect.minNets"))
+    for (const key of ["detectionRadiusMm", "attractionRadiusMm"] as const) if (program.busDetect[key] !== undefined && !positive(program.busDetect[key])) diagnostics.push(error("DSL_VALUE_INVALID", `busDetect.${key} must be > 0.`, `busDetect.${key}`))
   }
   if (program.onlyNets !== undefined && (!Array.isArray(program.onlyNets) || !program.onlyNets.length)) diagnostics.push(error("DSL_SCOPE_INVALID", "onlyNets must be non-empty.", "onlyNets"))
   if (program.clearRouting !== undefined) {

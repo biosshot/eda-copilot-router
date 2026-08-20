@@ -1,5 +1,5 @@
 import type { BackendRouteRequest } from "../adapters/contracts.js"
-import type { CopperTarget, LayerSelector, PlaneIntent, RoutingProgram } from "../intent/types.js"
+import type { CopperTarget, LayerSelector, PlaneIntent, RoutingProgram, ZoneOptions } from "../intent/types.js"
 import { DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM } from "../polygon/boundary-optimizer.js"
 import { planPolygons } from "../polygon/engine.js"
 import { routingBoardToPolygonScene } from "../polygon/routing-board-adapter.js"
@@ -47,6 +47,29 @@ export type PlannedRoutingCopper = Readonly<{
 
 function valuesForNet(rules: RoutingRules, net: string) {
   return rules.nets.find((entry) => entry.net === net)?.values ?? rules.default
+}
+
+function routedZoneOptions(options: ZoneOptions | undefined, values: RoutingRuleValues) {
+  const padConnection = {
+    mode: options?.padConnection?.mode ?? "solid" as const,
+    ...(options?.padConnection?.thermalGapMm === undefined ? {} : { thermalGapMm: options.padConnection.thermalGapMm }),
+    ...(options?.padConnection?.spokeWidthMm === undefined ? {} : { spokeWidthMm: options.padConnection.spokeWidthMm }),
+    ...(options?.padConnection?.spokeCount === undefined ? {} : { spokeCount: options.padConnection.spokeCount }),
+    ...(options?.padConnection?.spokeAngleDeg === undefined ? {} : { spokeAngleDeg: options.padConnection.spokeAngleDeg }),
+  }
+  return {
+    clearanceMm: options?.clearanceMm ?? values.clearanceMm,
+    minThicknessMm: options?.minThicknessMm ?? ROUTER_ZONE_MIN_THICKNESS_MM,
+    connection: padConnection.mode,
+    fill: {
+      style: options?.fill?.style ?? "solid" as const,
+      ...(options?.fill?.hatchThicknessMm === undefined ? {} : { hatchThicknessMm: options.fill.hatchThicknessMm }),
+      ...(options?.fill?.hatchGapMm === undefined ? {} : { hatchGapMm: options.fill.hatchGapMm }),
+      ...(options?.fill?.hatchOrientationDeg === undefined ? {} : { hatchOrientationDeg: options.fill.hatchOrientationDeg }),
+    },
+    padConnection,
+    removeIslandsBelowMm2: options?.removeIslandsBelowMm2 ?? 0,
+  }
 }
 
 function selectedLayers(board: RoutingBoard, selector: LayerSelector) {
@@ -341,14 +364,14 @@ export function planRoutingCopper(
         return
       }
       compactReady += 1
+      const values = valuesForNet(rules, plan.net)
       zones.push({
         id: `compact:${index}:${plan.net}:${plan.layer}`,
         net: plan.net,
         layers: [plan.layer],
         outline: { outer: plan.boundary },
         priority: ROUTER_COMPACT_ZONE_PRIORITY_BASE + index,
-        minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
-        connection: "solid",
+        ...routedZoneOptions(plan.intent.zone, values),
       })
       groups.push({
         net: plan.net,
@@ -369,8 +392,7 @@ export function planRoutingCopper(
       priority: isGroundNetName(plane.net)
         ? 0
         : ROUTER_COMPACT_ZONE_PRIORITY_BASE,
-      minThicknessMm: ROUTER_ZONE_MIN_THICKNESS_MM,
-      connection: "solid",
+      ...routedZoneOptions(plane.zone, values),
     })
     planeZones += 1
     vias.push(...stitchingCandidates(board, plane, values))

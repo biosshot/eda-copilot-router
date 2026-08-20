@@ -26,19 +26,19 @@ plane({
 })
 
 powerNet("VIN_6_12V", {
-  minTrackWidthMm: 0.8,
+  trackWidthMm: 0.8,
   tapWidthMm: "drc-min",
   allowedLayers: "TOP",
 })
 
 powerNet("VCC5", {
-  minTrackWidthMm: 0.8,
+  trackWidthMm: 0.8,
   tapWidthMm: "drc-min",
   allowedLayers: "TOP",
 })
 
 powerNet("VBIAS", {
-  minTrackWidthMm: 0.3,
+  trackWidthMm: 0.3,
   tapWidthMm: "drc-min",
   allowedLayers: "TOP",
 })
@@ -75,8 +75,7 @@ signalNet("Net-(C1-Pad1)", {
   impedance: {
     targetOhm: 50,
     tolerancePercent: 10,
-    topology: "microstrip",
-    reference: { net: "GND" },
+    referenceNet: "GND",
   },
 })
 
@@ -95,14 +94,14 @@ signalNet("Net-(C5-Pad2)", {
   impedance: {
     targetOhm: 50,
     tolerancePercent: 10,
-    topology: "microstrip",
-    reference: { net: "GND" },
+    referenceNet: "GND",
   },
 })
 
-viaFence("RF_GROUND_FENCE", {
+viaStitch("RF_GROUND_FENCE", {
+  mode: "along",
   // Route the dense amplifier connections before the wide 50-ohm trunks.
-  along: ["RF_IN_AC", "RF_OUT_DC", "Net-(C1-Pad1)", "Net-(C5-Pad2)"],
+  routes: ["RF_IN_AC", "RF_OUT_DC", "Net-(C1-Pad1)", "Net-(C5-Pad2)"],
   net: "GND",
   pitchMm: 1,
   rows: 2,

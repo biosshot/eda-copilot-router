@@ -32,7 +32,7 @@ const backend = {
 const started = performance.now()
 const result = await run({
   board: imported.board,
-  dsl: { ...program, viaFences: [] },
+  dsl: { ...program, viaStitches: [] },
   backend,
   policy: { profile: "balanced", maxCandidates: 1 },
 })

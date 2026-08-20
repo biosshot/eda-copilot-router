@@ -1,6 +1,7 @@
 import { Script, createContext } from "node:vm"
 import type {
   ClearRoutingIntent,
+  BusDetectIntent,
   ComponentTarget,
   CopperTarget,
   DifferentialPairIntent,
@@ -22,8 +23,9 @@ import type {
   SignalNetIntent,
   StackIntent,
   ViaConstraint,
-  ViaFenceIntent,
+  ViaStitchIntent,
   ViaGeometryIntent,
+  ZoneOptions,
 } from "./types.js"
 
 const PHYSICAL_LAYER = /^(TOP|BOTTOM|INNER_(?:[1-9]|[12][0-9]|30))$/
@@ -114,15 +116,13 @@ function optionalLayer(source: Record<string, unknown>, key: string) {
 function optionalVia(source: Record<string, unknown>, label = "via"): { via?: ViaConstraint } {
   if (source.via === undefined) return {}
   const via = object(source.via, label)
-  assertKnownKeys(via, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "from", "to", "maxCount"], label)
+  assertKnownKeys(via, ["diameterMm", "drillMm", "minDiameterMm", "minDrillMm", "maxCount"], label)
   return {
     via: {
       ...optionalPositive(via, "diameterMm"),
       ...optionalPositive(via, "drillMm"),
       ...optionalPositive(via, "minDiameterMm"),
       ...optionalPositive(via, "minDrillMm"),
-      ...(via.from === undefined ? {} : { from: canonicalPhysicalLayer(via.from, `${label}.from`) }),
-      ...(via.to === undefined ? {} : { to: canonicalPhysicalLayer(via.to, `${label}.to`) }),
       ...(via.maxCount === undefined ? {} : { maxCount: integer(via.maxCount, `${label}.maxCount`, 0) }),
     },
   }
@@ -131,25 +131,73 @@ function optionalVia(source: Record<string, unknown>, label = "via"): { via?: Vi
 function optionalImpedance(source: Record<string, unknown>): { impedance?: ImpedanceConstraint } {
   if (source.impedance === undefined) return {}
   const raw = object(source.impedance, "impedance")
-  assertKnownKeys(raw, ["targetOhm", "tolerancePercent", "topology", "reference", "coplanarGapMm"], "impedance")
-  const topology = raw.topology === undefined ? undefined : nonEmpty(raw.topology, "impedance.topology")
-  if (topology !== undefined && !["microstrip", "stripline", "coplanar"].includes(topology)) {
-    throw new TypeError("impedance.topology must be microstrip, stripline, or coplanar")
-  }
-  let reference: { net: string } | undefined
-  if (raw.reference !== undefined) {
+  // reference is accepted only as a migration alias. The compiled contract is
+  // the flat referenceNet field and never carries topology/layer/gap inputs.
+  assertKnownKeys(raw, ["targetOhm", "tolerancePercent", "referenceNet", "reference"], "impedance")
+  let referenceNet: string | "auto" | undefined
+  if (raw.referenceNet !== undefined) {
+    const value = nonEmpty(raw.referenceNet, "impedance.referenceNet")
+    referenceNet = value === "auto" ? "auto" : value
+  } else if (raw.reference !== undefined) {
     const item = object(raw.reference, "impedance.reference")
     assertKnownKeys(item, ["net"], "impedance.reference")
-    reference = { net: nonEmpty(item.net, "impedance.reference.net") }
+    referenceNet = nonEmpty(item.net, "impedance.reference.net")
   }
   return {
     impedance: {
       targetOhm: positive(raw.targetOhm, "impedance.targetOhm"),
       ...optionalPositive(raw, "tolerancePercent"),
-      ...(topology === undefined ? {} : { topology: topology as ImpedanceConstraint["topology"] }),
-      ...(reference ? { reference } : {}),
-      ...optionalPositive(raw, "coplanarGapMm"),
+      ...(referenceNet === undefined ? {} : { referenceNet }),
     },
+  }
+}
+
+function zoneOptions(value: unknown, label: string): ZoneOptions {
+  const source = object(value, label)
+  assertKnownKeys(source, ["clearanceMm", "minThicknessMm", "fill", "padConnection", "removeIslandsBelowMm2"], label)
+  let fill: ZoneOptions["fill"]
+  if (source.fill !== undefined) {
+    const item = object(source.fill, `${label}.fill`)
+    assertKnownKeys(item, ["style", "hatchThicknessMm", "hatchGapMm", "hatchOrientationDeg"], `${label}.fill`)
+    const style = item.style === undefined ? "solid" : nonEmpty(item.style, `${label}.fill.style`)
+    if (style !== "solid" && style !== "hatched") throw new TypeError(`${label}.fill.style must be solid or hatched`)
+    if (style !== "hatched" && [item.hatchThicknessMm, item.hatchGapMm, item.hatchOrientationDeg].some((field) => field !== undefined)) {
+      throw new TypeError(`${label}.fill hatch fields require style: "hatched"`)
+    }
+    fill = {
+      style,
+      ...optionalPositive(item, "hatchThicknessMm"),
+      ...optionalPositive(item, "hatchGapMm"),
+      ...(item.hatchOrientationDeg === undefined ? {} : {
+        hatchOrientationDeg: ((Number(item.hatchOrientationDeg) % 180) + 180) % 180,
+      }),
+    }
+  }
+  let padConnection: ZoneOptions["padConnection"]
+  if (source.padConnection !== undefined) {
+    const item = object(source.padConnection, `${label}.padConnection`)
+    assertKnownKeys(item, ["mode", "thermalGapMm", "spokeWidthMm", "spokeCount", "spokeAngleDeg"], `${label}.padConnection`)
+    const mode = item.mode === undefined ? "solid" : nonEmpty(item.mode, `${label}.padConnection.mode`)
+    if (!['solid', 'thermal', 'none'].includes(mode)) throw new TypeError(`${label}.padConnection.mode must be solid, thermal, or none`)
+    if (mode !== "thermal" && [item.thermalGapMm, item.spokeWidthMm, item.spokeCount, item.spokeAngleDeg].some((field) => field !== undefined)) {
+      throw new TypeError(`${label}.padConnection thermal fields require mode: "thermal"`)
+    }
+    padConnection = {
+      mode: mode as "solid" | "thermal" | "none",
+      ...optionalPositive(item, "thermalGapMm"),
+      ...optionalPositive(item, "spokeWidthMm"),
+      ...(item.spokeCount === undefined ? {} : { spokeCount: integer(item.spokeCount, `${label}.padConnection.spokeCount`, 2, 8) }),
+      ...(item.spokeAngleDeg === undefined ? {} : { spokeAngleDeg: ((Number(item.spokeAngleDeg) % 180) + 180) % 180 }),
+    }
+  }
+  return {
+    ...optionalPositive(source, "clearanceMm"),
+    ...optionalPositive(source, "minThicknessMm"),
+    ...(fill ? { fill } : {}),
+    ...(padConnection ? { padConnection } : {}),
+    ...(source.removeIslandsBelowMm2 === undefined ? {} : {
+      removeIslandsBelowMm2: nonNegative(source.removeIslandsBelowMm2, `${label}.removeIslandsBelowMm2`),
+    }),
   }
 }
 
@@ -202,6 +250,11 @@ class PolygonBuilder {
     this.value.maxPadFreeGapWidths = positive(value, "maxPadFreeGapWidths")
     return this
   }
+
+  zone(options: unknown) {
+    this.value.zone = zoneOptions(options, "polygon.zone")
+    return this
+  }
 }
 
 class RoutingDslBuilder {
@@ -211,13 +264,14 @@ class RoutingDslBuilder {
   private readonly powerNets: PowerNetIntent[] = []
   private readonly differentialPairs: DifferentialPairIntent[] = []
   private readonly matchedGroups: MatchedGroupIntent[] = []
-  private readonly viaFences: ViaFenceIntent[] = []
+  private readonly viaStitches: ViaStitchIntent[] = []
   private readonly fanouts = new Map<string, FanoutIntent>()
   private readonly fanoutExclusions = new Map<string, FanoutTarget>()
   private readonly netClasses: NetClassIntent[] = []
   private drcIntent: DrcIntent | undefined
   private stackIntent: StackIntent | undefined
   private qualityIntent: RoutingPolicy | undefined
+  private busDetectIntent: BusDetectIntent | undefined
   private onlyNetNames: string[] | undefined
   private readonly ignoredNetNames = new Set<string>()
   private clearIntent: ClearRoutingIntent | undefined
@@ -233,11 +287,14 @@ class RoutingDslBuilder {
       signalNet: (net: string, options: unknown = {}) => this.signalNet(net, options),
       diffPair: (id: string, options: unknown) => this.diffPair(id, options),
       matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
-      viaFence: (id: string, options: unknown) => this.viaFence(id, options),
+      viaStitch: (id: string, options: unknown) => this.viaStitch(id, options),
+      /** @deprecated Compatibility alias; compiles to mode: "along". */
+      viaFence: (id: string, options: unknown) => this.viaFenceAlias(id, options),
       fanout: (target: FanoutTarget, options: unknown = {}) => this.fanout(target, options),
       disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
       stack: (options: unknown) => this.stack(options),
       quality: (options: unknown) => this.quality(options),
+      busDetect: (value: unknown = true) => this.busDetect(value),
       onlyNets: (...nets: string[]) => this.onlyNets(nets),
       ignoreNets: (...nets: string[]) => this.ignoreNets(nets),
       clearRouting: (options: unknown = {}) => this.clearRouting(options),
@@ -274,13 +331,14 @@ class RoutingDslBuilder {
       powerNets: this.powerNets,
       differentialPairs: this.differentialPairs,
       matchedGroups: this.matchedGroups,
-      viaFences: this.viaFences,
+      viaStitches: this.viaStitches,
       fanouts: [...this.fanouts.values()],
       fanoutExclusions: [...this.fanoutExclusions.values()],
       netClasses: this.netClasses,
       ...(this.drcIntent ? { drc: this.drcIntent } : {}),
       ...(this.stackIntent ? { stack: this.stackIntent } : {}),
       ...(this.qualityIntent ? { quality: this.qualityIntent } : {}),
+      ...(this.busDetectIntent ? { busDetect: this.busDetectIntent } : {}),
       ...(this.onlyNetNames ? { onlyNets: this.onlyNetNames } : {}),
       ignoreNets: [...this.ignoredNetNames],
       ...(this.clearIntent ? { clearRouting: this.clearIntent } : {}),
@@ -305,7 +363,7 @@ class RoutingDslBuilder {
 
   private plane(input: unknown): undefined {
     const source = object(input, "plane")
-    assertKnownKeys(source, ["net", "layers", "region", "paddingMm", "stitching"], "plane")
+    assertKnownKeys(source, ["net", "layers", "region", "paddingMm", "stitching", "zone"], "plane")
     const region = source.region === undefined ? { kind: "board" as const } : structuredClone(source.region) as RegionSelector
     if (region.kind !== "board" && (region.kind !== "components" || !region.designators?.length)) {
       throw new TypeError("plane.region must be board() or non-empty components(...)")
@@ -336,6 +394,7 @@ class RoutingDslBuilder {
       kind: "plane", net: nonEmpty(source.net, "plane net"),
       layers: source.layers === undefined ? { kind: "outer" } : cloneLayer(source.layers, "plane.layers"),
       region, paddingMm, priority: 0, stitching,
+      ...(source.zone === undefined ? {} : { zone: zoneOptions(source.zone, "plane.zone") }),
     })
     return undefined
   }
@@ -427,29 +486,70 @@ class RoutingDslBuilder {
     return undefined
   }
 
-  private viaFence(id: string, input: unknown): undefined {
+  private stitchVia(source: Record<string, unknown>, label: string) {
+    if (source.via === undefined || source.via === "drc-min") return source.via as "drc-min" | undefined
+    const item = object(source.via, `${label}.via`)
+    assertKnownKeys(item, ["diameterMm", "drillMm"], `${label}.via`)
+    return { ...optionalPositive(item, "diameterMm"), ...optionalPositive(item, "drillMm") }
+  }
+
+  private viaStitch(id: string, input: unknown): undefined {
+    const source = object(input, "viaStitch options")
+    const mode = nonEmpty(source.mode, "viaStitch.mode") as ViaStitchIntent["mode"]
+    const common = {
+      kind: "via-stitch" as const,
+      id: nonEmpty(id, "viaStitch id"),
+      ...(this.stitchVia(source, "viaStitch") === undefined ? {} : { via: this.stitchVia(source, "viaStitch") }),
+      ...(source.maxVias === undefined ? {} : { maxVias: integer(source.maxVias, "viaStitch.maxVias", 1) }),
+    }
+    if (mode === "grid") {
+      assertKnownKeys(source, ["mode", "net", "region", "pitchMm", "viaInPad", "via", "maxVias"], "viaStitch")
+      const region = structuredClone(source.region) as RegionSelector
+      if (!region || (region.kind !== "board" && (region.kind !== "components" || !region.designators?.length))) throw new TypeError("viaStitch.region must be board() or components(...)")
+      this.viaStitches.push({ ...common, mode, net: nonEmpty(source.net, "viaStitch.net"), region, pitchMm: positive(source.pitchMm, "viaStitch.pitchMm"), ...optionalBoolean(source, "viaInPad") })
+    } else if (mode === "along") {
+      assertKnownKeys(source, ["mode", "net", "routes", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via", "maxVias"], "viaStitch")
+      if (!Array.isArray(source.routes) || !source.routes.length) throw new TypeError("viaStitch.routes must be a non-empty net array")
+      this.viaStitches.push({
+        ...common, mode, net: nonEmpty(source.net, "viaStitch.net"),
+        routes: [...new Set(source.routes.map((item, index) => nonEmpty(item, `viaStitch.routes[${index}]`)))],
+        ...optionalPositive(source, "pitchMm"), ...optionalPositive(source, "offsetMm"),
+        ...(source.rows === undefined ? {} : { rows: integer(source.rows, "viaStitch.rows", 1, 8) }),
+        ...optionalPositive(source, "rowSpacingMm"), ...optionalBoolean(source, "stagger"),
+      })
+    } else if (mode === "around") {
+      assertKnownKeys(source, ["mode", "net", "target", "pitchMm", "offsetMm", "rows", "side", "via", "maxVias"], "viaStitch")
+      const target = structuredClone(source.target) as RegionSelector | FanoutTarget
+      if (!target || !["board", "components", "component", "pad"].includes(target.kind)) throw new TypeError("viaStitch.target must be board(), components(...), component(...), or pad(...)")
+      const side = source.side === undefined ? undefined : nonEmpty(source.side, "viaStitch.side")
+      if (side !== undefined && side !== "inside" && side !== "outside") throw new TypeError("viaStitch.side must be inside or outside")
+      this.viaStitches.push({ ...common, mode, net: nonEmpty(source.net, "viaStitch.net"), target, ...optionalPositive(source, "pitchMm"), ...optionalPositive(source, "offsetMm"), ...(source.rows === undefined ? {} : { rows: integer(source.rows, "viaStitch.rows", 1, 8) }), ...(side ? { side } : {}) })
+    } else if (mode === "return") {
+      assertKnownKeys(source, ["mode", "referenceNet", "forNets", "maxDistanceMm", "via", "maxVias"], "viaStitch")
+      const referenceNet = nonEmpty(source.referenceNet, "viaStitch.referenceNet")
+      if (source.forNets !== undefined && (!Array.isArray(source.forNets) || !source.forNets.length)) throw new TypeError("viaStitch.forNets must be a non-empty net array")
+      this.viaStitches.push({ ...common, mode, referenceNet: referenceNet === "auto" ? "auto" : referenceNet, ...(source.forNets === undefined ? {} : { forNets: [...new Set(source.forNets.map((item, index) => nonEmpty(item, `viaStitch.forNets[${index}]`)))] }), ...optionalPositive(source, "maxDistanceMm") })
+    } else throw new TypeError("viaStitch.mode must be grid, along, around, or return")
+    return undefined
+  }
+
+  private viaFenceAlias(id: string, input: unknown): undefined {
     const source = object(input, "viaFence options")
     assertKnownKeys(source, ["along", "net", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], "viaFence")
-    if (!Array.isArray(source.along) || !source.along.length) throw new TypeError("viaFence.along must be a non-empty net array")
-    let via: ViaGeometryIntent | undefined
-    if (source.via !== undefined) {
-      const item = object(source.via, "viaFence.via")
-      assertKnownKeys(item, ["diameterMm", "drillMm", "from", "to"], "viaFence.via")
-      via = {
-        ...optionalPositive(item, "diameterMm"), ...optionalPositive(item, "drillMm"),
-        ...(item.from === undefined ? {} : { from: canonicalPhysicalLayer(item.from, "viaFence.via.from") }),
-        ...(item.to === undefined ? {} : { to: canonicalPhysicalLayer(item.to, "viaFence.via.to") }),
-      }
+    const { along, ...rest } = source
+    return this.viaStitch(id, { ...rest, mode: "along", routes: along })
+  }
+
+  private busDetect(value: unknown): undefined {
+    if (value === false) { this.busDetectIntent = undefined; return undefined }
+    if (value === true || value === undefined) { this.busDetectIntent = true; return undefined }
+    const source = object(value, "busDetect options")
+    assertKnownKeys(source, ["detectionRadiusMm", "minNets", "attractionRadiusMm"], "busDetect")
+    this.busDetectIntent = {
+      ...optionalPositive(source, "detectionRadiusMm"),
+      ...(source.minNets === undefined ? {} : { minNets: integer(source.minNets, "busDetect.minNets", 2) }),
+      ...optionalPositive(source, "attractionRadiusMm"),
     }
-    this.viaFences.push({
-      kind: "via-fence", id: nonEmpty(id, "viaFence id"),
-      along: [...new Set(source.along.map((item, index) => nonEmpty(item, `viaFence.along[${index}]`)))],
-      net: nonEmpty(source.net, "viaFence.net"), ...optionalPositive(source, "pitchMm"),
-      ...optionalPositive(source, "offsetMm"),
-      ...(source.rows === undefined ? {} : { rows: integer(source.rows, "viaFence.rows", 1, 8) }),
-      ...optionalPositive(source, "rowSpacingMm"), ...optionalBoolean(source, "stagger"),
-      ...(via ? { via } : {}),
-    })
     return undefined
   }
 

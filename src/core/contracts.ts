@@ -94,7 +94,22 @@ export type RoutedZone = Readonly<{
   outline: PolygonMm
   priority?: number
   minThicknessMm?: Millimeters
+  clearanceMm?: Millimeters
   connection?: "solid" | "thermal" | "none"
+  fill?: Readonly<{
+    style: "solid" | "hatched"
+    hatchThicknessMm?: Millimeters
+    hatchGapMm?: Millimeters
+    hatchOrientationDeg?: number
+  }>
+  padConnection?: Readonly<{
+    mode: "solid" | "thermal" | "none"
+    thermalGapMm?: Millimeters
+    spokeWidthMm?: Millimeters
+    spokeCount?: number
+    spokeAngleDeg?: number
+  }>
+  removeIslandsBelowMm2?: number
 }>
 
 export type RoutingCopper = Readonly<{
@@ -131,9 +146,11 @@ export type RoutingRuleValues = Readonly<{
   maxLengthMm?: Millimeters
   impedanceOhm?: number
   impedanceTolerancePercent?: number
-  impedanceTopology?: "microstrip" | "stripline" | "coplanar"
+  impedanceTopology?: "microstrip" | "stripline" | "coplanar-waveguide" | "grounded-coplanar-waveguide"
   impedanceReferenceNet?: string
   impedanceReferenceLayers?: readonly string[]
+  impedanceCoplanarGapMm?: Millimeters
+  calculatedImpedanceOhm?: number
   differential?: DifferentialRules
 }>
 

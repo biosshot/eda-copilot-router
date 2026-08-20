@@ -138,6 +138,37 @@ const board = {
 
 assert.equal(api.validateRoutingBoard(board).ok, true)
 
+const nativeBusDefaults = dsl.compileRoutingDsl(`busDetect(true); runRouting()`)
+assert.equal(nativeBusDefaults.busDetect, true)
+assert.equal(dsl.compileRoutingDsl(`busDetect(false); runRouting()`).busDetect, undefined)
+const explicitBus = dsl.compileRoutingDsl(`
+  busDetect({ detectionRadiusMm: 3, minNets: 3, attractionRadiusMm: 4 })
+  runRouting()
+`)
+assert.deepEqual(explicitBus.busDetect, {
+  detectionRadiusMm: 3, minNets: 3, attractionRadiusMm: 4,
+})
+const busStage = {
+  pythonPath: "python", krtDirectory: ".", layers: ["F.Cu", "B.Cu"],
+  rules: { trackWidth: 0.2, clearance: 0.2, viaSize: 0.6, viaDrill: 0.3 },
+  fabOverridesPath: "fab.txt", diffPairs: [], matchedGroups: [], remainingNets: ["VCC"],
+}
+const nativeBusArgs = krt.buildKrtRemainingArgs("input.kicad_pcb", "output.kicad_pcb", {
+  ...busStage, busDetect: true,
+}, ["VCC"])
+assert.ok(nativeBusArgs.includes("--bus"))
+assert.ok(!nativeBusArgs.includes("--bus-detection-radius"))
+assert.ok(!nativeBusArgs.includes("--bus-min-nets"))
+assert.ok(!nativeBusArgs.includes("--bus-attraction-radius"))
+const explicitBusArgs = krt.buildKrtRemainingArgs("input.kicad_pcb", "output.kicad_pcb", {
+  ...busStage, busDetect: explicitBus.busDetect,
+}, ["VCC"])
+assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-detection-radius") + 1], "3")
+assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-min-nets") + 1], "3")
+assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-attraction-radius") + 1], "4")
+assert.throws(() => dsl.compileRoutingDsl(`drc({ via: { from: "TOP", to: "BOTTOM" } }); runAll()`), /unknown field/i,
+  "via layer spans must stay hidden from the public contract")
+
 const allDsl = `
 const commandResult = runAll()
 if (commandResult !== undefined) throw new Error("terminal command returned a value")
@@ -320,7 +351,7 @@ const impedanceResult = await api.run({
     plane({ net: "GND", layers: ["TOP", "BOTTOM"], region: board(), stitching: false })
     signalNet("VCC", {
       allowedLayers: "TOP",
-      impedance: { targetOhm: 50, topology: "microstrip", reference: { net: "GND" } },
+      impedance: { targetOhm: 50, referenceNet: "GND" },
     })
     applyDrcRules()
   `,
@@ -328,8 +359,12 @@ const impedanceResult = await api.run({
 assert.equal(impedanceResult.status, "complete")
 assert.deepEqual(
   impedanceResult.rules.effective.nets.find((item) => item.net === "VCC").values.impedanceReferenceLayers,
-  ["B.Cu"],
-  "TOP microstrip must use the opposite BOTTOM GND plane, not a same-layer GND pour",
+  ["F.Cu", "B.Cu"],
+  "TOP plane copper plus the BOTTOM reference must resolve grounded coplanar waveguide",
+)
+assert.equal(
+  impedanceResult.rules.effective.nets.find((item) => item.net === "VCC").values.impedanceTopology,
+  "grounded-coplanar-waveguide",
 )
 
 let backendCalls = 0
@@ -368,16 +403,16 @@ const fenced = await api.run({
   board,
   backend,
   dsl: `
-    viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 })
+    viaStitch("VCC_GUARD", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5 })
     runAll()
   `,
 })
 assert.equal(fenced.status, "complete")
 assert.ok(fenced.copper.vias.length >= 2)
 assert.ok(fenced.copper.vias.every((via) => via.net === "GND"))
-assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:")))
+assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-stitch:VCC_GUARD:")))
 const fenceBands = new Set(fenced.copper.vias.map((via) => Math.abs(via.at.y - 5).toFixed(3)))
-assert.ok(fenceBands.size >= 2, "default viaFence must create multiple lateral rows")
+assert.ok(fenceBands.size >= 2, "default along stitch must create multiple lateral rows")
 
 let remainingSawFence = false
 const stagedFenceBackend = {
@@ -392,13 +427,13 @@ const stagedFenceBackend = {
     }
   },
   async routeRemaining(request) {
-    remainingSawFence = request.board.copper.fixed.vias.some((via) => String(via.id).startsWith("via-fence:VCC_GUARD:"))
+    remainingSawFence = request.board.copper.fixed.vias.some((via) => String(via.id).startsWith("via-stitch:VCC_GUARD:"))
     return { status: "complete", copper: emptyCopper }
   },
 }
 const stagedFence = await api.run({
   board, backend: stagedFenceBackend,
-  dsl: `viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
+  dsl: `viaStitch("VCC_GUARD", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
 })
 assert.equal(stagedFence.status, "complete")
 assert.equal(remainingSawFence, true, "remaining routing must see core-generated fence vias as fixed copper")
@@ -419,23 +454,23 @@ const incompleteFenceBackend = {
 }
 const incompleteFence = await api.run({
   board, backend: incompleteFenceBackend,
-  dsl: `viaFence("VCC_GUARD", { along: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
+  dsl: `viaStitch("VCC_GUARD", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
 })
 assert.equal(incompleteFence.copper.vias.length, 0)
-assert.ok(incompleteFence.diagnostics.some((item) => item.code === "VIA_FENCE_SOURCE_INCOMPLETE"))
+assert.ok(incompleteFence.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_SOURCE_INCOMPLETE"))
 
-const oneViaFence = api.planViaFences(
+const oneViaFence = api.planViaStitches(
   board,
   {
     tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 0.8, y: 0.8 }, { x: 0.81, y: 0.8 }] }],
     vias: [], zones: [],
   },
-  [{ kind: "via-fence", id: "ONE_IS_NOT_A_FENCE", along: ["VCC"], net: "GND", pitchMm: 1.5, rows: 1 }],
+  [{ kind: "via-stitch", mode: "along", id: "ONE_IS_NOT_A_FENCE", routes: ["VCC"], net: "GND", pitchMm: 1.5, rows: 1 }],
   board.rules,
   { completedNets: ["VCC"] },
 )
 assert.equal(oneViaFence.vias.length, 0, "one legal via must be discarded instead of reporting a successful fence")
-assert.ok(oneViaFence.diagnostics.some((item) => item.code === "VIA_FENCE_INSUFFICIENT"))
+assert.ok(oneViaFence.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_INSUFFICIENT"))
 
 const singleBalancedProfiles = []
 const singleBalancedBackend = {
@@ -567,7 +602,17 @@ const polygonResult = await api.run({
   board,
   backend: polygonBackend,
   dsl: `
-    polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
+    polygon("VCC")
+      .connect(pad("U1", 1), pad("C1", 1))
+      .on("TOP")
+      .zone({
+        clearanceMm: 0.3,
+        minThicknessMm: 0.18,
+        fill: { style: "hatched", hatchThicknessMm: 0.25, hatchGapMm: 0.5, hatchOrientationDeg: 225 },
+        padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.22, spokeCount: 4, spokeAngleDeg: -45 },
+        removeIslandsBelowMm2: 1.5,
+      })
+      .compact()
     runRouting()
   `,
 })
@@ -575,7 +620,15 @@ assert.equal(polygonResult.status, "complete")
 assert.equal(polygonResult.copper.zones.length, 1)
 assert.equal(polygonResult.copper.zones[0].net, "VCC")
 assert.equal(polygonResult.copper.zones[0].priority, 1)
-assert.equal(polygonResult.copper.zones[0].minThicknessMm, 0.254)
+assert.equal(polygonResult.copper.zones[0].minThicknessMm, 0.18)
+assert.equal(polygonResult.copper.zones[0].clearanceMm, 0.3)
+assert.deepEqual(polygonResult.copper.zones[0].fill, {
+  style: "hatched", hatchThicknessMm: 0.25, hatchGapMm: 0.5, hatchOrientationDeg: 45,
+})
+assert.deepEqual(polygonResult.copper.zones[0].padConnection, {
+  mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.22, spokeCount: 4, spokeAngleDeg: 135,
+})
+assert.equal(polygonResult.copper.zones[0].removeIslandsBelowMm2, 1.5)
 assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 1)
 assert.equal(polygonBackendRequest.program.polygons.length, 0)
 assert.equal(polygonBackendRequest.program.planes.length, 0)
@@ -632,6 +685,7 @@ const planeResult = await api.run({
       net: "VCC",
       layers: "OUTER",
       region: board(),
+      zone: { padConnection: { mode: "none" }, removeIslandsBelowMm2: 2 },
       stitching: { gridMm: 5, maxVias: 8 }
     })
     runRouting()
@@ -644,8 +698,58 @@ assert.equal(planeResult.copper.zones.length, 1)
 assert.deepEqual(planeResult.copper.zones[0].layers, ["F.Cu", "B.Cu"])
 assert.equal(planeResult.copper.zones[0].priority, 1)
 assert.equal(planeResult.copper.zones[0].minThicknessMm, 0.254)
+assert.equal(planeResult.copper.zones[0].padConnection.mode, "none")
+assert.equal(planeResult.copper.zones[0].removeIslandsBelowMm2, 2)
 assert.ok(planeResult.copper.vias.length > 0)
 assert.ok(planeResult.copper.vias.length <= 8)
+
+const viaInPadBoard = {
+  ...board,
+  components: [...board.components, { designator: "C2", at: { x: 12, y: 5 }, rotationDeg: 0, side: "top" }],
+  pads: [...board.pads, {
+    component: "C2", number: "1", net: "GND", at: { x: 12, y: 5 }, rotationDeg: 0,
+    layers: ["F.Cu"], shape: { kind: "circle", diameterMm: 1 },
+  }],
+}
+const unifiedStitchResult = await api.run({
+  board: viaInPadBoard,
+  backend: polygonBackend,
+  dsl: `
+    plane({ net: "GND", layers: "OUTER", region: board(), stitching: false })
+    viaStitch("GND_GRID", { mode: "grid", net: "GND", region: board(), pitchMm: 4, viaInPad: true, maxVias: 12 })
+    viaStitch("GND_EDGE", { mode: "around", net: "GND", target: board(), pitchMm: 4, rows: 1, maxVias: 12 })
+    runRouting()
+  `,
+})
+assert.equal(unifiedStitchResult.status, "complete")
+assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWith("via-stitch:GND_GRID:")))
+assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWith("via-stitch:GND_GRID:")
+  && via.at.x === 12 && via.at.y === 5), "grid viaInPad must include a legal same-net SMD pad")
+assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWith("via-stitch:GND_EDGE:")))
+
+const returnViaBackend = {
+  ...backend,
+  async route() {
+    return {
+      status: "complete",
+      copper: {
+        tracks: [], zones: [],
+        vias: [{ net: "VCC", at: { x: 10, y: 5 }, diameterMm: 0.6, drillMm: 0.3, fromLayer: "F.Cu", toLayer: "B.Cu", type: "through" }],
+      },
+      metrics: { openNetCount: 0 },
+    }
+  },
+}
+const returnViaResult = await api.run({
+  board,
+  backend: returnViaBackend,
+  dsl: `
+    viaStitch("VCC_RETURN", { mode: "return", referenceNet: "GND", forNets: ["VCC"], maxDistanceMm: 2 })
+    runRouting()
+  `,
+})
+assert.equal(returnViaResult.status, "complete")
+assert.ok(returnViaResult.copper.vias.some((via) => via.net === "GND" && String(via.id).startsWith("via-stitch:VCC_RETURN:")))
 
 const groundAndPowerResult = await api.run({
   board,

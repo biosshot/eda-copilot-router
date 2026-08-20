@@ -29,6 +29,7 @@ import {
 } from "./krt-runtime.js"
 
 export {
+  buildKrtRemainingArgs,
   buildKrtSpecialCandidates,
   parseKrtDrcViolationCount,
   KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
@@ -38,6 +39,7 @@ export {
   type KrtRipupAbandonMetric,
   type KrtRipupBlockerSelect,
   type KrtSpecialCandidate,
+  type KrtStageSpec,
 } from "./krt-adapter.js"
 
 export {
@@ -796,7 +798,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
       const krtDirectory = managed.directory
       const specialStage = request.program.differentialPairs.length > 0
         || request.program.matchedGroups.length > 0
-        || request.program.viaFences.length > 0
+        || request.program.viaStitches.some((item) => item.mode === "along")
       const root = options.artifactsDirectory
         ? join(resolve(options.artifactsDirectory), request.policy?.profile ?? "default", specialStage ? "special" : "remaining")
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
@@ -845,8 +847,8 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             ruleFor(request, pair.positive).differential?.maxSkewMm !== undefined
             || ruleFor(request, pair.negative).differential?.maxSkewMm !== undefined
           )),
-          // A viaFence is generated only after its source routing succeeds, so
-          // a planned fence cannot safely replace KRT's native return vias.
+          // Core-owned return stitching runs only after final routing and plane
+          // creation; the adapter applies the native-return safety policy.
           suppressGroundReturnVias: false,
           // onlyNets controls scope, never priority. Ordinary routing keeps
           // MPS; the special portfolio overrides this field per candidate.
@@ -980,6 +982,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
             layers: routeLayersFor(request, remainingNets),
             rules: remainingRules,
             fabOverridesPath: remainingFab,
+            ...(request.program.busDetect ? { busDetect: request.program.busDetect } : {}),
             powerNets: remainingNets.filter((net) => preferredWidthNets.has(net)).map((net) => ({
               net,
               width: ruleFor(request, net).preferredTrackWidthMm,
@@ -1050,7 +1053,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
   const specialMembers = (request: BackendRouteRequest) => [...new Set([
     ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
     ...request.program.matchedGroups.flatMap((group) => group.nets),
-    ...request.program.viaFences.flatMap((fence) => fence.along),
+    ...request.program.viaStitches.flatMap((stitch) => stitch.mode === "along" ? stitch.routes : []),
   ])]
   return {
     ...adapter,
@@ -1081,7 +1084,7 @@ export function createKrtBackend(options: KrtBackendOptions): RouterBackendAdapt
         krtSkipAutomaticFanout: true,
         program: {
           ...request.program,
-          differentialPairs: [], matchedGroups: [], viaFences: [],
+          differentialPairs: [], matchedGroups: [], viaStitches: [],
           ignoreNets: [...new Set([...request.program.ignoreNets, ...members])],
         },
       }

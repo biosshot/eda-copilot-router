@@ -58,6 +58,45 @@ function error(diagnostics: RoutingDiagnostic[], code: string, message: string, 
   diagnostics.push({ code, severity: "error", message, ...(path ? { path } : {}) })
 }
 
+function zoneOptions(value: Record<string, unknown>, diagnostics: RoutingDiagnostic[], path: string) {
+  if (value.clearanceMm !== undefined && (!finite(value.clearanceMm) || value.clearanceMm < 0)) {
+    error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.clearanceMm must be >= 0.`, `${path}.clearanceMm`)
+  }
+  if (value.minThicknessMm !== undefined && !positive(value.minThicknessMm)) {
+    error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.minThicknessMm must be > 0.`, `${path}.minThicknessMm`)
+  }
+  if (value.removeIslandsBelowMm2 !== undefined
+    && (!finite(value.removeIslandsBelowMm2) || value.removeIslandsBelowMm2 < 0)) {
+    error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.removeIslandsBelowMm2 must be >= 0.`, `${path}.removeIslandsBelowMm2`)
+  }
+  if (value.fill !== undefined) {
+    if (!object(value.fill) || !["solid", "hatched"].includes(String(value.fill.style))) {
+      error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.fill is invalid.`, `${path}.fill`)
+    } else {
+      for (const field of ["hatchThicknessMm", "hatchGapMm"] as const) if (value.fill[field] !== undefined
+        && !positive(value.fill[field])) error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.fill.${field} must be > 0.`, `${path}.fill.${field}`)
+      if (value.fill.hatchOrientationDeg !== undefined && !finite(value.fill.hatchOrientationDeg)) {
+        error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.fill.hatchOrientationDeg must be finite.`, `${path}.fill.hatchOrientationDeg`)
+      }
+    }
+  }
+  if (value.padConnection !== undefined) {
+    if (!object(value.padConnection) || !["solid", "thermal", "none"].includes(String(value.padConnection.mode))) {
+      error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.padConnection is invalid.`, `${path}.padConnection`)
+    } else {
+      for (const field of ["thermalGapMm", "spokeWidthMm"] as const) if (value.padConnection[field] !== undefined
+        && !positive(value.padConnection[field])) error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.padConnection.${field} must be > 0.`, `${path}.padConnection.${field}`)
+      if (value.padConnection.spokeCount !== undefined && (!Number.isInteger(value.padConnection.spokeCount)
+        || Number(value.padConnection.spokeCount) < 2 || Number(value.padConnection.spokeCount) > 8)) {
+        error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.padConnection.spokeCount must be 2..8.`, `${path}.padConnection.spokeCount`)
+      }
+      if (value.padConnection.spokeAngleDeg !== undefined && !finite(value.padConnection.spokeAngleDeg)) {
+        error(diagnostics, "ROUTING_ZONE_INVALID", `${path}.padConnection.spokeAngleDeg must be finite.`, `${path}.padConnection.spokeAngleDeg`)
+      }
+    }
+  }
+}
+
 function array(value: unknown, diagnostics: RoutingDiagnostic[], path: string) {
   if (!Array.isArray(value)) {
     error(diagnostics, "ROUTING_BOARD_ARRAY_REQUIRED", `${path} must be an array.`, path)
@@ -149,6 +188,7 @@ function validateCopper(
     for (const layer of candidate.layers) if (!layers.has(layer)) {
       error(diagnostics, "ROUTING_UNKNOWN_LAYER", `${at} references unknown layer ${layer}.`, at)
     }
+    zoneOptions(candidate, diagnostics, at)
   })
   return true
 }
