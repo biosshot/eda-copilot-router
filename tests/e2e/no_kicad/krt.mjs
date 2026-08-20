@@ -21,4 +21,6 @@ for (const pad of board.pads) {
   `routed ${pad.net} copper must terminate at rotated ${pad.component}.${pad.number}`)
 }
 assert.equal(result.metrics?.backend, "krt")
+assert.notEqual(result.metrics?.details?.runtime?.source, "override",
+  "managed KRT must not use a local KRT checkout")
 console.log(`managed KRT no-KiCad E2E: ok (${result.copper.tracks.length} tracks, ${result.copper.vias.length} vias)`)

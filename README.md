@@ -65,9 +65,16 @@ neck-down geometry.
 ```text
 npm ci
 npm test
+npm run e2e:no-kicad:polygon
+npm run e2e:no-kicad:packed
 npm run test:e2e:krt-corpus:contract
 npm run e2e:interf_u_unrouted
 ```
+
+GitHub Actions keeps separate checks for the package/adapter contract, portable
+routing without KRT or Python, polygon planning on real boards without KRT or
+KiCad, and managed-KRT routing from an installed npm tarball without KiCad or a
+local KRT checkout.
 
 Native E2E runners use the adapter built in this package. Generated artifacts
 are written only under this repository's ignored `results/` directory.

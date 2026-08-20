@@ -1,12 +1,21 @@
-name: No-KiCad E2E
+name: External-runtime independence
 
 on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  portable:
+  package-contract:
+    name: Package and KiCad codec (no EDA runtime)
     runs-on: ubuntu-latest
+    env:
+      KICAD_CLI: /not-installed/kicad-cli
+      KICAD_PYTHON: /not-installed/kicad-python
+      COPILOT_ROUTER_PYTHON: /not-installed/python
+      COPILOT_ROUTER_KRT_DIR: /not-installed/krt
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,12 +23,65 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Assert KiCad is not installed
-        run: test -z "$(command -v kicad-cli || true)"
+      - name: Assert no native EDA or sibling projects
+        run: |
+          test -z "$(command -v kicad-cli || true)"
+          test ! -e ../kicad-copilot
+          test ! -e ../easyeda-copilot
+          test ! -e ../KiCadRoutingTools
+      - run: npm test
+
+  portable-routing:
+    name: Portable routing (no KRT, KiCad, or Python)
+    runs-on: ubuntu-latest
+    env:
+      KICAD_CLI: /not-installed/kicad-cli
+      KICAD_PYTHON: /not-installed/kicad-python
+      COPILOT_ROUTER_PYTHON: /not-installed/python
+      COPILOT_ROUTER_KRT_DIR: /not-installed/krt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Assert no routing/native runtime
+        run: |
+          test -z "$(command -v kicad-cli || true)"
+          test ! -e ../kicad-copilot
+          test ! -e ../easyeda-copilot
+          test ! -e ../KiCadRoutingTools
       - run: npm run e2e:no-kicad:portable
 
-  managed-krt:
+  polygon-routing:
+    name: Polygon planning on real boards (no KRT or KiCad)
     runs-on: ubuntu-latest
+    env:
+      KICAD_CLI: /not-installed/kicad-cli
+      KICAD_PYTHON: /not-installed/kicad-python
+      COPILOT_ROUTER_PYTHON: /not-installed/python
+      COPILOT_ROUTER_KRT_DIR: /not-installed/krt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Assert no routing/native runtime
+        run: |
+          test -z "$(command -v kicad-cli || true)"
+          test ! -e ../kicad-copilot
+          test ! -e ../easyeda-copilot
+          test ! -e ../KiCadRoutingTools
+      - run: npm run e2e:no-kicad:polygon
+
+  managed-krt:
+    name: Managed KRT and packed CLI (no KiCad or KRT checkout)
+    runs-on: ubuntu-latest
+    env:
+      XDG_CACHE_HOME: ${{ runner.temp }}/copilot-router-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,7 +92,16 @@ jobs:
         with:
           python-version: "3.11"
       - run: npm ci
-      - name: Assert KiCad is not installed
-        run: test -z "$(command -v kicad-cli || true)"
+      - name: Assert no KiCad, sibling project, local KRT, or warm router cache
+        run: |
+          test -z "$(command -v kicad-cli || true)"
+          test ! -e ../kicad-copilot
+          test ! -e ../easyeda-copilot
+          test ! -e ../KiCadRoutingTools
+          test -z "${COPILOT_ROUTER_KRT_DIR:-}"
+          test ! -e "$XDG_CACHE_HOME/easyeda-copilot/router/backends/krt/0.20.4"
       - run: npm run e2e:no-kicad:krt
+      - name: Assert managed KRT was installed into the isolated cache
+        run: test -e "$XDG_CACHE_HOME/easyeda-copilot/router/backends/krt/0.20.4"
       - run: npm run e2e:no-kicad:native
+      - run: npm run e2e:no-kicad:packed
