@@ -1,9 +1,21 @@
 {
-  "name": "@easyeda-copilot/router",
+  "name": "@eda-copilot/router",
   "version": "0.1.0",
   "description": "EDA-neutral PCB routing orchestration for KiCad Routing Tools",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biosshot/eda-copilot-router.git"
+  },
+  "homepage": "https://github.com/biosshot/eda-copilot-router#readme",
+  "bugs": {
+    "url": "https://github.com/biosshot/eda-copilot-router/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "main": "./package-dist/index.js",
   "types": "./package-dist/index.d.ts",
   "exports": {

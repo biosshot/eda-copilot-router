@@ -77,10 +77,10 @@ export function defaultRouterCacheDirectory() {
   if (process.env.COPILOT_ROUTER_CACHE_DIR) return resolve(process.env.COPILOT_ROUTER_CACHE_DIR)
   if (process.platform === "win32") {
     const base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
-    return join(base, "easyeda-copilot", "router")
+    return join(base, "eda-copilot", "router")
   }
-  if (process.platform === "darwin") return join(homedir(), "Library", "Caches", "easyeda-copilot", "router")
-  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "easyeda-copilot", "router")
+  if (process.platform === "darwin") return join(homedir(), "Library", "Caches", "eda-copilot", "router")
+  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "eda-copilot", "router")
 }
 
 async function readable(path: string) {

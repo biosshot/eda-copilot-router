@@ -1,4 +1,4 @@
-# @easyeda-copilot/router
+# @eda-copilot/router
 
 EDA-neutral PCB routing contracts, DSL compiler, polygon/plane planning, and a
 single KRT backend.
@@ -9,7 +9,7 @@ not part of the core contract. A built-in KiCad file adapter is also exported
 for standalone use.
 
 ```js
-import { run } from "@easyeda-copilot/router"
+import { run } from "@eda-copilot/router"
 
 const result = await run({
   board,

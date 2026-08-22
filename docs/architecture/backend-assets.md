@@ -15,7 +15,7 @@ publishes the cache atomically, and reuses it offline. There is no network work
 in `postinstall`. A concurrent process uses the same installation lock rather
 than creating a second partial cache.
 
-The default cache is the platform user cache under `easyeda-copilot/router`.
+The default cache is the platform user cache under `eda-copilot/router`.
 `COPILOT_ROUTER_CACHE_DIR` or `RouterAssetPolicy.cacheDirectory` may relocate
 it. `allowDownload: false` is the explicit offline policy: a missing cached
 asset then produces a structured error instead of silently changing backend or
