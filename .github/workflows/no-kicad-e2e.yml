@@ -80,10 +80,10 @@ jobs:
   managed-krt:
     name: Managed KRT and packed CLI (no KiCad or KRT checkout)
     runs-on: ubuntu-latest
-    env:
-      COPILOT_ROUTER_CACHE_DIR: ${{ runner.temp }}/copilot-router-cache
     steps:
       - uses: actions/checkout@v7
+      - name: Select isolated router cache
+        run: echo "COPILOT_ROUTER_CACHE_DIR=$RUNNER_TEMP/copilot-router-cache" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -109,10 +109,11 @@ jobs:
   managed-krt-windows:
     name: Managed KRT and packed CLI on Windows
     runs-on: windows-latest
-    env:
-      COPILOT_ROUTER_CACHE_DIR: ${{ runner.temp }}/copilot-router-cache
     steps:
       - uses: actions/checkout@v7
+      - name: Select isolated router cache
+        shell: pwsh
+        run: '"COPILOT_ROUTER_CACHE_DIR=$env:RUNNER_TEMP/copilot-router-cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
       - uses: actions/setup-node@v7
         with:
           node-version: 20
