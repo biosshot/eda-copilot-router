@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 - 2026-08-22
+
+- Preserve all existing native copper unless `clearRouting()` explicitly
+  selects its nets and item kinds for deletion.
+- Keep stackup-only application from touching unlocked routing copper.
+- Preserve unchanged native KiCad objects instead of recreating their geometry.
+
 ## 0.2.0 - 2026-08-22
 
 - Materialize `stack(...)` as the effective physical layer table before copper
