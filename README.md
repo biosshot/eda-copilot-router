@@ -56,6 +56,12 @@ the host. `--python` selects KRT's Python interpreter; normal discovery already
 checks `COPILOT_ROUTER_PYTHON`, standard KiCad Python locations, `python3`, and
 `python`.
 
+`stack(...)` materializes the effective physical layer table before routing
+and is returned for transactional host application. `applyStackup()` applies
+only that stack, while `runCopper()` plans polygon/plane zone outlines without
+starting KRT. The KiCad adapter treats unlocked tracks, vias, and zones as
+editable by default; native locked copper remains fixed.
+
 `trackWidthMm` and `via.diameterMm` / `via.drillMm` are nominal geometry.
 Their `min*` counterparts are hard manufacturing/DRC limits and also bound
 neck-down geometry.

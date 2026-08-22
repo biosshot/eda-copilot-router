@@ -308,6 +308,8 @@ class RoutingDslBuilder {
         designators: designators.map((item, index) => nonEmpty(item, `components[${index}]`)),
       }),
       applyDrcRules: () => this.terminal("apply-drc"),
+      applyStackup: () => this.terminal("apply-stackup"),
+      runCopper: () => this.terminal("copper"),
       runRouting: () => this.terminal("route"),
       runAll: () => this.terminal("all"),
     }
@@ -625,6 +627,12 @@ class RoutingDslBuilder {
           ...(item.material === undefined ? {} : { material: nonEmpty(item.material, `stack.layers[${index}].material`) }),
         }
       })
+      const copperNames = layers.filter((layer) => layer.kind === "copper").map((layer) => layer.name)
+      if (copperNames.length < 2) throw new TypeError("stack.layers requires at least TOP and BOTTOM copper layers")
+      const expected = ["TOP", ...copperNames.slice(1, -1).map((_, index) => `INNER_${index + 1}`), "BOTTOM"]
+      if (copperNames.some((name, index) => name !== expected[index])) {
+        throw new TypeError("stack copper layers must be ordered TOP, INNER_1..INNER_n, BOTTOM")
+      }
     }
     let solderMask: StackIntent["solderMask"]
     if (source.solderMask !== undefined) {

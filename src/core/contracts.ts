@@ -179,16 +179,24 @@ export type RoutingRules = Readonly<{
 }>
 
 export type RoutingStackup = Readonly<{
+  boardThicknessMm?: Millimeters
   fallbackCopperThicknessOz?: number
+  viaPlatingThicknessUm?: number
   layers: readonly (
     | Readonly<{ kind: "copper"; layer: string; thicknessMm: Millimeters }>
     | Readonly<{
         kind: "dielectric"
+        name?: string
         thicknessMm: Millimeters
         relativePermittivity?: number
+        lossTangent?: number
         material?: string
       }>
   )[]
+  solderMask?: Readonly<{
+    top?: Readonly<{ thicknessMm?: Millimeters; relativePermittivity?: number }>
+    bottom?: Readonly<{ thicknessMm?: Millimeters; relativePermittivity?: number }>
+  }>
 }>
 
 /**
@@ -228,7 +236,7 @@ export type RoutingRuleOverride = Readonly<{
   effective: unknown
 }>
 
-export type RoutingOperation = "apply-drc" | "route" | "all"
+export type RoutingOperation = "apply-drc" | "apply-stackup" | "copper" | "route" | "all"
 
 export type RoutingMetrics = Readonly<{
   elapsedMs: number
@@ -251,7 +259,12 @@ export type RoutingResult = Readonly<{
     applyRequested: boolean
     overriddenFields: readonly RoutingRuleOverride[]
   }>
-  /** Present only for runRouting() and runAll(). */
+  /** Present when stack(...) requested a physical target-board stackup. */
+  stackup?: Readonly<{
+    effective: RoutingStackup
+    applyRequested: true
+  }>
+  /** Present for runCopper(), runRouting(), and runAll(). */
   copper?: RoutingCopper
   diagnostics: readonly RoutingDiagnostic[]
   metrics: RoutingMetrics

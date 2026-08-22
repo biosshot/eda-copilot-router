@@ -234,6 +234,21 @@ function layerSource(request: BackendRouteRequest) {
   ].join("\n")
 }
 
+function stackupSource(request: BackendRouteRequest) {
+  if (!request.board.stackup) return ""
+  let dielectricIndex = 0
+  const layers = request.board.stackup.layers.map((layer) => {
+    if (layer.kind === "copper") return `(layer ${quote(layer.layer)} (type "copper") (thickness ${number(layer.thicknessMm)}))`
+    dielectricIndex += 1
+    return `(layer ${quote(layer.name ?? `dielectric ${dielectricIndex}`)} (type "core") (thickness ${number(layer.thicknessMm)})${
+      layer.material === undefined ? "" : ` (material ${quote(layer.material)})`
+    }${layer.relativePermittivity === undefined ? "" : ` (epsilon_r ${number(layer.relativePermittivity)})`}${
+      layer.lossTangent === undefined ? "" : ` (loss_tangent ${number(layer.lossTangent)})`
+    })`
+  })
+  return `(stackup ${layers.join(" ")})`
+}
+
 function boardSource(request: BackendRouteRequest) {
   const copper = [request.board.copper.fixed, request.board.copper.editable]
   const tracks = copper.flatMap((scope) => scope.tracks.map((track) => trackSource(track, true))).join("\n")
@@ -244,11 +259,13 @@ function boardSource(request: BackendRouteRequest) {
     return `(gr_line (start ${xy(start)}) (end ${xy(end)}) (stroke (width 0.05) (type solid)) (layer "Edge.Cuts") ${uuid()})`
   })).join("\n")
   const keepouts = request.board.keepouts.flatMap((keepout) => keepout.layers.map((layer) => keepoutSource(keepout, layer))).join("\n")
+  const thicknessMm = request.board.stackup?.boardThicknessMm
+    ?? request.board.stackup?.layers.reduce((total, layer) => total + layer.thicknessMm, 0) ?? 1.6
   return `(kicad_pcb
     (version 20260206) (generator "copilot-router") (generator_version "0.1")
-    (general (thickness 1.6) (legacy_teardrops no)) (paper "A4")
+    (general (thickness ${number(thicknessMm)}) (legacy_teardrops no)) (paper "A4")
     (layers ${layerSource(request)})
-    (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no))
+    (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no) ${stackupSource(request)})
     ${footprintSource(request)}
     ${tracks}
     ${vias}

@@ -38,3 +38,7 @@ copilot-router doctor
 
 `route` does not require KiCad or `kicad-cli`. Native zone refill and final DRC
 are deliberately left to an installed host/native verification stage.
+
+`stack(...)` changes the effective physical board used by the same routing
+call. Use `applyStackup()` for a stack-only operation or `runCopper()` to emit
+zone outlines without invoking KRT.

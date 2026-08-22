@@ -27,9 +27,9 @@ try {
   const adapter = await import(pathToFileURL(resolve(routerDirectory, "package-dist/adapters/kicad.js")))
   const imported = await adapter.importKiCadRoutingBoard(output)
   assert.ok(imported.board, JSON.stringify(imported.diagnostics))
-  assert.ok(imported.board.copper.fixed.tracks.length > 0)
+  assert.ok(imported.board.copper.editable.tracks.length > 0)
   assert.equal(await readFile(fixture, "utf8"), before, "standalone route must not modify its source board")
-  console.log(`standalone KiCad CLI without KiCad: ok (${imported.board.copper.fixed.tracks.length} tracks)`)
+  console.log(`standalone KiCad CLI without KiCad: ok (${imported.board.copper.editable.tracks.length} tracks)`)
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

@@ -190,6 +190,9 @@ if (commandResult !== undefined) throw new Error("terminal command returned a va
 `
 assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
 assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
+assert.equal(dsl.compileRoutingDsl("runCopper()").operation, "copper")
+assert.equal(dsl.compileRoutingDsl("stack({ layers: [{ kind: 'copper', name: 'TOP' }, { kind: 'copper', name: 'BOTTOM' }] }); applyStackup()").operation, "apply-stackup")
+assert.throws(() => dsl.compileRoutingDsl("runCopper(); applyStackup(); runRouting()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
 const fanoutPolicy = dsl.compileRoutingDsl(`
   fanout(component("U1"), { method: "underpad", extensionMm: 0.3 })
@@ -412,6 +415,78 @@ assert.equal(routed.rules.applyRequested, true)
 assert.equal(routed.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
+
+const stackOnly = await api.run({
+  board,
+  dsl: `
+    stack({
+      boardThicknessMm: 1.2,
+      layers: [
+        { kind: "copper", name: "TOP", thicknessOz: 1 },
+        { kind: "dielectric", name: "PREPREG", thicknessMm: 0.2, relativePermittivity: 4.2 },
+        { kind: "copper", name: "INNER_1", thicknessOz: 1 },
+        { kind: "dielectric", name: "CORE", thicknessMm: 0.9, relativePermittivity: 4.2 },
+        { kind: "copper", name: "INNER_2", thicknessOz: 1 },
+        { kind: "dielectric", name: "PREPREG_2", thicknessMm: 0.2, relativePermittivity: 4.2 },
+        { kind: "copper", name: "BOTTOM", thicknessOz: 1 },
+      ],
+    })
+    applyStackup()
+  `,
+})
+assert.equal(stackOnly.status, "complete")
+assert.equal(stackOnly.operation, "apply-stackup")
+assert.deepEqual(stackOnly.stackup.effective.layers.filter((layer) => layer.kind === "copper").map((layer) => layer.layer), ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+assert.equal(stackOnly.stackup.effective.boardThicknessMm, 1.2)
+assert.equal(backendCalls, 1, "applyStackup must not start the routing backend")
+
+const copperOnly = await api.run({
+  board,
+  backend: { ...backend, async route() { throw new Error("runCopper must not start the routing backend") } },
+  dsl: `plane({ net: "GND", layers: "BOTTOM" }); runCopper()`,
+})
+assert.equal(copperOnly.status, "complete")
+assert.equal(copperOnly.operation, "copper")
+assert.ok(copperOnly.copper.zones.some((zone) => zone.net === "GND" && zone.layers.includes("B.Cu")))
+
+let fourLayerCalls = 0
+const fourLayerBackend = {
+  ...backend,
+  capabilities: { ...backend.capabilities, maxCopperLayers: 4 },
+  async route(request) {
+    fourLayerCalls += 1
+    assert.deepEqual(request.board.layers.map((layer) => layer.name), ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+    assert.equal(request.board.stackup.layers.filter((layer) => layer.kind === "copper").length, 4)
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
+const fourLayerRoute = await api.run({
+  board,
+  backend: fourLayerBackend,
+  dsl: `
+    stack({ layers: [
+      { kind: "copper", name: "TOP" },
+      { kind: "dielectric", thicknessMm: 0.2, relativePermittivity: 4.2 },
+      { kind: "copper", name: "INNER_1" },
+      { kind: "dielectric", thicknessMm: 0.9, relativePermittivity: 4.2 },
+      { kind: "copper", name: "INNER_2" },
+      { kind: "dielectric", thicknessMm: 0.2, relativePermittivity: 4.2 },
+      { kind: "copper", name: "BOTTOM" },
+    ] })
+    runAll()
+  `,
+})
+assert.equal(fourLayerRoute.status, "complete")
+assert.equal(fourLayerCalls, 1)
+assert.equal(fourLayerRoute.stackup.applyRequested, true)
+
+const retained = { net: "VCC", layer: "F.Cu", widthMm: 0.2, points: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }
+const retainedResult = await api.run({
+  board: { ...board, copper: { fixed: emptyCopper, editable: { ...emptyCopper, tracks: [retained] } } },
+  backend: fourLayerBackend,
+  dsl: "runRouting()",
+})
+assert.deepEqual(retainedResult.copper.tracks, [retained], "retained editable copper must remain in the replacement result")
 
 const fenced = await api.run({
   board,

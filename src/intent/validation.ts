@@ -130,7 +130,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaStitches",
     "fanouts", "fanoutExclusions", "netClasses", "drc", "stack", "quality", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
   ], diagnostics, "program")
-  if (!["apply-drc", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
+  if (!["apply-drc", "apply-stackup", "copper", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
   const polygons = array(program.polygons, "polygons", diagnostics)
   const planes = array(program.planes, "planes", diagnostics)
   const signalNets = array(program.signalNets, "signalNets", diagnostics)

@@ -13,6 +13,7 @@ import type {
   RoutingProgram,
 } from "./types.js"
 import { validateRoutingProgram } from "./validation.js"
+import { materializeRoutingStackup } from "../core/stackup.js"
 import {
   calculateImpedanceOhm,
   solveImpedanceWidthMm,
@@ -31,26 +32,8 @@ const WIDTH_GRID_MM = 0.05
 export const HARD_MIN_TRACK_WIDTH_MM = 0.127
 const EPSILON = 1e-6
 
-function effectiveStackup(board: RoutingBoard, program: RoutingProgram): RoutingStackup | undefined {
-  if (!program.stack?.layers) return board.stackup
-  return {
-    fallbackCopperThicknessOz: program.stack.fallbackCopperThicknessOz
-      ?? board.stackup?.fallbackCopperThicknessOz ?? 1,
-    layers: program.stack.layers.map((layer) => layer.kind === "copper"
-      ? {
-          kind: "copper" as const,
-          layer: resolvePhysicalLayer(board, layer.name) ?? layer.name,
-          thicknessMm: layer.thicknessMm ?? (layer.thicknessOz
-            ?? program.stack?.fallbackCopperThicknessOz
-            ?? board.stackup?.fallbackCopperThicknessOz ?? 1) * COPPER_MM_PER_OZ,
-        }
-      : {
-          kind: "dielectric" as const,
-          thicknessMm: layer.thicknessMm ?? Number.NaN,
-          ...(layer.relativePermittivity === undefined ? {} : { relativePermittivity: layer.relativePermittivity }),
-          ...(layer.material === undefined ? {} : { material: layer.material }),
-        }),
-  }
+function effectiveStackup(board: RoutingBoard, _program: RoutingProgram): RoutingStackup | undefined {
+  return board.stackup
 }
 
 function resolvePhysicalLayer(board: RoutingBoard, name: string) {
@@ -368,6 +351,7 @@ export function compileRoutingRules(
   program: RoutingProgram,
   backendCapabilities?: RouterBackendCapabilities,
 ): CompiledRoutingRules {
+  board = materializeRoutingStackup(board, program.stack)
   const validation = validateRoutingProgram(program)
   const diagnostics = [...validation.diagnostics]
   if (!validation.valid) return {
@@ -601,6 +585,21 @@ export function compileRoutingRules(
       for (const net of stitch.forNets ?? []) checkNet(net)
     }
   }
+  if (program.operation === "copper") for (const stitch of program.viaStitches) {
+    if (stitch.mode === "along" || stitch.mode === "return") diagnostics.push(diagnostic(
+      "DSL_COPPER_STITCH_REQUIRES_ROUTING",
+      `viaStitch mode ${stitch.mode} requires runRouting() or runAll().`,
+    ))
+  }
+  if (program.operation === "apply-stackup" && !program.stack) diagnostics.push(diagnostic(
+    "DSL_STACK_REQUIRED", "applyStackup() requires stack(...).",
+  ))
+  if (program.stack && board.stackup?.layers.some((layer) => !Number.isFinite(layer.thicknessMm) || layer.thicknessMm <= 0)) {
+    diagnostics.push(diagnostic(
+      "DSL_STACK_INCOMPLETE",
+      "Applied stackup needs a positive thickness for every new copper and dielectric layer.",
+    ))
+  }
   // runAll() persists the universal KRT neckdown floor without weakening a
   // stricter imported or DSL hard minimum.
   if (program.operation === "all") for (const { name } of board.nets) {
@@ -611,7 +610,7 @@ export function compileRoutingRules(
       minTrackWidthMm: Math.max(values.minTrackWidthMm, HARD_MIN_TRACK_WIDTH_MM),
     })
   }
-  if (program.operation !== "apply-drc") required.add("ordinary-routing")
+  if (program.operation === "route" || program.operation === "all") required.add("ordinary-routing")
   const effective: RoutingRules = {
     default: effectiveDefault,
     nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),

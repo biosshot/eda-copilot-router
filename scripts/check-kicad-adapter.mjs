@@ -10,6 +10,8 @@ const source = `(kicad_pcb
     (1 "F.Mask" user) (3 "B.Mask" user) (25 "Edge.Cuts" user))
   (setup (pad_to_mask_clearance 0))
   (net 0 "") (net 1 "N")
+  (segment (start 1 5) (end 4 5) (width 0.2) (layer "F.Cu") (net "N") (uuid "00000000-0000-0000-0000-000000000001"))
+  (segment (start 1 6) (end 4 6) (width 0.2) (layer "F.Cu") (locked yes) (net "N") (uuid "00000000-0000-0000-0000-000000000002"))
   (footprint "test" (layer "F.Cu") (at 5 5) (property "Reference" "J1")
     (pad "" np_thru_hole circle (at 0 0) (size 1 1) (drill 0.5 (offset 0.1 -0.1)) (layers "*.Cu" "*.Mask"))
     (pad "1" thru_hole oval (at 3 0) (size 2 1) (drill oval 1.3 0.5) (layers "*.Cu" "*.Mask") (net "N")))
@@ -39,16 +41,37 @@ try {
   assert.deepEqual(imported.board.pads[0].hole.offset, { x: 0.1, y: -0.1 })
   assert.equal(imported.board.pads[1].hole.slotLengthMm, 0.8)
   assert.equal(imported.board.keepouts[0].polygon.holes.length, 1)
-  assert.ok(imported.board.copper.fixed.zones.some((zone) => zone.outline.holes?.length === 1))
+  assert.equal(imported.board.copper.editable.tracks.length, 1, "unlocked native routes must be editable by default")
+  assert.equal(imported.board.copper.fixed.tracks.length, 1, "locked native routes must remain fixed")
+  assert.ok(imported.board.copper.editable.zones.some((zone) => zone.outline.holes?.length === 1))
   assert.ok(imported.board.copper.fixed.zones.some((zone) => !zone.net), "copper text must become a netless fixed obstacle")
   const result = {
     status: "complete", operation: "route", diagnostics: [], metrics: {},
     rules: { effective: imported.board.rules, applyRequested: false, overriddenFields: [] },
+    stackup: {
+      applyRequested: true,
+      effective: {
+        boardThicknessMm: 1.2,
+        layers: [
+          { kind: "copper", layer: "F.Cu", thicknessMm: 0.035 },
+          { kind: "dielectric", name: "CORE", thicknessMm: 1.13, relativePermittivity: 4.2 },
+          { kind: "copper", layer: "B.Cu", thicknessMm: 0.035 },
+        ],
+      },
+    },
     copper: { tracks: [{ net: "N", layer: "F.Cu", widthMm: 0.2, points: [{ x: 8, y: 5 }, { x: 12, y: 5 }] }], vias: [], zones: [] },
   }
   const applied = await applyKiCadRoutingResult(imported.context, result, output)
   assert.equal(applied.outputPath, output, JSON.stringify(applied.diagnostics))
-  assert.match(await readFile(output, "utf8"), /\(segment /)
+  const outputSource = await readFile(output, "utf8")
+  assert.match(outputSource, /\(segment /)
+  assert.doesNotMatch(outputSource, /00000000-0000-0000-0000-000000000001/, "old editable route must be replaced")
+  assert.match(outputSource, /00000000-0000-0000-0000-000000000002/, "locked route must be preserved")
+  assert.match(outputSource, /\(thickness 1\.2\)/)
+  const roundTrip = await importKiCadRoutingBoard(output)
+  assert.ok(roundTrip.board, JSON.stringify(roundTrip.diagnostics))
+  assert.deepEqual(roundTrip.board.layers.map((layer) => layer.name), ["F.Cu", "B.Cu"])
+  assert.equal(roundTrip.board.stackup.boardThicknessMm, 1.2)
   console.log("standalone KiCad adapter contract: ok")
 } finally {
   await rm(directory, { recursive: true, force: true })

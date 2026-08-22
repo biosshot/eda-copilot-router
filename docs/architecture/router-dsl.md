@@ -243,10 +243,13 @@ stack({
 })
 ```
 
-The compiler merges the declaration field-by-field with the imported stack,
-validates physical layer order and finished thickness, and reports missing
-electrical properties only when a requested operation (for example impedance
-calculation) actually requires them.
+The compiler merges the declaration field-by-field with the imported stack and
+materializes its copper entries as the effective `RoutingBoard.layers` before
+polygon planning or backend routing. A two-layer input may therefore declare a
+four-layer stack and route that effective four-layer board in the same
+`run(...)` call. `RoutingResult.stackup` asks the host to apply the identical
+physical stack before applying returned copper. Missing electrical properties
+are errors only when a requested calculation, such as impedance, requires them.
 
 The object fields use explicit unit suffixes where values would otherwise be
 ambiguous. Backend paths, presets, and search knobs remain outside the DSL.
@@ -264,6 +267,8 @@ Every DSL program ends with exactly one of these commands:
 
 ```js
 applyDrcRules()
+applyStackup()
+runCopper()
 runRouting()
 runAll()
 ```
@@ -275,16 +280,26 @@ operation in the interpreter and return no value. Only the outer package
 - `applyDrcRules()` compiles the DSL rule statements and requests that the host
   persist the effective DRC fields. It does not execute polygon or routing
   backends.
+- `applyStackup()` requires `stack(...)` and requests only the physical stack
+  update. It does not execute copper planning or KRT.
+- `runCopper()` executes compact polygon, plane, grid-stitch, and around-stitch
+  planning without starting KRT. It returns native zone outlines; the host owns
+  the exact zone refill. Route-dependent `along` and `return` stitching require
+  `runRouting()` or `runAll()`.
 - `runRouting()` executes all requested polygon, plane, special-net, and
-  ordinary routing work without requesting a native DRC update.
+  ordinary routing work without requesting a native DRC update. An authored
+  `stack(...)` is still returned for physical application because routed copper
+  may use newly declared layers.
 - `runAll()` is the single-command form of applying effective DRC rules first
-  and then running the complete routing workflow.
+  and then running the complete routing workflow. When `stack(...)` is present,
+  stackup, rules, and copper are returned together for one transactional host
+  apply.
 
 Multiple terminal commands and a program with no terminal command are DSL
 errors. `runAll()` is semantically equivalent to the two operations, but a DSL
 program does not spell it as two command calls.
 
-All rule statements are compiled for all three operations. With
+All rule statements are compiled for every operation. With
 `runRouting()`, effective DSL rules may equal or tighten the source rules, but
 they may not require copper that violates a weaker source constraint. Such a
 program fails preflight with `DRC_APPLY_REQUIRED`; the caller must select
@@ -317,7 +332,9 @@ clearRouting({
 - `clearRouting` can target all nets or an explicit net list;
 - cleanup item kinds are explicit. The default is tracks and vias; zones are
   removed only when `"zones"` is requested;
-- fixed/locked copper is never cleared.
+- fixed copper is never cleared. Host adapters should normally import unlocked
+  native tracks, vias, and zones as editable; genuinely locked copper and
+  normalized non-routing copper obstacles remain fixed.
 
 ## Separation from backend tuning
 

@@ -32,7 +32,7 @@ Native zone refill, native DRC, and transactional application happen at the
 host boundary after routing.
 
 The public package operation is `run(...)`. Inside the DSL,
-`applyDrcRules()`, `runRouting()`, and `runAll()` only select what that operation
+`applyDrcRules()`, `applyStackup()`, `runCopper()`, `runRouting()`, and `runAll()` only select what that operation
 does and return no value themselves. `RoutingResult` is returned by `run(...)`,
 not by a DSL command.
 

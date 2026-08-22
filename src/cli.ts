@@ -51,7 +51,7 @@ async function main() {
     if (!/\.kicad_pcb$/i.test(boardPath)) throw new TypeError("route requires <board.kicad_pcb>")
     const outputPath = option(args, "-o", "--output")
     if (!outputPath) throw new TypeError("route requires -o <routed.kicad_pcb>")
-    const imported = await importKiCadRoutingBoard(boardPath, { existingCopper: "fixed" })
+    const imported = await importKiCadRoutingBoard(boardPath)
     if (!imported.board || !imported.context) {
       process.stdout.write(`${JSON.stringify(imported, null, 2)}\n`)
       return 1

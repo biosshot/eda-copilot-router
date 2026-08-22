@@ -63,11 +63,15 @@ interface RoutingCopper {
 
 interface RoutingResult {
   status: "complete" | "partial" | "error"
-  operation: "apply-drc" | "route" | "all"
+  operation: "apply-drc" | "apply-stackup" | "copper" | "route" | "all"
   rules: {
     effective: RoutingRules
     applyRequested: boolean
     overriddenFields: RoutingRuleOverride[]
+  }
+  stackup?: {
+    effective: RoutingStackup
+    applyRequested: true
   }
   copper?: RoutingCopper
   diagnostics: Diagnostic[]
@@ -106,14 +110,21 @@ that editable/router-owned copper, not an append-only list and not a full PCB.
 This lets completion and blocker repair reroute earlier generated copper without
 requiring a general-purpose PCB patch format.
 
-`RoutingResult.copper` is present only when the DSL selected `runRouting()` or
-`runAll()`. An `applyDrcRules()`-only operation does not execute polygon or
-routing backends and therefore does not produce replacement copper.
+`RoutingResult.copper` is present when the DSL selected `runCopper()`,
+`runRouting()`, or `runAll()`. An `applyDrcRules()`- or `applyStackup()`-only
+operation does not produce replacement copper. `runCopper()` plans zone
+outlines and independent stitching without starting a routing backend; exact
+native fill remains a host operation.
 
 The host applies a result transactionally by replacing only router-owned copper
 and preserving native objects outside that ownership. If a host wants existing
 native routes to become editable, it deliberately places them in the editable
 input set instead of the fixed set.
+
+The built-in KiCad adapter does this by default for unlocked tracks, vias, and
+zones. Native locked copper and normalized graphical-copper obstacles remain
+fixed. Consequently `clearRouting()` can remove any selected unlocked routing
+copper while preserving actual locks.
 
 ## Rules
 

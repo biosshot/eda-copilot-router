@@ -466,15 +466,33 @@ function routingRules(source: ProjectRules, nets: readonly string[]): RoutingRul
 
 function stackup(root: SExpression[], available: readonly string[]): RoutingBoard["stackup"] {
   const stack = findChild(findChild(root, "setup") ?? [], "stackup")
-  if (!stack) return { fallbackCopperThicknessOz: 1, layers: available.map((layer) => ({ kind: "copper", layer, thicknessMm: 0.03479 })) }
+  const boardThicknessMm = numberAt(findChild(findChild(root, "general") ?? [], "thickness"), 1)
+  if (!stack) return {
+    ...(boardThicknessMm > 0 ? { boardThicknessMm } : {}),
+    fallbackCopperThicknessOz: 1,
+    layers: available.map((layer) => ({ kind: "copper", layer, thicknessMm: 0.03479 })),
+  }
   const layers: NonNullable<RoutingBoard["stackup"]>["layers"][number][] = []
   for (const item of listChildren(stack, "layer")) {
     const name = atom(item[1]) ?? ""
     const thicknessMm = numberAt(findChild(item, "thickness"), 1, name.endsWith(".Cu") ? 0.03479 : 0)
     if (name.endsWith(".Cu")) layers.push({ kind: "copper", layer: name, thicknessMm })
-    else if (thicknessMm > 0) layers.push({ kind: "dielectric", thicknessMm, relativePermittivity: numberAt(findChild(item, "epsilon_r"), 1, 4.2), material: childText(item, "material") })
+    else if (thicknessMm > 0) layers.push({
+      kind: "dielectric",
+      ...(name ? { name } : {}),
+      thicknessMm,
+      relativePermittivity: numberAt(findChild(item, "epsilon_r"), 1, 4.2),
+      ...(numberAt(findChild(item, "loss_tangent"), 1) > 0
+        ? { lossTangent: numberAt(findChild(item, "loss_tangent"), 1) }
+        : {}),
+      ...(childText(item, "material") ? { material: childText(item, "material") } : {}),
+    })
   }
-  return layers.length ? { fallbackCopperThicknessOz: 1, layers } : undefined
+  return layers.length ? {
+    ...(boardThicknessMm > 0 ? { boardThicknessMm } : {}),
+    fallbackCopperThicknessOz: 1,
+    layers,
+  } : undefined
 }
 
 function splitCopper(source: ReturnType<typeof importedCopper>, ownership: "fixed" | "editable", graphics: readonly RoutedZone[]) {
@@ -525,7 +543,7 @@ export async function importKiCadRoutingBoard(path: string, options: KiCadRouter
         })
       }
     }
-    const rings = edgeCutRings(root); const sortedNets = [...nets].filter(Boolean).sort(); const ownership = options.existingCopper ?? "fixed"
+    const rings = edgeCutRings(root); const sortedNets = [...nets].filter(Boolean).sort(); const ownership = options.existingCopper ?? "editable"
     const board: RoutingBoard = {
       outline: rings[0], cutouts: rings.slice(1), layers, nets: sortedNets.map((name) => ({ name })), components, pads,
       keepouts: importedKeepouts(root, layerNames), stackup: stackup(root, layerNames), rules: routingRules(await readProjectRules(absolute), sortedNets),
@@ -556,6 +574,58 @@ function removeEditableCopper(root: SExpression[], ownership: "fixed" | "editabl
 
 function n(value: number) { return token(String(Number(value.toFixed(6)))) }
 function pointForm(head: string, point: PointMm): SExpression[] { return [token(head), n(point.x), n(point.y)] }
+
+function replaceChild(parent: SExpression[], head: string, replacement: SExpression[]) {
+  const index = parent.findIndex((item) => isSExpressionList(item) && listHead(item) === head)
+  if (index >= 0) parent[index] = replacement
+  else parent.push(replacement)
+}
+
+function applyPhysicalStackup(root: SExpression[], stackup: NonNullable<RoutingResult["stackup"]>["effective"]) {
+  const copper = stackup.layers.filter((layer) => layer.kind === "copper")
+  if (copper.length < 2) throw new TypeError("Applied stackup needs at least top and bottom copper layers")
+  const currentLayers = findChild(root, "layers")
+  const nonCopper = currentLayers?.slice(1).filter((item) => (
+    !isSExpressionList(item) || !atom(item[1])?.endsWith(".Cu")
+  )) ?? []
+  const copperForms = copper.map((layer, index) => {
+    const id = index === 0 ? 0 : index === copper.length - 1 ? 2 : 4 + (index - 1) * 2
+    return [token(String(id)), token(layer.layer, true), token("signal")] as SExpression[]
+  })
+  replaceChild(root, "layers", [token("layers"), ...copperForms, ...nonCopper])
+
+  let dielectricIndex = 0
+  const stackForms = stackup.layers.map((layer): SExpression[] => {
+    if (layer.kind === "copper") return [
+      token("layer"), token(layer.layer, true),
+      [token("type"), token("copper", true)],
+      [token("thickness"), n(layer.thicknessMm)],
+    ]
+    dielectricIndex += 1
+    return [
+      token("layer"), token(layer.name ?? `dielectric ${dielectricIndex}`, true),
+      [token("type"), token("core", true)],
+      [token("thickness"), n(layer.thicknessMm)],
+      ...(layer.material === undefined ? [] : [[token("material"), token(layer.material, true)] as SExpression[]]),
+      ...(layer.relativePermittivity === undefined ? [] : [[token("epsilon_r"), n(layer.relativePermittivity)] as SExpression[]]),
+      ...(layer.lossTangent === undefined ? [] : [[token("loss_tangent"), n(layer.lossTangent)] as SExpression[]]),
+    ]
+  })
+  const setup = findChild(root, "setup") ?? (() => {
+    const value: SExpression[] = [token("setup")]
+    root.push(value)
+    return value
+  })()
+  replaceChild(setup, "stackup", [token("stackup"), ...stackForms])
+
+  const thicknessMm = stackup.boardThicknessMm ?? stackup.layers.reduce((total, layer) => total + layer.thicknessMm, 0)
+  const general = findChild(root, "general") ?? (() => {
+    const value: SExpression[] = [token("general")]
+    root.push(value)
+    return value
+  })()
+  replaceChild(general, "thickness", [token("thickness"), n(thicknessMm)])
+}
 
 function appendCopper(root: SExpression[], version: number, copper: RoutingCopper) {
   for (const track of copper.tracks) for (let index = 0; index < track.points.length - 1; index += 1) {
@@ -625,12 +695,12 @@ function applyProjectRules(project: Record<string, unknown>, rules: RoutingRules
   netSettings.netclass_patterns = []
 }
 
-async function copyProject(sourceBoard: string, targetBoard: string, rules: RoutingRules) {
+async function copyProject(sourceBoard: string, targetBoard: string, rules: RoutingRules, applyRules: boolean) {
   const source = await projectPath(sourceBoard)
   if (!source) return
   const target = `${targetBoard.slice(0, -extname(targetBoard).length)}.kicad_pro`
   const project = object(JSON.parse(await readFile(source, "utf8")))
-  applyProjectRules(project, rules)
+  if (applyRules) applyProjectRules(project, rules)
   await writeFile(target, `${JSON.stringify(project, null, 2)}\n`, "utf8")
   const sourceDru = source.replace(/\.kicad_pro$/i, ".kicad_dru")
   await copyFile(sourceDru, target.replace(/\.kicad_pro$/i, ".kicad_dru")).catch(() => undefined)
@@ -642,9 +712,12 @@ export async function applyKiCadRoutingResult(context: KiCadRoutingContext, resu
   if (target === context.path) return { diagnostics: [...diagnostics, { code: "KICAD_SOURCE_OVERWRITE_FORBIDDEN", severity: "error", message: "Standalone KiCad apply never overwrites its source board." }], nativeVerification: "not-run" }
   try {
     if (await readFile(context.path, "utf8") !== context.source) throw new TypeError("KiCad source changed after routing capture")
-    const root = structuredClone(context.root); removeEditableCopper(root, context.existingCopper)
+    const root = structuredClone(context.root)
+    if (result.stackup?.applyRequested) applyPhysicalStackup(root, result.stackup.effective)
+    removeEditableCopper(root, context.existingCopper)
     if (result.copper) appendCopper(root, context.version, result.copper)
-    await atomicCreate(target, `${printSExpression(root)}\n`); await copyProject(context.path, target, result.rules.effective)
+    await atomicCreate(target, `${printSExpression(root)}\n`)
+    await copyProject(context.path, target, result.rules.effective, result.rules.applyRequested)
     return { outputPath: target, diagnostics, nativeVerification: "not-run" }
   } catch (error) {
     return { diagnostics: [...diagnostics, { code: "KICAD_ROUTING_APPLY_FAILED", severity: "error", message: error instanceof Error ? error.message : String(error) }], nativeVerification: "not-run" }

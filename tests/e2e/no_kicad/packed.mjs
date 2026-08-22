@@ -41,8 +41,8 @@ try {
   const adapter = await import(pathToFileURL(adapterPath))
   const imported = await adapter.importKiCadRoutingBoard(output)
   assert.ok(imported.board, JSON.stringify(imported.diagnostics))
-  assert.ok(imported.board.copper.fixed.tracks.length > 0)
-  console.log(`packed npm standalone routing: ok (${imported.board.copper.fixed.tracks.length} tracks)`)
+  assert.ok(imported.board.copper.editable.tracks.length > 0)
+  console.log(`packed npm standalone routing: ok (${imported.board.copper.editable.tracks.length} tracks)`)
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }
