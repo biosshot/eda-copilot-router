@@ -1,4 +1,4 @@
-# Releasing `@eda-copilot/router`
+# Releasing `eda-copilot-router`
 
 Releases are built and published only by `.github/workflows/publish.yml` from
 the public `biosshot/eda-copilot-router` repository. A tag must exactly match
@@ -9,14 +9,14 @@ the package version with a `v` prefix, for example package `0.1.0` and tag
 
 npm requires a package to exist before a Trusted Publisher can be attached to
 it. For the first tag only, create the repository secret `NPM_TOKEN` with a
-granular publish token authorized for the `@eda-copilot` scope, then push the
-tag. The workflow publishes the public scoped package with provenance.
+granular publish token authorized to create and publish public packages, then
+push the tag. The workflow publishes the public package with provenance.
 
 After the first package version exists, authenticate npm CLI 11.5.1 or newer
 with an account that owns the package and configure the GitHub Actions trust:
 
 ```text
-npm trust github @eda-copilot/router --repo biosshot/eda-copilot-router --file publish.yml --allow-publish --yes
+npm trust github eda-copilot-router --repo biosshot/eda-copilot-router --file publish.yml --allow-publish --yes
 ```
 
 The npm account must have 2FA enabled for the trust command. After the trust is

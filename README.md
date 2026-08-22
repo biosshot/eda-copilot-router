@@ -1,4 +1,4 @@
-# @eda-copilot/router
+# eda-copilot-router
 
 EDA-neutral routing core with one production backend: KiCad Routing Tools
 (KRT). The package compiles the local routing DSL into effective design rules,
@@ -10,15 +10,15 @@ adapter and CLI; neither KRT routing path requires installed KiCad.
 
 ## Public surface
 
-- `@eda-copilot/router` — `run(...)`, board/result contracts and validation.
-- `@eda-copilot/router/dsl` — DSL compiler and preflight.
-- `@eda-copilot/router/backends/krt` — the only routing backend.
-- `@eda-copilot/router/backends/assets` — managed KRT asset support.
-- `@eda-copilot/router/adapters/kicad` — standalone KiCad import/apply.
-- `@eda-copilot/router/schema` and `/core` — portable contracts/schema.
+- `eda-copilot-router` — `run(...)`, board/result contracts and validation.
+- `eda-copilot-router/dsl` — DSL compiler and preflight.
+- `eda-copilot-router/backends/krt` — the only routing backend.
+- `eda-copilot-router/backends/assets` — managed KRT asset support.
+- `eda-copilot-router/adapters/kicad` — standalone KiCad import/apply.
+- `eda-copilot-router/schema` and `/core` — portable contracts/schema.
 
 ```js
-import { createKrtBackend, run } from "@eda-copilot/router"
+import { createKrtBackend, run } from "eda-copilot-router"
 
 const backend = createKrtBackend({
   artifactsDirectory: "results/krt",

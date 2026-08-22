@@ -31,7 +31,7 @@ jobs:
       - run: npm run e2e:no-kicad
 
   publish:
-    name: Publish @eda-copilot/router
+    name: Publish eda-copilot-router
     needs: release-gate
     runs-on: ubuntu-latest
     permissions:

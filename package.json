@@ -1,5 +1,5 @@
 {
-  "name": "@eda-copilot/router",
+  "name": "eda-copilot-router",
   "version": "0.1.0",
   "description": "EDA-neutral PCB routing orchestration for KiCad Routing Tools",
   "type": "module",

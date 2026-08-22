@@ -28,7 +28,7 @@ try {
   await writeFile(join(temporary, "routing.js"), await readFile(resolve(routerDirectory, "tests/e2e/cap_chain/routing.js"), "utf8"), "utf8")
   await copyFile(join(fixtureDirectory, "cap_chain.kicad_pcb"), join(temporary, "board.kicad_pcb"))
   await runNpm(["install", tarball, "--ignore-scripts", "--no-audit", "--no-fund"], temporary)
-  const cli = join(temporary, "node_modules", "@eda-copilot", "router", "package-dist", "cli.js")
+  const cli = join(temporary, "node_modules", "eda-copilot-router", "package-dist", "cli.js")
   const output = join(temporary, "routed.kicad_pcb")
   const routed = await execute(process.execPath, [
     cli, "route", join(temporary, "board.kicad_pcb"), "--dsl", join(temporary, "routing.js"),
@@ -37,7 +37,7 @@ try {
   const summary = JSON.parse(routed.stdout)
   assert.equal(summary.status, "complete", routed.stdout)
   assert.equal(summary.nativeVerification, "not-run")
-  const adapterPath = join(temporary, "node_modules", "@eda-copilot", "router", "package-dist", "adapters", "kicad.js")
+  const adapterPath = join(temporary, "node_modules", "eda-copilot-router", "package-dist", "adapters", "kicad.js")
   const adapter = await import(pathToFileURL(adapterPath))
   const imported = await adapter.importKiCadRoutingBoard(output)
   assert.ok(imported.board, JSON.stringify(imported.diagnostics))

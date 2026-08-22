@@ -81,7 +81,7 @@ async function packagedPatchDirectory() {
   ]
   try {
     const require = createRequire(import.meta.url)
-    candidates.unshift(join(dirname(require.resolve("@eda-copilot/router/package.json")), "assets", "krt-patches"))
+    candidates.unshift(join(dirname(require.resolve("eda-copilot-router/package.json")), "assets", "krt-patches"))
   } catch {
     // Source-tree and standalone package candidates above remain authoritative.
   }
