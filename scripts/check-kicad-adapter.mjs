@@ -32,7 +32,7 @@ const source = `(kicad_pcb
 
 const directory = await mkdtemp(join(tmpdir(), "copilot-router-kicad-adapter-"))
 try {
-  const input = join(directory, "input.kicad_pcb"); const output = join(directory, "output.kicad_pcb")
+  const input = join(directory, "input.kicad_pcb")
   await writeFile(input, source, "utf8")
   const imported = await importKiCadRoutingBoard(input)
   assert.ok(imported.board && imported.context, JSON.stringify(imported.diagnostics))
@@ -45,32 +45,70 @@ try {
   assert.equal(imported.board.copper.fixed.tracks.length, 1, "locked native routes must remain fixed")
   assert.ok(imported.board.copper.editable.zones.some((zone) => zone.outline.holes?.length === 1))
   assert.ok(imported.board.copper.fixed.zones.some((zone) => !zone.net), "copper text must become a netless fixed obstacle")
-  const result = {
+  const baseResult = {
     status: "complete", operation: "route", diagnostics: [], metrics: {},
     rules: { effective: imported.board.rules, applyRequested: false, overriddenFields: [] },
-    stackup: {
-      applyRequested: true,
-      effective: {
-        boardThicknessMm: 1.2,
-        layers: [
-          { kind: "copper", layer: "F.Cu", thicknessMm: 0.035 },
-          { kind: "dielectric", name: "CORE", thicknessMm: 1.13, relativePermittivity: 4.2 },
-          { kind: "copper", layer: "B.Cu", thicknessMm: 0.035 },
-        ],
-      },
-    },
-    copper: { tracks: [{ net: "N", layer: "F.Cu", widthMm: 0.2, points: [{ x: 8, y: 5 }, { x: 12, y: 5 }] }], vias: [], zones: [] },
   }
-  const applied = await applyKiCadRoutingResult(imported.context, result, output)
-  assert.equal(applied.outputPath, output, JSON.stringify(applied.diagnostics))
-  const outputSource = await readFile(output, "utf8")
-  assert.match(outputSource, /\(segment /)
-  assert.doesNotMatch(outputSource, /00000000-0000-0000-0000-000000000001/, "old editable route must be replaced")
-  assert.match(outputSource, /00000000-0000-0000-0000-000000000002/, "locked route must be preserved")
-  assert.match(outputSource, /\(thickness 1\.2\)/)
-  const roundTrip = await importKiCadRoutingBoard(output)
+  const newTrack = { net: "N", layer: "F.Cu", widthMm: 0.2, points: [{ x: 8, y: 5 }, { x: 12, y: 5 }] }
+
+  const preservedOutput = join(directory, "preserved.kicad_pcb")
+  const preserved = await applyKiCadRoutingResult(imported.context, {
+    ...baseResult,
+    copper: {
+      tracks: [...imported.board.copper.editable.tracks, newTrack],
+      vias: imported.board.copper.editable.vias,
+      zones: imported.board.copper.editable.zones,
+    },
+  }, preservedOutput)
+  assert.equal(preserved.outputPath, preservedOutput, JSON.stringify(preserved.diagnostics))
+  const preservedSource = await readFile(preservedOutput, "utf8")
+  assert.match(preservedSource, /00000000-0000-0000-0000-000000000001/, "no clear intent must preserve unlocked native tracks")
+  assert.equal((preservedSource.match(/00000000-0000-0000-0000-000000000001/g) ?? []).length, 1, "preserved tracks must not be recreated")
+  assert.match(preservedSource, /\(start 8 5\)/, "new router copper must be appended")
+  assert.doesNotMatch(preservedSource, /copilot-router:/, "preserved native zones must not be recreated")
+
+  const stackOnlyOutput = join(directory, "stack-only.kicad_pcb")
+  const fourLayerStack = {
+    boardThicknessMm: 1.2,
+    layers: [
+      { kind: "copper", layer: "F.Cu", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "PREPREG 1", thicknessMm: 0.35, relativePermittivity: 4.2 },
+      { kind: "copper", layer: "In1.Cu", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "CORE", thicknessMm: 0.36, relativePermittivity: 4.2 },
+      { kind: "copper", layer: "In2.Cu", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "PREPREG 2", thicknessMm: 0.35, relativePermittivity: 4.2 },
+      { kind: "copper", layer: "B.Cu", thicknessMm: 0.035 },
+    ],
+  }
+  const stackOnly = await applyKiCadRoutingResult(imported.context, {
+    ...baseResult, operation: "apply-stackup",
+    stackup: { applyRequested: true, effective: fourLayerStack },
+  }, stackOnlyOutput)
+  assert.equal(stackOnly.outputPath, stackOnlyOutput, JSON.stringify(stackOnly.diagnostics))
+  const stackOnlySource = await readFile(stackOnlyOutput, "utf8")
+  assert.match(stackOnlySource, /00000000-0000-0000-0000-000000000001/, "stack-only apply must not touch editable copper")
+  assert.match(stackOnlySource, /00000000-0000-0000-0000-000000000002/, "stack-only apply must preserve locked copper")
+  assert.match(stackOnlySource, /\(thickness 1\.2\)/)
+
+  const partialOutput = join(directory, "partial-clear.kicad_pcb")
+  const partial = await applyKiCadRoutingResult(imported.context, {
+    ...baseResult,
+    clearRouting: { nets: ["N"], items: ["tracks"] },
+    copper: {
+      tracks: [newTrack],
+      vias: imported.board.copper.editable.vias,
+      zones: imported.board.copper.editable.zones,
+    },
+  }, partialOutput)
+  assert.equal(partial.outputPath, partialOutput, JSON.stringify(partial.diagnostics))
+  const partialSource = await readFile(partialOutput, "utf8")
+  assert.doesNotMatch(partialSource, /00000000-0000-0000-0000-000000000001/, "only selected unlocked tracks must be removed")
+  assert.match(partialSource, /00000000-0000-0000-0000-000000000002/, "locked routes must never be removed")
+  assert.doesNotMatch(partialSource, /copilot-router:/, "an unselected native zone must remain native")
+
+  const roundTrip = await importKiCadRoutingBoard(stackOnlyOutput)
   assert.ok(roundTrip.board, JSON.stringify(roundTrip.diagnostics))
-  assert.deepEqual(roundTrip.board.layers.map((layer) => layer.name), ["F.Cu", "B.Cu"])
+  assert.deepEqual(roundTrip.board.layers.map((layer) => layer.name), ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
   assert.equal(roundTrip.board.stackup.boardThicknessMm, 1.2)
   console.log("standalone KiCad adapter contract: ok")
 } finally {

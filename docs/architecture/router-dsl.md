@@ -332,6 +332,9 @@ clearRouting({
 - `clearRouting` can target all nets or an explicit net list;
 - cleanup item kinds are explicit. The default is tracks and vias; zones are
   removed only when `"zones"` is requested;
+- existing native copper is never deleted merely because `runCopper()`,
+  `runRouting()`, or `runAll()` returned copper. Deletion requires the explicit
+  `clearRouting` scope above;
 - fixed copper is never cleared. Host adapters should normally import unlocked
   native tracks, vias, and zones as editable; genuinely locked copper and
   normalized non-routing copper obstacles remain fixed.

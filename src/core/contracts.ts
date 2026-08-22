@@ -236,6 +236,11 @@ export type RoutingRuleOverride = Readonly<{
   effective: unknown
 }>
 
+export type RoutingClearIntent = Readonly<{
+  nets: "all" | readonly string[]
+  items: readonly ("tracks" | "vias" | "zones")[]
+}>
+
 export type RoutingOperation = "apply-drc" | "apply-stackup" | "copper" | "route" | "all"
 
 export type RoutingMetrics = Readonly<{
@@ -264,6 +269,8 @@ export type RoutingResult = Readonly<{
     effective: RoutingStackup
     applyRequested: true
   }>
+  /** Native copper deletion explicitly requested by clearRouting(...). */
+  clearRouting?: RoutingClearIntent
   /** Present for runCopper(), runRouting(), and runAll(). */
   copper?: RoutingCopper
   diagnostics: readonly RoutingDiagnostic[]

@@ -360,6 +360,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
         operation: program.operation,
         rules: { effective: compiled.effective, applyRequested: false, overriddenFields: compiled.overriddenFields },
         ...stackup,
+        ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
         copper: resultCopper,
         diagnostics,
         metrics: {
@@ -549,6 +550,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       status: "error", operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
       ...stackup,
+      ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
       // Semantic/structural validation annotates a candidate; it must not
       // silently erase backend geometry. The host/native verifier decides
       // whether an explicitly invalid diagnostic artifact can be applied.
@@ -564,6 +566,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       operation: program.operation,
       rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
       ...stackup,
+      ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
       copper: resultCopper,
       diagnostics,
       metrics: {

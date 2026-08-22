@@ -44,6 +44,7 @@ export type KiCadRoutingContext = Readonly<{
   root: SExpression[]
   version: number
   existingCopper: "fixed" | "editable"
+  editableCopper: RoutingCopper
 }>
 
 export type KiCadRoutingImport = Readonly<{
@@ -550,7 +551,11 @@ export async function importKiCadRoutingBoard(path: string, options: KiCadRouter
       copper: splitCopper(importedCopper(root, layerNames), ownership, graphicalCopper(root, layerNames)),
     }
     const validation = validateRoutingBoard(board); diagnostics.push(...validation.diagnostics)
-    return validation.ok ? { board, context: { path: absolute, source, root, version, existingCopper: ownership }, diagnostics } : { diagnostics }
+    return validation.ok ? {
+      board,
+      context: { path: absolute, source, root, version, existingCopper: ownership, editableCopper: board.copper.editable },
+      diagnostics,
+    } : { diagnostics }
   } catch (error) {
     diagnostics.push({ code: "KICAD_ROUTING_IMPORT_FAILED", severity: "error", message: error instanceof Error ? error.message : String(error) })
     return { diagnostics }
@@ -564,11 +569,42 @@ function netForm(root: SExpression[], version: number, name: string) {
   return [token("net"), token(atom(existing[1]) ?? "0")] as SExpression[]
 }
 
-function removeEditableCopper(root: SExpression[], ownership: "fixed" | "editable") {
-  if (ownership !== "editable") return
+function selectedByClearIntent(
+  root: SExpression[],
+  node: SExpression[],
+  intent: RoutingResult["clearRouting"],
+) {
+  if (!intent || locked(node) || findChild(node, "keepout")) return false
+  const head = listHead(node)
+  const item = head === "segment" || head === "arc" ? "tracks" : head === "via" ? "vias" : head === "zone" ? "zones" : undefined
+  if (!item || !intent.items.includes(item)) return false
+  if (intent.nets === "all") return true
+  const net = nodeNet(root, node) ?? childText(node, "net_name")
+  return net !== undefined && intent.nets.includes(net)
+}
+
+function clearSelectedNativeCopper(
+  root: SExpression[],
+  ownership: "fixed" | "editable",
+  intent: RoutingResult["clearRouting"],
+) {
+  if (ownership !== "editable" || !intent) return
   for (let index = root.length - 1; index >= 0; index -= 1) {
     const node = root[index]
-    if (isSExpressionList(node) && ["segment", "arc", "via", "zone"].includes(listHead(node) ?? "") && !locked(node)) root.splice(index, 1)
+    if (isSExpressionList(node) && selectedByClearIntent(root, node, intent)) root.splice(index, 1)
+  }
+}
+
+function newCopperOnly(copper: RoutingCopper, original: RoutingCopper): RoutingCopper {
+  const ids = {
+    tracks: new Set(original.tracks.flatMap((item) => item.id ? [item.id] : [])),
+    vias: new Set(original.vias.flatMap((item) => item.id ? [item.id] : [])),
+    zones: new Set(original.zones.flatMap((item) => item.id ? [item.id] : [])),
+  }
+  return {
+    tracks: copper.tracks.filter((item) => !item.id || !ids.tracks.has(item.id)),
+    vias: copper.vias.filter((item) => !item.id || !ids.vias.has(item.id)),
+    zones: copper.zones.filter((item) => !item.id || !ids.zones.has(item.id)),
   }
 }
 
@@ -713,9 +749,13 @@ export async function applyKiCadRoutingResult(context: KiCadRoutingContext, resu
   try {
     if (await readFile(context.path, "utf8") !== context.source) throw new TypeError("KiCad source changed after routing capture")
     const root = structuredClone(context.root)
-    if (result.stackup?.applyRequested) applyPhysicalStackup(root, result.stackup.effective)
-    removeEditableCopper(root, context.existingCopper)
-    if (result.copper) appendCopper(root, context.version, result.copper)
+    if (result.stackup?.applyRequested) {
+      applyPhysicalStackup(root, result.stackup.effective)
+    }
+    if (result.copper) {
+      clearSelectedNativeCopper(root, context.existingCopper, result.clearRouting)
+      appendCopper(root, context.version, newCopperOnly(result.copper, context.editableCopper))
+    }
     await atomicCreate(target, `${printSExpression(root)}\n`)
     await copyProject(context.path, target, result.rules.effective, result.rules.applyRequested)
     return { outputPath: target, diagnostics, nativeVerification: "not-run" }

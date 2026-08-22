@@ -104,9 +104,10 @@ a net is assigned.
 Input `fixed` copper is immutable. It may be used as an obstacle and electrical
 connection but must be returned unchanged by every backend.
 
-Input `editable` copper is owned by the current routing invocation and may be
-ripped up or replaced. `RoutingResult.copper` is the complete final state of
-that editable/router-owned copper, not an append-only list and not a full PCB.
+Input `editable` copper participates in routing. Existing objects remain part
+of the result unless `clearRouting()` selects them; selected objects may then
+be removed or rerouted. `RoutingResult.copper` is the complete final logical
+state of that editable copper, not an append-only list and not a full PCB.
 This lets completion and blocker repair reroute earlier generated copper without
 requiring a general-purpose PCB patch format.
 
@@ -116,10 +117,11 @@ operation does not produce replacement copper. `runCopper()` plans zone
 outlines and independent stitching without starting a routing backend; exact
 native fill remains a host operation.
 
-The host applies a result transactionally by replacing only router-owned copper
-and preserving native objects outside that ownership. If a host wants existing
-native routes to become editable, it deliberately places them in the editable
-input set instead of the fixed set.
+`RoutingResult.clearRouting` is the only authorization to delete existing
+native copper. Without it, applying any operation preserves all existing
+copper and appends only newly produced geometry. With it, an adapter deletes
+only the selected nets and item kinds, then adds newly produced geometry. An
+adapter may preserve unchanged native objects instead of recreating them.
 
 The built-in KiCad adapter does this by default for unlocked tracks, vias, and
 zones. Native locked copper and normalized graphical-copper obstacles remain
@@ -151,5 +153,5 @@ The core reports rule compilation, routing completion, and portable geometry
 diagnostics. Final native validity belongs to the host or an optional native
 verification stage. Depending on the
 selected operation, the host first persists requested effective rules, then
-replaces router-owned copper when present, refills zones, and runs native
-DRC/connectivity checks.
+applies explicitly requested copper deletion and new geometry, refills zones,
+and runs native DRC/connectivity checks.

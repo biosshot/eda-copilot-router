@@ -487,6 +487,15 @@ const retainedResult = await api.run({
   dsl: "runRouting()",
 })
 assert.deepEqual(retainedResult.copper.tracks, [retained], "retained editable copper must remain in the replacement result")
+assert.equal(retainedResult.clearRouting, undefined, "routing without clearRouting must not authorize native copper deletion")
+
+const clearedResult = await api.run({
+  board: { ...board, copper: { fixed: emptyCopper, editable: { ...emptyCopper, tracks: [retained] } } },
+  backend: fourLayerBackend,
+  dsl: `clearRouting({ nets: ["VCC"], items: ["tracks"] }); runRouting()`,
+})
+assert.deepEqual(clearedResult.clearRouting, { nets: ["VCC"], items: ["tracks"] })
+assert.deepEqual(clearedResult.copper.tracks, [], "explicitly cleared copper must leave the logical result")
 
 const fenced = await api.run({
   board,
