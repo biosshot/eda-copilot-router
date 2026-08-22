@@ -1,6 +1,6 @@
 {
   "name": "eda-copilot-router",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "EDA-neutral PCB routing orchestration for KiCad Routing Tools",
   "type": "module",
   "license": "MIT",
@@ -62,6 +62,7 @@
     "docs",
     "README.md",
     "README-package.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
