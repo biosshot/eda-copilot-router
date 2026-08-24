@@ -538,7 +538,9 @@ export async function importKiCadRoutingBoard(path: string, options: KiCadRouter
           id: `${childText(pad, "uuid") ?? childText(pad, "tstamp") ?? `${designator}:${padIndex}`}:${componentIndex}:${padIndex}`,
           component: designator, number: atom(pad[1]) ?? String(padIndex + 1), ...(net ? { net } : {}),
           at: placedPoint(pointAt(localAt), origin, footprintRotation, bottom),
-          rotationDeg: bottom ? footprintRotation - numberAt(localAt, 3) : footprintRotation + numberAt(localAt, 3),
+          // KiCad's pad angle is already absolute in the board frame; only
+          // the pad x/y coordinates are footprint-local.
+          rotationDeg: numberAt(localAt, 3),
           layers: nodeLayers(pad, layerNames, footprintLayer), shape: padShape(pad, diagnostics, `pads.${designator}.${padIndex}`),
           ...(portableHole ? { hole: portableHole } : {}),
         })

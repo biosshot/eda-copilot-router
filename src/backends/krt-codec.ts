@@ -102,9 +102,12 @@ function padSource(
   const through = Boolean(pad.hole)
   const type = pad.hole ? pad.hole.plated ? "thru_hole" : "np_thru_hole" : "smd"
   const size = padSize(pad)
-  const localRotation = component.side === "bottom"
-    ? component.rotationDeg - pad.rotationDeg
-    : pad.rotationDeg - component.rotationDeg
+  // KiCad stores the pad `(at x y angle)` angle in the board frame: unlike
+  // the x/y offset, it already includes the footprint rotation.  RoutingPad
+  // also carries an absolute board orientation, so subtracting the component
+  // rotation here made every pad on a rotated portable footprint appear
+  // axis-aligned to KRT (and could make adjacent pads overlap as obstacles).
+  const fileRotation = pad.rotationDeg
   const holeOffset = localHoleOffset(pad, component)
   const hole = pad.hole
     ? pad.hole.shape === "slot"
@@ -119,7 +122,7 @@ function padSource(
        (primitives (gr_poly (pts ${pad.shape.polygon.outer.map((point) => `(xy ${xy(point)})`).join(" ")}) (width 0) (fill yes)))`
     : ""
   return `(pad ${quote(pad.number)} ${type} ${padShape(pad)}
-    (at ${xy(position)} ${number(localRotation)})
+    (at ${xy(position)} ${number(fileRotation)})
     (size ${number(size.width)} ${number(size.height)})
     ${hole}
     (layers ${padLayers(pad, through)})
