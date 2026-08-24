@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add a pinned, private portable CPython fallback for machines without Python.
+- Install KRT dependencies from the pinned runtime's `requirements.txt` into a
+  versioned router cache instead of hardcoding or modifying global packages.
+- Hide `maxVias` from the public routing DSL; via-count guardrails are
+  implementation-owned.
+
 ## 0.2.1 - 2026-08-22
 
 - Preserve all existing native copper unless `clearRouting()` explicitly

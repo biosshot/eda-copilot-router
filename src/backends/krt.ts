@@ -45,7 +45,10 @@ export {
 
 export {
   KRT_MANAGED_VERSION,
+  MANAGED_PYTHON_VERSION,
   krtManagedRelease,
+  managedPythonRelease,
+  prepareManagedPython,
   prepareKrtRuntime,
   readKrtLicense,
   type KrtRuntimeOptions,

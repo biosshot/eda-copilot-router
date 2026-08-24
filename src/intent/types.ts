@@ -65,7 +65,6 @@ export type PlaneStitchingIntent = false | Readonly<{
   maxPadViaDistanceMm: number
   via: "drc-min" | Readonly<{ diameterMm: number; drillMm: number }>
   viaInPad: boolean
-  maxVias: number
 }>
 
 export type PlaneIntent = Readonly<{
@@ -159,7 +158,6 @@ export type MatchedGroupIntent = Readonly<{
 export type ViaStitchCommon = Readonly<{
   id: string
   via?: "drc-min" | Readonly<Pick<ViaGeometryIntent, "diameterMm" | "drillMm">>
-  maxVias?: number
 }>
 
 export type ViaStitchIntent =

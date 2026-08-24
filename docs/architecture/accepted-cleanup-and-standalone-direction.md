@@ -19,9 +19,10 @@ continuing to accept constraints that neither the core nor KRT guarantees:
   authorable `ViaOptions` field, but it is also not enforced after compilation);
 - the complete legacy `viaFence` DSL/type/export surface.
 
-`viaStitch(..., { maxVias })` remains because its scope is explicit and the
-core enforces it. The implementation currently stored in `via-fence.ts` is to
-be renamed to `via-stitch.ts`; this is an internal rename, not another intent.
+Via-count safety limits are compiler-owned rather than authorable DSL fields,
+so routing agents do not confuse a guardrail with an electrical constraint.
+The implementation currently stored in `via-fence.ts` is to be renamed to
+`via-stitch.ts`; this is an internal rename, not another intent.
 
 `components(...)` must be documented and typed per use site. It is currently
 valid for the implemented `viaStitch` grid/around selectors and is not thereby

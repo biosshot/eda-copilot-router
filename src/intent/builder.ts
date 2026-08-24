@@ -370,7 +370,7 @@ class RoutingDslBuilder {
     let stitching: PlaneStitchingIntent = false
     if (source.stitching !== undefined && source.stitching !== false) {
       const value = source.stitching === true ? {} : object(source.stitching, "plane.stitching")
-      assertKnownKeys(value, ["gridMm", "maxVisibleViaDistanceMm", "maxPadViaDistanceMm", "via", "viaInPad", "maxVias"], "plane.stitching")
+      assertKnownKeys(value, ["gridMm", "maxVisibleViaDistanceMm", "maxPadViaDistanceMm", "via", "viaInPad"], "plane.stitching")
       const via = value.via === undefined || value.via === "drc-min"
         ? "drc-min" as const
         : (() => {
@@ -384,7 +384,6 @@ class RoutingDslBuilder {
         maxPadViaDistanceMm: maxDistance === undefined ? 10 : positive(maxDistance, "maxVisibleViaDistanceMm"),
         via,
         viaInPad: value.viaInPad === undefined ? true : Boolean(value.viaInPad),
-        maxVias: value.maxVias === undefined ? 500 : integer(value.maxVias, "maxVias", 1),
       }
     }
     const paddingMm = source.paddingMm === undefined ? 0 : nonNegative(source.paddingMm, "paddingMm")
@@ -499,15 +498,14 @@ class RoutingDslBuilder {
       kind: "via-stitch" as const,
       id: nonEmpty(id, "viaStitch id"),
       ...(this.stitchVia(source, "viaStitch") === undefined ? {} : { via: this.stitchVia(source, "viaStitch") }),
-      ...(source.maxVias === undefined ? {} : { maxVias: integer(source.maxVias, "viaStitch.maxVias", 1) }),
     }
     if (mode === "grid") {
-      assertKnownKeys(source, ["mode", "net", "region", "pitchMm", "viaInPad", "via", "maxVias"], "viaStitch")
+      assertKnownKeys(source, ["mode", "net", "region", "pitchMm", "viaInPad", "via"], "viaStitch")
       const region = structuredClone(source.region) as RegionSelector
       if (!region || (region.kind !== "board" && (region.kind !== "components" || !region.designators?.length))) throw new TypeError("viaStitch.region must be board() or components(...)")
       this.viaStitches.push({ ...common, mode, net: nonEmpty(source.net, "viaStitch.net"), region, pitchMm: positive(source.pitchMm, "viaStitch.pitchMm"), ...optionalBoolean(source, "viaInPad") })
     } else if (mode === "along") {
-      assertKnownKeys(source, ["mode", "net", "routes", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via", "maxVias"], "viaStitch")
+      assertKnownKeys(source, ["mode", "net", "routes", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger", "via"], "viaStitch")
       if (!Array.isArray(source.routes) || !source.routes.length) throw new TypeError("viaStitch.routes must be a non-empty net array")
       this.viaStitches.push({
         ...common, mode, net: nonEmpty(source.net, "viaStitch.net"),
@@ -517,14 +515,14 @@ class RoutingDslBuilder {
         ...optionalPositive(source, "rowSpacingMm"), ...optionalBoolean(source, "stagger"),
       })
     } else if (mode === "around") {
-      assertKnownKeys(source, ["mode", "net", "target", "pitchMm", "offsetMm", "rows", "side", "via", "maxVias"], "viaStitch")
+      assertKnownKeys(source, ["mode", "net", "target", "pitchMm", "offsetMm", "rows", "side", "via"], "viaStitch")
       const target = structuredClone(source.target) as RegionSelector | FanoutTarget
       if (!target || !["board", "components", "component", "pad"].includes(target.kind)) throw new TypeError("viaStitch.target must be board(), components(...), component(...), or pad(...)")
       const side = source.side === undefined ? undefined : nonEmpty(source.side, "viaStitch.side")
       if (side !== undefined && side !== "inside" && side !== "outside") throw new TypeError("viaStitch.side must be inside or outside")
       this.viaStitches.push({ ...common, mode, net: nonEmpty(source.net, "viaStitch.net"), target, ...optionalPositive(source, "pitchMm"), ...optionalPositive(source, "offsetMm"), ...(source.rows === undefined ? {} : { rows: integer(source.rows, "viaStitch.rows", 1, 8) }), ...(side ? { side } : {}) })
     } else if (mode === "return") {
-      assertKnownKeys(source, ["mode", "referenceNet", "forNets", "maxDistanceMm", "via", "maxVias"], "viaStitch")
+      assertKnownKeys(source, ["mode", "referenceNet", "forNets", "maxDistanceMm", "via"], "viaStitch")
       const referenceNet = nonEmpty(source.referenceNet, "viaStitch.referenceNet")
       if (source.forNets !== undefined && (!Array.isArray(source.forNets) || !source.forNets.length)) throw new TypeError("viaStitch.forNets must be a non-empty net array")
       this.viaStitches.push({ ...common, mode, referenceNet: referenceNet === "auto" ? "auto" : referenceNet, ...(source.forNets === undefined ? {} : { forNets: [...new Set(source.forNets.map((item, index) => nonEmpty(item, `viaStitch.forNets[${index}]`)))] }), ...optionalPositive(source, "maxDistanceMm") })

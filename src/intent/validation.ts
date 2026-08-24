@@ -174,7 +174,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     const region = object(item.region) ? item.region : {}; exactKeys(region, region.kind === "components" ? ["kind", "designators"] : ["kind"], diagnostics, `${path}.region`)
     if (region.kind !== "board" && (region.kind !== "components" || !Array.isArray(region.designators) || !region.designators.length)) diagnostics.push(error("DSL_REGION_INVALID", `${path}.region is invalid.`, `${path}.region`))
     if (item.stitching !== false) {
-      exactKeys(item.stitching, ["gridMm", "maxPadViaDistanceMm", "via", "viaInPad", "maxVias"], diagnostics, `${path}.stitching`)
+      exactKeys(item.stitching, ["gridMm", "maxPadViaDistanceMm", "via", "viaInPad"], diagnostics, `${path}.stitching`)
       const stitching = object(item.stitching) ? item.stitching : {}
       if (stitching.via !== "drc-min") via(stitching.via, `${path}.stitching.via`, diagnostics)
     }
@@ -216,7 +216,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   stitches.forEach((raw, index) => {
     const path = `viaStitches[${index}]`
     const item = object(raw) ? raw : {}; const id = typeof item.id === "string" ? item.id : ""
-    const common = ["kind", "id", "mode", "via", "maxVias"]
+    const common = ["kind", "id", "mode", "via"]
     const specific = item.mode === "grid" ? ["net", "region", "pitchMm", "viaInPad"]
       : item.mode === "along" ? ["net", "routes", "pitchMm", "offsetMm", "rows", "rowSpacingMm", "stagger"]
       : item.mode === "around" ? ["net", "target", "pitchMm", "offsetMm", "rows", "side"]
@@ -250,7 +250,6 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (item.rows !== undefined && (!Number.isInteger(item.rows) || Number(item.rows) < 1 || Number(item.rows) > 8)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rows must be an integer from 1 to 8.`, `${path}.rows`))
     if (item.rowSpacingMm !== undefined && !positive(item.rowSpacingMm)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.rowSpacingMm must be > 0.`, `${path}.rowSpacingMm`))
     if (item.stagger !== undefined && typeof item.stagger !== "boolean") diagnostics.push(error("DSL_VALUE_INVALID", `${path}.stagger must be boolean.`, `${path}.stagger`))
-    if (item.maxVias !== undefined && (!Number.isInteger(item.maxVias) || Number(item.maxVias) < 1)) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.maxVias must be an integer >= 1.`, `${path}.maxVias`))
     if (item.via !== "drc-min") via(item.via, `${path}.via`, diagnostics)
   })
 

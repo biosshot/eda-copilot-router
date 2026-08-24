@@ -96,7 +96,6 @@ declare function plane(options: {
     maxVisibleViaDistanceMm?: number;
     via?: "drc-min" | Pick<ViaOptions, "diameterMm" | "drillMm">;
     viaInPad?: boolean;
-    maxVias?: number;
   };
 }): void;
 
@@ -134,7 +133,6 @@ declare function matchedGroup(id: string, options: {
 
 interface ViaStitchCommon {
   via?: Pick<ViaOptions, "diameterMm" | "drillMm"> | "drc-min";
-  maxVias?: number;
 }
 
 type ViaStitchOptions =

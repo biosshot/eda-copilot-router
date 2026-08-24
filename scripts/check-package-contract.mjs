@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
+import { gzipSync } from "node:zlib"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)))
@@ -44,6 +45,9 @@ assert.deepEqual(
   "automatic fanout must not pre-route copper owned by the special stage",
 )
 assert.equal(typeof krt.prepareKrtRuntime, "function")
+assert.equal(typeof krt.prepareManagedPython, "function")
+assert.equal(krt.MANAGED_PYTHON_VERSION, "3.12.14-20260814")
+assert.match(krt.managedPythonRelease().url, /python-build-standalone\/releases\/download\/20260814/)
 assert.deepEqual(krt.KRT_QUALITY_PROFILES, {
   fast: {
     gridStep: 0.1,
@@ -784,7 +788,7 @@ const planeResult = await api.run({
       layers: "OUTER",
       region: board(),
       zone: { padConnection: { mode: "none" }, removeIslandsBelowMm2: 2 },
-      stitching: { gridMm: 5, maxVias: 8 }
+      stitching: { gridMm: 5 }
     })
     runRouting()
   `,
@@ -814,8 +818,8 @@ const unifiedStitchResult = await api.run({
   backend: polygonBackend,
   dsl: `
     plane({ net: "GND", layers: "OUTER", region: board(), stitching: false })
-    viaStitch("GND_GRID", { mode: "grid", net: "GND", region: board(), pitchMm: 4, viaInPad: true, maxVias: 12 })
-    viaStitch("GND_EDGE", { mode: "around", net: "GND", target: board(), pitchMm: 4, rows: 1, maxVias: 12 })
+    viaStitch("GND_GRID", { mode: "grid", net: "GND", region: board(), pitchMm: 4, viaInPad: true })
+    viaStitch("GND_EDGE", { mode: "around", net: "GND", target: board(), pitchMm: 4, rows: 1 })
     runRouting()
   `,
 })
@@ -824,6 +828,14 @@ assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWit
 assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWith("via-stitch:GND_GRID:")
   && via.at.x === 12 && via.at.y === 5), "grid viaInPad must include a legal same-net SMD pad")
 assert.ok(unifiedStitchResult.copper.vias.some((via) => String(via.id).startsWith("via-stitch:GND_EDGE:")))
+assert.throws(
+  () => dsl.compileRoutingDsl(`viaStitch("LIMIT", { mode: "grid", net: "GND", region: board(), pitchMm: 4, maxVias: 2 })`),
+  /viaStitch has unknown field\(s\): maxVias/,
+)
+assert.throws(
+  () => dsl.compileRoutingDsl(`plane({ net: "GND", stitching: { maxVias: 2 } })`),
+  /plane\.stitching has unknown field\(s\): maxVias/,
+)
 
 const returnViaBackend = {
   ...backend,
@@ -937,6 +949,38 @@ try {
     allowDownload: false,
   })
   assert.equal(cachedAsset.source, "cache")
+
+  const tarContents = Buffer.from("portable runtime fixture\n", "utf8")
+  const tarHeader = Buffer.alloc(512)
+  tarHeader.write("runtime/bin/python", 0, "utf8")
+  tarHeader.write("0000755\0", 100, "ascii")
+  tarHeader.write("0000000\0", 108, "ascii")
+  tarHeader.write("0000000\0", 116, "ascii")
+  tarHeader.write(`${tarContents.length.toString(8).padStart(11, "0")}\0`, 124, "ascii")
+  tarHeader.write("00000000000\0", 136, "ascii")
+  tarHeader.fill(0x20, 148, 156)
+  tarHeader[156] = "0".charCodeAt(0)
+  tarHeader.write("ustar\0", 257, "ascii")
+  tarHeader.write("00", 263, "ascii")
+  const tarChecksum = tarHeader.reduce((sum, value) => sum + value, 0)
+  tarHeader.write(`${tarChecksum.toString(8).padStart(6, "0")}\0 `, 148, "ascii")
+  const tarPayload = gzipSync(Buffer.concat([
+    tarHeader,
+    tarContents,
+    Buffer.alloc((512 - (tarContents.length % 512)) % 512),
+    Buffer.alloc(1024),
+  ]))
+  const tarAsset = await managedAssets.prepareManagedRouterAsset({
+    backend: "fixture-python",
+    version: "1.0.0",
+    url: `data:application/gzip;base64,${tarPayload.toString("base64")}`,
+    sha256: createHash("sha256").update(tarPayload).digest("hex"),
+    sizeBytes: tarPayload.length,
+    archive: "tar.gz",
+    rootDirectory: "runtime",
+    markers: ["bin/python"],
+  }, { cacheDirectory: join(temporary, "asset-cache") })
+  assert.equal(await readFile(join(tarAsset.directory, "bin", "python"), "utf8"), tarContents.toString("utf8"))
   await assert.rejects(
     managedAssets.prepareManagedRouterAsset({
       ...assetSpec,

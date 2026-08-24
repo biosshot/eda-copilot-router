@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 import {
   access,
@@ -22,6 +23,31 @@ import {
 } from "./assets.js"
 
 export const KRT_MANAGED_VERSION = "0.20.4"
+export const MANAGED_PYTHON_VERSION = "3.12.14-20260814"
+
+const MANAGED_PYTHON_RELEASE = "20260814"
+const MANAGED_PYTHON_ASSETS = Object.freeze({
+  "win32-x64": {
+    target: "x86_64-pc-windows-msvc",
+    sha256: "89f18f6932917163b74339ebcec2645c8e47ae7f1c5f2ac37f2b4f4cf3beb647",
+    executable: "python.exe",
+  },
+  "linux-x64": {
+    target: "x86_64-unknown-linux-gnu",
+    sha256: "5acfa3e9ba26b51ae161c83aff278da915b590d22373a424b2ba55b8afe91fcc",
+    executable: "bin/python3",
+  },
+  "darwin-x64": {
+    target: "x86_64-apple-darwin",
+    sha256: "aec265e3cddaccdb2a3d783331596351b24d4a63c97af0a38f75f643c9451de9",
+    executable: "bin/python3",
+  },
+  "darwin-arm64": {
+    target: "aarch64-apple-darwin",
+    sha256: "dd5b76ab11451a4a4367c17c61d944dded56b425396b07f102922a7ebef7d55f",
+    executable: "bin/python3",
+  },
+})
 
 const KRT_RELEASE = Object.freeze({
   backend: "krt",
@@ -48,7 +74,20 @@ export type PreparedKrtRuntime = Readonly<{
   pythonPathEntries: readonly string[]
   version: string
   source: PreparedRouterAsset["source"]
+  pythonSource: "system" | PreparedRouterAsset["source"]
   cacheDirectory: string
+}>
+
+type PythonDetails = Readonly<{
+  version: number[]
+  tag: string
+  hasPip: boolean
+}>
+
+type PreparedPython = Readonly<{
+  command: string
+  details: PythonDetails
+  source: "system" | PreparedRouterAsset["source"]
 }>
 
 type ProcessResult = Readonly<{
@@ -181,7 +220,13 @@ function runProcess(
       windowsHide: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", ...environment },
+      env: {
+        ...process.env,
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8",
+        PYTHONNOUSERSITE: "1",
+        ...environment,
+      },
     })
     child.stdout.setEncoding("utf8")
     child.stderr.setEncoding("utf8")
@@ -204,27 +249,66 @@ function runProcess(
 async function pythonDetails(command: string, signal?: AbortSignal) {
   const result = await runProcess(command, [
     "-c",
-    "import json,sys; print(json.dumps({'version':list(sys.version_info[:3]),'tag':sys.implementation.cache_tag}))",
+    "import importlib.util,json,sys; print(json.dumps({'version':list(sys.version_info[:3]),'tag':sys.implementation.cache_tag,'hasPip':importlib.util.find_spec('pip') is not None}))",
   ], {}, signal)
   if (result.exitCode !== 0 || result.error) return undefined
   try {
-    const details = JSON.parse(result.stdout.trim()) as { version: number[]; tag: string }
+    const details = JSON.parse(result.stdout.trim()) as PythonDetails
     if (details.version[0] !== 3 || details.version[1] < 9 || !details.tag) return undefined
-    return details
+    return { ...details, hasPip: details.hasPip === true }
   } catch {
     return undefined
   }
 }
 
-async function discoverPython(explicit?: string, signal?: AbortSignal) {
+async function discoverSystemPython(explicit?: string, signal?: AbortSignal): Promise<PreparedPython | undefined> {
   for (const candidate of commandCandidates(explicit)) {
     const details = await pythonDetails(candidate, signal)
-    if (details) return { command: candidate, details }
+    if (details) return { command: candidate, details, source: "system" }
   }
-  throw new RouterAssetError(
-    "KRT_PYTHON_NOT_FOUND",
-    "KRT needs Python 3.9 or newer, but no compatible interpreter was found.",
+  return undefined
+}
+
+export function managedPythonRelease() {
+  const key = `${platform()}-${arch()}` as keyof typeof MANAGED_PYTHON_ASSETS
+  const selected = MANAGED_PYTHON_ASSETS[key]
+  if (!selected) throw new RouterAssetError(
+    "KRT_PYTHON_PLATFORM_UNSUPPORTED",
+    `Managed Python ${MANAGED_PYTHON_VERSION} is unavailable for ${platform()}/${arch()}.`,
+    { platform: platform(), arch: arch() },
   )
+  const fileName = `cpython-3.12.14+${MANAGED_PYTHON_RELEASE}-${selected.target}-install_only_stripped.tar.gz`
+  return {
+    backend: "python",
+    version: MANAGED_PYTHON_VERSION,
+    url: `https://github.com/astral-sh/python-build-standalone/releases/download/${MANAGED_PYTHON_RELEASE}/${fileName}`,
+    sha256: selected.sha256,
+    archive: "tar.gz" as const,
+    rootDirectory: "python",
+    markers: [selected.executable, "lib"],
+    executable: selected.executable,
+  }
+}
+
+export async function prepareManagedPython(
+  policy: RouterAssetPolicy = {},
+  signal = policy.signal,
+): Promise<PreparedPython> {
+  const release = managedPythonRelease()
+  const asset = await prepareManagedRouterAsset(release, policy)
+  const command = join(asset.directory, ...release.executable.split("/"))
+  const details = await pythonDetails(command, signal)
+  if (!details) throw new RouterAssetError(
+    "KRT_MANAGED_PYTHON_INVALID",
+    "The managed Python runtime could not be started or is older than Python 3.9.",
+    { command, directory: asset.directory },
+  )
+  if (!details.hasPip) throw new RouterAssetError(
+    "KRT_MANAGED_PYTHON_PIP_MISSING",
+    "The managed Python runtime does not contain pip.",
+    { command, directory: asset.directory },
+  )
+  return { command, details, source: asset.source }
 }
 
 function pythonEnvironment(entries: readonly string[]): Record<string, string> {
@@ -244,13 +328,13 @@ async function probeKrtPython(
   const entries = [
     ...dependencies,
     join(krtDirectory, "rust_router"),
-    ...(verifyPatch ? [join(krtDirectory, "py_router")] : []),
+    join(krtDirectory, "py_router"),
   ]
   return runProcess(
     pythonPath,
     [
       "-c",
-      `import sys; sys.dont_write_bytecode=True; sys.path[:0]=${JSON.stringify(entries)}; import numpy,scipy,shapely,grid_router${verifyPatch ? ",copilot_router_krt_patch" : ""}; print('ok')`,
+      `import sys; sys.dont_write_bytecode=True; sys.path[:0]=${JSON.stringify(entries)}; from startup_checks import run_all_checks; run_all_checks()${verifyPatch ? "; import copilot_router_krt_patch" : ""}; print('ok')`,
     ],
     pythonEnvironment([]),
     signal,
@@ -263,14 +347,23 @@ async function preparePythonDependencies(
   pythonTag: string,
   policy: RouterAssetPolicy,
 ) {
+  const requirementsPath = join(asset.directory, "requirements.txt")
+  const requirements = await readFile(requirementsPath)
+  const requirementsSha256 = createHash("sha256").update(requirements).digest("hex")
   const direct = await probeKrtPython(pythonPath, asset.directory, [], policy.signal)
   if (direct.exitCode === 0 && !direct.error) return []
   const parent = join(asset.cacheDirectory, "runtimes", "krt", KRT_MANAGED_VERSION)
   const target = join(parent, `${pythonTag}-${platform()}-${arch()}`)
   const marker = join(target, ".copilot-router-python.json")
   if (await readable(marker)) {
-    const cached = await probeKrtPython(pythonPath, asset.directory, [target], policy.signal)
-    if (cached.exitCode === 0 && !cached.error) return [target]
+    const receipt = await readFile(marker, "utf8").then(
+      value => JSON.parse(value) as { requirementsSha256?: unknown },
+      () => undefined,
+    ).catch(() => undefined)
+    if (receipt?.requirementsSha256 === requirementsSha256) {
+      const cached = await probeKrtPython(pythonPath, asset.directory, [target], policy.signal)
+      if (cached.exitCode === 0 && !cached.error) return [target]
+    }
   }
   if (policy.allowDownload === false) throw new RouterAssetError(
     "KRT_PYTHON_DEPENDENCIES_MISSING",
@@ -283,13 +376,12 @@ async function preparePythonDependencies(
   try {
     policy.onProgress?.({ backend: "krt", version: KRT_MANAGED_VERSION, phase: "downloading" })
     const installed = await runProcess(pythonPath, [
-      "-m", "pip", "install",
+      "-m", "pip", "--isolated", "install",
       "--disable-pip-version-check",
       "--no-input",
+      "--cache-dir", join(asset.cacheDirectory, "pip-cache"),
       "--target", temporary,
-      "numpy>=1.21.0",
-      "scipy>=1.7.0",
-      "shapely>=1.8.0",
+      "--requirement", requirementsPath,
     ], {}, policy.signal)
     if (installed.exitCode !== 0 || installed.error) throw new RouterAssetError(
       "KRT_PYTHON_DEPENDENCY_INSTALL_FAILED",
@@ -306,7 +398,8 @@ async function preparePythonDependencies(
       backend: "krt",
       backendVersion: KRT_MANAGED_VERSION,
       pythonTag,
-      requirements: ["numpy>=1.21.0", "scipy>=1.7.0", "shapely>=1.8.0"],
+      requirementsFile: "requirements.txt",
+      requirementsSha256,
     }, null, 2)}\n`, "utf8")
     await rm(target, { recursive: true, force: true })
     await rename(temporary, target)
@@ -323,17 +416,24 @@ async function preparePythonDependencies(
  */
 export async function prepareKrtRuntime(options: KrtRuntimeOptions = {}): Promise<PreparedKrtRuntime> {
   const override = await discoverKrtOverride(options.krtDirectory)
+  let python = await discoverSystemPython(options.pythonPath, options.assets?.signal)
+  if (!python) python = await prepareManagedPython(options.assets)
   const asset = await prepareManagedRouterAsset({
     ...KRT_RELEASE,
     prepareDirectory: prepareReleaseDirectory,
   }, options.assets, override)
-  const python = await discoverPython(options.pythonPath, options.assets?.signal)
-  const dependencyEntries = await preparePythonDependencies(
-    asset,
-    python.command,
-    python.details.tag,
-    options.assets ?? {},
-  )
+  let dependencyEntries: readonly string[]
+  try {
+    dependencyEntries = await preparePythonDependencies(
+      asset, python.command, python.details.tag, options.assets ?? {},
+    )
+  } catch (error) {
+    if (python.source !== "system") throw error
+    python = await prepareManagedPython(options.assets)
+    dependencyEntries = await preparePythonDependencies(
+      asset, python.command, python.details.tag, options.assets ?? {},
+    )
+  }
   const patchDirectory = await packagedPatchDirectory()
   const pythonPathEntries = [patchDirectory, ...dependencyEntries]
   const finalProbe = await probeKrtPython(
@@ -354,6 +454,7 @@ export async function prepareKrtRuntime(options: KrtRuntimeOptions = {}): Promis
     pythonPathEntries,
     version: KRT_MANAGED_VERSION,
     source: asset.source,
+    pythonSource: python.source,
     cacheDirectory: asset.cacheDirectory,
   }
 }

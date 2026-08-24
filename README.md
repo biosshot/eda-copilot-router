@@ -54,7 +54,10 @@ This writes a new board and never overwrites the input. Without KiCad, zone
 outlines are preserved and the result is marked for later native refill/DRC by
 the host. `--python` selects KRT's Python interpreter; normal discovery already
 checks `COPILOT_ROUTER_PYTHON`, standard KiCad Python locations, `python3`, and
-`python`.
+`python`. When none is usable, the package downloads a pinned portable CPython
+into its private cache. KRT dependencies are installed from the managed
+release's `requirements.txt` into a separate `pip --target` cache, never into a
+global Python environment.
 
 `stack(...)` materializes the effective physical layer table before routing
 and is returned for transactional host application. `applyStackup()` applies

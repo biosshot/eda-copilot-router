@@ -95,7 +95,6 @@ than be silently ignored.
 ```ts
 interface ViaStitchCommon {
   via?: Pick<ViaOptions, "diameterMm" | "drillMm"> | "drc-min"
-  maxVias?: number
 }
 
 type ViaStitchOptions =
@@ -139,7 +138,7 @@ All generated vias are through vias; layer-span fields are intentionally not
 part of this contract. `ViaOptions.from` and `ViaOptions.to` are likewise
 hidden from all rule and stitching declarations for now. Every mode observes board/cutout edges, via keepouts,
 copper and hole spacing, effective per-net rules, duplicate suppression, and
-`maxVias`.
+an implementation-owned safety limit.
 
 - `along` routes its source nets in the special stage, materializes the fence
   after successful source routing, and exposes the vias as fixed obstacles to

@@ -1,18 +1,22 @@
 import { createHash } from "node:crypto"
 import {
   access,
+  chmod,
+  copyFile,
+  link,
   mkdir,
   mkdtemp,
   readFile,
   rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises"
 import { constants } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, isAbsolute, join, posix, resolve } from "node:path"
-import { inflateRawSync } from "node:zlib"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
+import { gunzipSync, inflateRawSync } from "node:zlib"
 
 export type RouterAssetProgress = Readonly<{
   backend: string
@@ -36,7 +40,7 @@ export type ManagedRouterAssetSpec = Readonly<{
   version: string
   url: string
   sha256: string
-  archive: "zip" | "file"
+  archive: "zip" | "tar.gz" | "file"
   /** Required for a single-file release asset. */
   fileName?: string
   /** Optional exact release size. A mismatch is rejected before extraction. */
@@ -72,6 +76,7 @@ export class RouterAssetError extends Error {
 const LOCK_STALE_MS = 10 * 60_000
 const LOCK_WAIT_MS = 60_000
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+const MAX_EXTRACTED_ARCHIVE_BYTES = 768 * 1024 * 1024
 
 export function defaultRouterCacheDirectory() {
   if (process.env.COPILOT_ROUTER_CACHE_DIR) return resolve(process.env.COPILOT_ROUTER_CACHE_DIR)
@@ -250,6 +255,135 @@ async function extractZip(buffer: Buffer, output: string) {
   }
 }
 
+function tarString(buffer: Buffer, start: number, length: number) {
+  const end = buffer.indexOf(0, start)
+  return buffer.toString("utf8", start, end < 0 || end > start + length ? start + length : end)
+}
+
+function tarNumber(buffer: Buffer, start: number, length: number) {
+  const value = tarString(buffer, start, length).trim()
+  if (!value) return 0
+  if (!/^[0-7]+$/.test(value)) throw new RouterAssetError(
+    "ROUTER_ASSET_ARCHIVE_INVALID", "TAR header contains an invalid numeric field.", { value },
+  )
+  return Number.parseInt(value, 8)
+}
+
+function parsePax(contents: Buffer) {
+  const values: Record<string, string> = {}
+  let cursor = 0
+  while (cursor < contents.length) {
+    const separator = contents.indexOf(0x20, cursor)
+    if (separator < 0) throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_INVALID", "TAR PAX record has no length separator.",
+    )
+    const length = Number.parseInt(contents.toString("ascii", cursor, separator), 10)
+    if (!Number.isSafeInteger(length) || length <= 0 || cursor + length > contents.length) throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_INVALID", "TAR PAX record has an invalid length.", { length },
+    )
+    const record = contents.toString("utf8", separator + 1, cursor + length - 1)
+    const equals = record.indexOf("=")
+    if (equals > 0) values[record.slice(0, equals)] = record.slice(equals + 1)
+    cursor += length
+  }
+  return values
+}
+
+function safeArchiveLink(output: string, target: string, linkName: string, rootRelative = false) {
+  if (!linkName || posix.isAbsolute(linkName) || /^[A-Za-z]:/.test(linkName)) throw new RouterAssetError(
+    "ROUTER_ASSET_ARCHIVE_UNSAFE", "Archive contains an unsafe link target.", { linkName },
+  )
+  const resolved = resolve(rootRelative ? output : dirname(target), ...linkName.replaceAll("\\", "/").split("/"))
+  const root = resolve(output)
+  if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) throw new RouterAssetError(
+    "ROUTER_ASSET_ARCHIVE_UNSAFE", "Archive link escapes the extraction directory.", { linkName },
+  )
+  return resolved
+}
+
+async function extractTarGz(buffer: Buffer, output: string) {
+  let archive: Buffer
+  try {
+    archive = gunzipSync(buffer, { maxOutputLength: MAX_EXTRACTED_ARCHIVE_BYTES })
+  } catch (error) {
+    throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_INVALID", "Could not decompress the TAR.GZ backend archive.",
+      { error: error instanceof Error ? error.message : String(error) },
+    )
+  }
+  await mkdir(output, { recursive: true })
+  let cursor = 0
+  let pax: Record<string, string> = {}
+  let globalPax: Record<string, string> = {}
+  let longName: string | undefined
+  let longLink: string | undefined
+  const deferredLinks: Array<{ target: string; linkName: string; symbolic: boolean }> = []
+  while (cursor + 512 <= archive.length) {
+    const header = archive.subarray(cursor, cursor + 512)
+    if (header.every((value) => value === 0)) break
+    const storedChecksum = tarNumber(header, 148, 8)
+    const checksumHeader = Buffer.from(header)
+    checksumHeader.fill(0x20, 148, 156)
+    const actualChecksum = checksumHeader.reduce((sum, value) => sum + value, 0)
+    if (storedChecksum !== actualChecksum) throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_INVALID", "TAR header checksum does not match.", { cursor },
+    )
+    const size = tarNumber(header, 124, 12)
+    const mode = tarNumber(header, 100, 8)
+    const type = String.fromCharCode(header[156] || 0x30)
+    const prefix = tarString(header, 345, 155)
+    const headerName = [prefix, tarString(header, 0, 100)].filter(Boolean).join("/")
+    const contentsStart = cursor + 512
+    const contentsEnd = contentsStart + size
+    if (!Number.isSafeInteger(size) || contentsEnd > archive.length) throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_INVALID", "TAR entry extends past the end of the archive.", { headerName, size },
+    )
+    const contents = archive.subarray(contentsStart, contentsEnd)
+    cursor = contentsStart + Math.ceil(size / 512) * 512
+    if (type === "x" || type === "g") {
+      const values = parsePax(contents)
+      if (type === "g") globalPax = { ...globalPax, ...values }
+      else pax = values
+      continue
+    }
+    if (type === "L" || type === "K") {
+      const value = contents.toString("utf8").replace(/\0.*$/s, "").replace(/\n$/, "")
+      if (type === "L") longName = value
+      else longLink = value
+      continue
+    }
+    const metadata = { ...globalPax, ...pax }
+    const name = safeArchivePath(metadata.path ?? longName ?? headerName)
+    const target = join(output, ...name.split("/"))
+    const linkName = metadata.linkpath ?? longLink ?? tarString(header, 157, 100)
+    pax = {}
+    longName = undefined
+    longLink = undefined
+    if (type === "5") await mkdir(target, { recursive: true })
+    else if (type === "0" || type === "\0" || type === "7") {
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, contents)
+      if (process.platform !== "win32" && mode) await chmod(target, mode & 0o777)
+    } else if (type === "1" || type === "2") {
+      safeArchiveLink(output, target, linkName, type === "1")
+      deferredLinks.push({ target, linkName, symbolic: type === "2" })
+    } else throw new RouterAssetError(
+      "ROUTER_ASSET_ARCHIVE_UNSUPPORTED", `TAR entry type ${JSON.stringify(type)} is unsupported.`, { name },
+    )
+  }
+  for (const item of deferredLinks) {
+    await mkdir(dirname(item.target), { recursive: true })
+    const source = safeArchiveLink(output, item.target, item.linkName, !item.symbolic)
+    if (item.symbolic) {
+      const portableTarget = relative(dirname(item.target), source) || "."
+      await symlink(portableTarget, item.target).catch(async (error: NodeJS.ErrnoException) => {
+        if (process.platform !== "win32" || !["EPERM", "EACCES"].includes(error.code ?? "")) throw error
+        await copyFile(source, item.target)
+      })
+    } else await link(source, item.target).catch(async () => copyFile(source, item.target))
+  }
+}
+
 async function download(spec: ManagedRouterAssetSpec, policy: RouterAssetPolicy) {
   if (policy.signal?.aborted) throw abortError()
   const response = await fetch(spec.url, { redirect: "follow", signal: policy.signal })
@@ -343,6 +477,7 @@ export async function prepareManagedRouterAsset(
     temporary = await mkdtemp(join(dirname(installation), `.${spec.version}-install-`))
     emit(spec, policy, "extracting")
     if (spec.archive === "zip") await extractZip(archive, temporary)
+    else if (spec.archive === "tar.gz") await extractTarGz(archive, temporary)
     else {
       if (!spec.fileName) throw new RouterAssetError(
         "ROUTER_ASSET_SPEC_INVALID", "Single-file backend assets require fileName.",
