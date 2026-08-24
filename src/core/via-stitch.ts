@@ -3,12 +3,14 @@ import type {
   PointMm,
   RoutedTrack,
   RoutedVia,
+  RoutedZone,
   RoutingBoard,
   RoutingCopper,
   RoutingDiagnostic,
   RoutingRules,
 } from "./contracts.js"
 import { distanceToPadHoleCenterline, padHoleGeometry } from "./pad-hole.js"
+import { foreignZoneBlocksCircle } from "./zone-clearance.js"
 
 const EPSILON = 1e-7
 const MAX_GENERATED_VIAS_PER_STITCH = 500
@@ -89,6 +91,7 @@ function legalVia(
   drillMm: number,
   rules: RoutingRules,
   tracks: readonly RoutedTrack[],
+  zones: readonly RoutedZone[],
   existing: readonly RoutedVia[],
   ignoredPadIndex?: number,
 ) {
@@ -112,9 +115,7 @@ function legalVia(
   if (tracks.some((track) => track.net !== net && layers.includes(track.layer)
     && track.points.slice(1).some((end, index) => distanceToSegment(point, track.points[index], end)
       < radius + track.widthMm / 2 + Math.max(value.clearanceMm, rulesForNet(rules, track.net).clearanceMm) - EPSILON))) return false
-  const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones]
-  if (zones.some((zone) => zone.net !== net && zone.layers.some((layer) => layers.includes(layer))
-    && zoneContains(point, zone))) return false
+  if (foreignZoneBlocksCircle(point, net, layers, radius, value.clearanceMm, zones)) return false
   if (existing.some((via) => {
     const distance = Math.hypot(point.x - via.at.x, point.y - via.at.y)
     const copperSpacing = radius + via.diameterMm / 2
@@ -252,6 +253,7 @@ export function planViaStitches(
   const completedNets = new Set(completion.completedNets)
   const modes = new Set(completion.modes ?? ["grid", "along", "around", "return"])
   const tracks = [...board.copper.fixed.tracks, ...board.copper.editable.tracks, ...routed.tracks]
+  const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones, ...routed.zones]
   const existingVias = [...board.copper.fixed.vias, ...board.copper.editable.vias, ...routed.vias]
   for (const fence of stitches.filter((item): item is Extract<ViaStitchIntent, { mode: "along" }> => modes.has("along") && item.mode === "along")) {
     const incomplete = fence.routes.filter((net) => !completedNets.has(net))
@@ -306,6 +308,7 @@ export function planViaStitches(
         if (tracks.some((other) => other.net !== fence.net && layers.includes(other.layer)
           && other.points.slice(1).some((end, index) => distanceToSegment(point, other.points[index], end)
             < radius + other.widthMm / 2 + value.clearanceMm - EPSILON))) continue
+        if (foreignZoneBlocksCircle(point, fence.net, layers, radius, value.clearanceMm, zones)) continue
         if (accepted.some((other) => {
           const copperSpacing = radius + other.diameterMm / 2 + (other.net === fence.net ? 0 : value.clearanceMm)
           const holeSpacing = drillMm / 2 + other.drillMm / 2 + (value.holeToHoleClearanceMm ?? 0)
@@ -374,7 +377,7 @@ export function planViaStitches(
           const angle = 2 * Math.PI * direction / 8
           const at = { x: source.at.x + radius * Math.cos(angle), y: source.at.y + radius * Math.sin(angle) }
           if (!legalVia(board, at, referenceNet, [source.fromLayer, source.toLayer], geometry.diameterMm, geometry.drillMm,
-            rules, tracks, allExisting)) continue
+            rules, tracks, zones, allExisting)) continue
           placed = {
             id: `via-stitch:${stitch.id}:${vias.length}`, net: referenceNet, at,
             diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
@@ -406,7 +409,7 @@ export function planViaStitches(
     for (const ring of targetRings(board, stitch)) {
       for (const at of contourSamples(ring, pitch, offset, side, stitch.rows ?? 1)) {
         if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
-        if (!legalVia(board, at, stitch.net, layers, geometry.diameterMm, geometry.drillMm, rules, tracks, accepted)) continue
+        if (!legalVia(board, at, stitch.net, layers, geometry.diameterMm, geometry.drillMm, rules, tracks, zones, accepted)) continue
         const via: RoutedVia = {
           id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at,
           diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
@@ -428,8 +431,7 @@ export function planViaStitches(
     const layers = physicalLayers(board)
     if (!layers) continue
     const regions = stitch.region.kind === "board" ? [board.outline] : componentRings(board, stitch.region.designators)
-    const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones, ...routed.zones]
-      .filter((zone) => zone.net === stitch.net && zone.fill?.style !== "hatched")
+    const netZones = zones.filter((zone) => zone.net === stitch.net && zone.fill?.style !== "hatched")
     const accepted = [...existingVias, ...vias]
     const generated: RoutedVia[] = []
     if (stitch.viaInPad) {
@@ -437,12 +439,12 @@ export function planViaStitches(
         if (pad.net !== stitch.net || pad.hole?.plated
           || !regions.some((region) => pointInRing(pad.at, region))) continue
         if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
-        const copperLayers = new Set(zones.filter((zone) => zoneContains(pad.at, zone)).flatMap((zone) => zone.layers))
+        const copperLayers = new Set(netZones.filter((zone) => zoneContains(pad.at, zone)).flatMap((zone) => zone.layers))
         if (copperLayers.size < 2) continue
         if (accepted.some((via) => via.net === stitch.net
           && Math.hypot(via.at.x - pad.at.x, via.at.y - pad.at.y) < EPSILON)) continue
         if (!legalVia(board, pad.at, stitch.net, layers, geometry.diameterMm, geometry.drillMm,
-          rules, tracks, accepted, padIndex)) continue
+          rules, tracks, zones, accepted, padIndex)) continue
         const via: RoutedVia = {
           id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at: pad.at,
           diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
@@ -459,9 +461,9 @@ export function planViaStitches(
           if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
           const at = { x, y }
           if (!pointInRing(at, region)) continue
-          const copperLayers = new Set(zones.filter((zone) => zoneContains(at, zone)).flatMap((zone) => zone.layers))
+          const copperLayers = new Set(netZones.filter((zone) => zoneContains(at, zone)).flatMap((zone) => zone.layers))
           if (copperLayers.size < 2) continue
-          if (!legalVia(board, at, stitch.net, layers, geometry.diameterMm, geometry.drillMm, rules, tracks, accepted)) continue
+          if (!legalVia(board, at, stitch.net, layers, geometry.diameterMm, geometry.drillMm, rules, tracks, zones, accepted)) continue
           const via: RoutedVia = {
             id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at,
             diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,

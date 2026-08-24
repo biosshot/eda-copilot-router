@@ -574,6 +574,65 @@ const oneViaStitch = api.planViaStitches(
 assert.equal(oneViaStitch.vias.length, 0, "one legal via must be discarded instead of reporting a successful stitch")
 assert.ok(oneViaStitch.diagnostics.some((item) => item.code === "VIA_STITCH_ALONG_INSUFFICIENT"))
 
+const foreignCompactZone = {
+  id: "compact:test:VCC:F.Cu", net: "VCC", layers: ["F.Cu"], clearanceMm: 0.2,
+  outline: { outer: [{ x: 1.7, y: 1.7 }, { x: 2.3, y: 1.7 }, { x: 2.3, y: 2.3 }, { x: 1.7, y: 2.3 }] },
+}
+const gridAvoidingRoutedZones = api.planViaStitches(
+  board,
+  {
+    tracks: [], vias: [],
+    zones: [{
+      id: "plane:test:GND", net: "GND", layers: ["F.Cu", "B.Cu"], clearanceMm: 0.2,
+      outline: { outer: board.outline }, fill: { style: "solid" },
+    }, foreignCompactZone],
+  },
+  [{ kind: "via-stitch", mode: "grid", id: "GND_ZONE_CLEARANCE", net: "GND", region: { kind: "board" }, pitchMm: 4, viaInPad: false }],
+  board.rules,
+  { completedNets: [] },
+)
+assert.ok(gridAvoidingRoutedZones.vias.length > 0)
+assert.ok(gridAvoidingRoutedZones.vias.every((via) => Math.hypot(via.at.x - 2, via.at.y - 2) >= 0.7),
+  "via stitches must apply the complete via radius and clearance to routed foreign-net zones")
+
+const compactPlaneProgram = dsl.compileRoutingDsl(`
+  polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
+  plane({ net: "GND", layers: "OUTER", region: board(), stitching: { gridMm: 1 } })
+  runCopper()
+`)
+const compactPlaneRules = dsl.compileRoutingRules(board, compactPlaneProgram).effective
+const compactPlane = api.planRoutingCopper(board, compactPlaneProgram, compactPlaneRules)
+const plannedVccZone = compactPlane.copper.zones.find((zone) => zone.net === "VCC")
+assert.ok(plannedVccZone)
+assert.ok(compactPlane.copper.vias.length > 0)
+const pointInTestRing = (point, ring) => {
+  let inside = false
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const a = ring[index]
+    const b = ring[previous]
+    if ((a.y > point.y) !== (b.y > point.y)
+      && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside
+  }
+  return inside
+}
+const distanceToTestRing = (point, ring) => Math.min(...ring.map((start, index) => {
+  const end = ring[(index + 1) % ring.length]
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const length2 = dx * dx + dy * dy
+  const t = length2 === 0 ? 0 : Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length2))
+  return Math.hypot(point.x - start.x - t * dx, point.y - start.y - t * dy)
+}))
+assert.ok(compactPlane.copper.vias.every((via) => {
+  const distance = pointInTestRing(via.at, plannedVccZone.outline.outer)
+    ? 0
+    : distanceToTestRing(via.at, plannedVccZone.outline.outer)
+  return distance >= via.diameterMm / 2 + Math.max(
+    compactPlaneRules.default.clearanceMm,
+    plannedVccZone.clearanceMm ?? 0,
+  ) - 1e-7
+}), "plane stitching must see compact zones planned in the same copper operation")
+
 const singleBalancedProfiles = []
 const singleBalancedBackend = {
   ...backend,

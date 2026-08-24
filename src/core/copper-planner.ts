@@ -4,6 +4,7 @@ import { DEFAULT_MINIMUM_CORRIDOR_WIDTH_MM } from "../polygon/boundary-optimizer
 import { planPolygons } from "../polygon/engine.js"
 import { routingBoardToPolygonScene } from "../polygon/routing-board-adapter.js"
 import { distanceToPadHoleCenterline, padHoleGeometry } from "./pad-hole.js"
+import { foreignZoneBlocksCircle } from "./zone-clearance.js"
 import type {
   PointMm,
   RoutedVia,
@@ -219,6 +220,7 @@ function stitchingCandidates(
   board: RoutingBoard,
   plane: PlaneIntent,
   rules: RoutingRuleValues,
+  plannedZones: readonly RoutedZone[],
 ): RoutedVia[] {
   if (!plane.stitching) return []
   const stitching = plane.stitching
@@ -231,10 +233,12 @@ function stitchingCandidates(
   const xs = board.outline.map((point) => point.x)
   const ys = board.outline.map((point) => point.y)
   const copper = existingCopper(board)
+  const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones, ...plannedZones]
   const accepted: RoutedVia[] = []
   const candidateAllowed = (point: PointMm, ownerPad?: { component: string; number: string }) => {
     if (!boardPointAllowed(board, point, radius, rules.edgeClearanceMm)) return false
     if (keepoutBlocksVia(board, point, layers, radius)) return false
+    if (foreignZoneBlocksCircle(point, plane.net, layers, radius, rules.clearanceMm, zones)) return false
     for (const pad of board.pads) {
       if (ownerPad?.component === pad.component && ownerPad.number === pad.number) continue
       const distance = Math.hypot(point.x - pad.at.x, point.y - pad.at.y)
@@ -383,7 +387,7 @@ export function planRoutingCopper(
       ...routedZoneOptions(plane.zone, values),
     })
     planeZones += 1
-    vias.push(...stitchingCandidates(board, plane, values))
+    vias.push(...stitchingCandidates(board, plane, values, zones))
   }
   return {
     copper: { tracks: [], vias, zones },
