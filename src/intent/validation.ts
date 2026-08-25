@@ -168,7 +168,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   })
 
   planes.forEach((raw, index) => {
-    const path = `planes[${index}]`; exactKeys(raw, ["kind", "net", "layers", "region", "paddingMm", "priority", "stitching", "zone"], diagnostics, path)
+    const path = `planes[${index}]`; exactKeys(raw, ["kind", "net", "layers", "region", "priority", "stitching", "zone"], diagnostics, path)
     const item = object(raw) ? raw : {}
     if (item.kind !== "plane" || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_PLANE_INVALID", `${path} is invalid.`, path))
     layerSelector(item.layers, `${path}.layers`, diagnostics)
@@ -356,8 +356,13 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   }
   if (program.onlyNets !== undefined && (!Array.isArray(program.onlyNets) || !program.onlyNets.length)) diagnostics.push(error("DSL_SCOPE_INVALID", "onlyNets must be non-empty.", "onlyNets"))
   if (program.clearRouting !== undefined) {
-    exactKeys(program.clearRouting, ["nets", "items"], diagnostics, "clearRouting")
-    if (program.clearRouting.nets !== "all" && (!Array.isArray(program.clearRouting.nets) || !program.clearRouting.nets.length)) diagnostics.push(error("DSL_CLEAR_SCOPE_INVALID", "clearRouting.nets is invalid.", "clearRouting.nets"))
+    exactKeys(program.clearRouting, ["tracks", "vias", "zones"], diagnostics, "clearRouting")
+    const scopes = ["tracks", "vias", "zones"] as const
+    if (!scopes.some((item) => program.clearRouting?.[item] !== undefined)) diagnostics.push(error("DSL_CLEAR_SCOPE_INVALID", "clearRouting has no item scopes.", "clearRouting"))
+    for (const item of scopes) {
+      const nets = program.clearRouting[item]
+      if (nets !== undefined && nets !== "all" && (!Array.isArray(nets) || !nets.length)) diagnostics.push(error("DSL_CLEAR_SCOPE_INVALID", `clearRouting.${item} is invalid.`, `clearRouting.${item}`))
+    }
   }
   if (program.stack !== undefined) {
     exactKeys(program.stack, ["boardThicknessMm", "fallbackCopperThicknessOz", "viaPlatingThicknessUm", "maxTrackWidthMm", "layers", "solderMask"], diagnostics, "stack")

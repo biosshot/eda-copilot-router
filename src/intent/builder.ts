@@ -379,7 +379,7 @@ class RoutingDslBuilder {
 
   private plane(input: unknown): undefined {
     const source = object(input, "plane")
-    assertKnownKeys(source, ["net", "layers", "region", "paddingMm", "stitching", "zone"], "plane")
+    assertKnownKeys(source, ["net", "layers", "region", "stitching", "zone"], "plane")
     const region = source.region === undefined ? { kind: "board" as const } : structuredClone(source.region) as RegionSelector
     if (region.kind !== "board" && (region.kind !== "components" || !region.designators?.length)) {
       throw new TypeError("plane.region must be board() or non-empty components(...)")
@@ -403,12 +403,10 @@ class RoutingDslBuilder {
         viaInPad: value.viaInPad === undefined ? true : Boolean(value.viaInPad),
       }
     }
-    const paddingMm = source.paddingMm === undefined ? 0 : nonNegative(source.paddingMm, "paddingMm")
-    if (region.kind === "board" && paddingMm > 0) throw new TypeError("plane padding is reserved for components(...)")
     this.planes.push({
       kind: "plane", net: nonEmpty(source.net, "plane net"),
       layers: source.layers === undefined ? { kind: "outer" } : cloneLayer(source.layers, "plane.layers"),
-      region, paddingMm, priority: 0, stitching,
+      region, priority: 0, stitching,
       ...(source.zone === undefined ? {} : { zone: zoneOptions(source.zone, "plane.zone") }),
     })
     return undefined
@@ -750,7 +748,6 @@ class RoutingDslBuilder {
   }
 
   private clearRouting(input: unknown): undefined {
-    if (this.clearIntent) throw new TypeError("clearRouting(...) may be declared only once")
     const source = object(input, "clearRouting")
     assertKnownKeys(source, ["nets", "only", "items"], "clearRouting")
     const rawNets = source.nets ?? source.only ?? "all"
@@ -762,7 +759,16 @@ class RoutingDslBuilder {
     if (!Array.isArray(rawItems) || !rawItems.length) throw new TypeError("clearRouting.items must be a non-empty array")
     const items = [...new Set(rawItems.map((item) => nonEmpty(item, "clearRouting item")))]
     if (items.some((item) => !["tracks", "vias", "zones"].includes(item))) throw new TypeError("clearRouting.items supports tracks, vias, and zones")
-    this.clearIntent = { nets, items: items as ClearRoutingIntent["items"] }
+    const previous = this.clearIntent ?? {}
+    const merge = (current: ClearRoutingIntent[keyof ClearRoutingIntent]) => (
+      current === "all" || nets === "all"
+        ? "all" as const
+        : [...new Set([...(current ?? []), ...nets])]
+    )
+    this.clearIntent = {
+      ...previous,
+      ...Object.fromEntries(items.map((item) => [item, merge(previous[item as keyof ClearRoutingIntent])])),
+    }
     return undefined
   }
 }

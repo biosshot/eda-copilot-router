@@ -237,8 +237,9 @@ export type RoutingRuleOverride = Readonly<{
 }>
 
 export type RoutingClearIntent = Readonly<{
-  nets: "all" | readonly string[]
-  items: readonly ("tracks" | "vias" | "zones")[]
+  tracks?: "all" | readonly string[]
+  vias?: "all" | readonly string[]
+  zones?: "all" | readonly string[]
 }>
 
 export type RoutingOperation = "apply-drc" | "apply-stackup" | "copper" | "route" | "all"

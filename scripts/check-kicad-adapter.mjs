@@ -98,7 +98,7 @@ try {
   const partialOutput = join(directory, "partial-clear.kicad_pcb")
   const partial = await applyKiCadRoutingResult(imported.context, {
     ...baseResult,
-    clearRouting: { nets: ["N"], items: ["tracks"] },
+    clearRouting: { tracks: ["N"] },
     copper: {
       tracks: [newTrack],
       vias: imported.board.copper.editable.vias,

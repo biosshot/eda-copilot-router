@@ -53,12 +53,14 @@ function mergeCopper(first: RoutingCopper, second: RoutingCopper): RoutingCopper
 }
 
 function clearEditableCopper(copper: RoutingCopper, intent: ClearRoutingIntent): RoutingCopper {
-  const selected = (net: string | undefined) => net !== undefined
-    && (intent.nets === "all" || intent.nets.includes(net))
+  const selected = (item: keyof ClearRoutingIntent, net: string | undefined) => {
+    const nets = intent[item]
+    return net !== undefined && (nets === "all" || Boolean(nets?.includes(net)))
+  }
   return {
-    tracks: intent.items.includes("tracks") ? copper.tracks.filter((item) => !selected(item.net)) : copper.tracks,
-    vias: intent.items.includes("vias") ? copper.vias.filter((item) => !selected(item.net)) : copper.vias,
-    zones: intent.items.includes("zones") ? copper.zones.filter((item) => !selected(item.net)) : copper.zones,
+    tracks: copper.tracks.filter((item) => !selected("tracks", item.net)),
+    vias: copper.vias.filter((item) => !selected("vias", item.net)),
+    zones: copper.zones.filter((item) => !selected("zones", item.net)),
   }
 }
 
@@ -326,31 +328,54 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   } : board
   if (program.operation === "copper") {
     try {
+      const existingAlong = program.viaStitches.filter((item) => item.mode === "along")
+      const along = planViaStitches(
+        transactionBoard,
+        planned.copper,
+        existingAlong,
+        compiled.effective,
+        { completedNets: existingAlong.flatMap((item) => item.routes), modes: ["along"] },
+      )
+      const plannedWithAlong = mergeCopper(planned.copper, { tracks: [], vias: along.vias, zones: [] })
       const planeBoard: RoutingBoard = {
         ...transactionBoard,
         copper: {
-          fixed: mergeCopper(transactionBoard.copper.fixed, planned.copper),
+          fixed: mergeCopper(transactionBoard.copper.fixed, plannedWithAlong),
           editable: transactionBoard.copper.editable,
         },
       }
       const planes = planRoutingCopper(planeBoard, program, compiled.effective, { compact: false, planes: true })
       const beforeStitches = mergeCopper(
         transactionBoard.copper.editable,
-        mergeCopper(planned.copper, planes.copper),
+        mergeCopper(plannedWithAlong, planes.copper),
       )
-      const stitches = planViaStitches(
+      const defaultReturnNets = [...new Set([
+        ...backendProgram(program).signalNets.map((item) => item.net),
+        ...backendProgram(program).differentialPairs.flatMap((item) => [item.positive, item.negative]),
+      ])]
+      const returns = planViaStitches(
         { ...planeBoard, copper: { ...planeBoard.copper, editable: beforeStitches } },
         beforeStitches,
         program.viaStitches,
         compiled.effective,
+        { completedNets: [], modes: ["return"], defaultReturnNets },
+      )
+      const beforeFinalStitches = mergeCopper(beforeStitches, { tracks: [], vias: returns.vias, zones: [] })
+      const stitches = planViaStitches(
+        { ...planeBoard, copper: { ...planeBoard.copper, editable: beforeFinalStitches } },
+        beforeFinalStitches,
+        program.viaStitches,
+        compiled.effective,
         { completedNets: [], modes: ["grid", "around"] },
       )
-      const resultCopper = mergeCopper(beforeStitches, { tracks: [], vias: stitches.vias, zones: [] })
+      const resultCopper = mergeCopper(beforeFinalStitches, { tracks: [], vias: stitches.vias, zones: [] })
       const validation = validateRoutingCopper(resultCopper, board)
       const diagnostics = [
         ...compiled.diagnostics,
         ...planned.diagnostics,
+        ...along.diagnostics,
         ...planes.diagnostics,
+        ...returns.diagnostics,
         ...stitches.diagnostics,
         ...validation.diagnostics,
       ]
@@ -469,7 +494,10 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     const stitchBoard: RoutingBoard = {
       ...transactionBoard,
       copper: {
-        fixed: mergeCopper(transactionBoard.copper.fixed, planned.copper),
+        fixed: mergeCopper(
+          mergeCopper(transactionBoard.copper.fixed, transactionBoard.copper.editable),
+          planned.copper,
+        ),
         editable: backendResult.copper,
       },
     }

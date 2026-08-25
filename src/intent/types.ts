@@ -72,7 +72,6 @@ export type PlaneIntent = Readonly<{
   net: string
   layers: LayerSelector
   region: RegionSelector
-  paddingMm: number
   /** Compiler-owned. Board-wide GND is always the lowest-priority zone. */
   priority: number
   stitching: PlaneStitchingIntent
@@ -240,9 +239,13 @@ export type StackIntent = Readonly<{
   }>
 }>
 
+export type ClearRoutingNetSelector = "all" | readonly string[]
+
+/** Canonical independent native-copper deletion scopes accumulated from clearRouting(...) calls. */
 export type ClearRoutingIntent = Readonly<{
-  nets: "all" | readonly string[]
-  items: readonly ("tracks" | "vias" | "zones")[]
+  tracks?: ClearRoutingNetSelector
+  vias?: ClearRoutingNetSelector
+  zones?: ClearRoutingNetSelector
 }>
 
 export type RoutingProfile = "fast" | "completion-first" | "balanced" | "quality-first"

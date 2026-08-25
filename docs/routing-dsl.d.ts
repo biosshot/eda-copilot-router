@@ -89,7 +89,6 @@ declare function plane(options: {
   net: string;
   layers?: LayerSelector;
   region?: RegionSelector;
-  paddingMm?: number;
   zone?: ZoneOptions;
   stitching?: false | true | {
     gridMm?: number;

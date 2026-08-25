@@ -612,6 +612,30 @@ function parseJsonSummaries(stdout: string, diagnostics: KrtDiagnostic[]) {
   return summaries
 }
 
+const KRT_ALREADY_CONNECTED_MARKER = "All nets are already fully connected - nothing to route!"
+
+async function alreadyConnectedNoOpSummary(
+  inputBoard: string,
+  outputBoard: string,
+  exitCode: number | null | undefined,
+  stdout: string,
+) {
+  if (exitCode !== 0 || !stdout.includes(KRT_ALREADY_CONNECTED_MARKER) || !(await exists(outputBoard))) return undefined
+  const [input, output] = await Promise.all([readFile(inputBoard), readFile(outputBoard)])
+  if (!input.equals(output)) return undefined
+  return {
+    successful: 0,
+    failed: 0,
+    failed_single: [],
+    open_single: [],
+    failed_multipoint: [],
+    cleanup_disconnected: [],
+    coverage_gate_nets: [],
+    pad_pairs_open: [],
+    no_op: "already-connected",
+  }
+}
+
 function stringArray(value: unknown) {
   return Array.isArray(value) ? value.map(String) : []
 }
@@ -1557,6 +1581,22 @@ async function executeStage(
     ))
 
     result.jsonSummaries = parseJsonSummaries(result.stdout, diagnostics)
+    if (!result.jsonSummaries.length) {
+      const noOp = await alreadyConnectedNoOpSummary(
+        normalizedInput,
+        normalizedOutput,
+        captured.exitCode,
+        result.stdout,
+      )
+      if (noOp) {
+        result.jsonSummaries = [noOp]
+        diagnostics.push(diagnostic(
+          "KRT_ALREADY_CONNECTED",
+          "info",
+          "KRT confirmed that every selected net was already connected; the unchanged output is a valid no-op result.",
+        ))
+      }
+    }
     result.jsonSummary = result.jsonSummaries[0]
     if (result.jsonSummaries.length > 1) diagnostics.push(diagnostic(
       "KRT_MULTIPLE_JSON_SUMMARIES",

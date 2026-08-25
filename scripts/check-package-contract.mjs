@@ -187,6 +187,8 @@ assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-min-nets") + 1], "3"
 assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-attraction-radius") + 1], "4")
 assert.throws(() => dsl.compileRoutingDsl(`drc({ via: { from: "TOP", to: "BOTTOM" } }); runAll()`), /unknown field/i,
   "via layer spans must stay hidden from the public contract")
+assert.throws(() => dsl.compileRoutingDsl(`plane({ net: "GND", paddingMm: 1 }); runCopper()`), /unknown field.*paddingMm/i,
+  "unimplemented plane padding must stay hidden from the public contract")
 
 const allDsl = `
 const commandResult = runAll()
@@ -617,8 +619,28 @@ const clearedResult = await api.run({
   backend: fourLayerBackend,
   dsl: `clearRouting({ nets: ["VCC"], items: ["tracks"] }); runRouting()`,
 })
-assert.deepEqual(clearedResult.clearRouting, { nets: ["VCC"], items: ["tracks"] })
+assert.deepEqual(clearedResult.clearRouting, { tracks: ["VCC"] })
 assert.deepEqual(clearedResult.copper.tracks, [], "explicitly cleared copper must leave the logical result")
+
+const independentClearScopes = dsl.compileRoutingDsl(`
+  clearRouting({ nets: ["VCC"], items: ["tracks"] })
+  clearRouting({ nets: ["GND"], items: ["zones"] })
+  clearRouting({ nets: ["USB_DP", "VCC"], items: ["tracks"] })
+  runCopper()
+`)
+assert.deepEqual(independentClearScopes.clearRouting, {
+  tracks: ["VCC", "USB_DP"],
+  zones: ["GND"],
+}, "clearRouting calls must merge per item without creating a nets/items cross product")
+assert.deepEqual(
+  dsl.compileRoutingDsl(`
+    clearRouting({ nets: ["VCC"], items: ["tracks", "vias"] })
+    clearRouting({ nets: "all", items: ["vias"] })
+    runCopper()
+  `).clearRouting,
+  { tracks: ["VCC"], vias: "all" },
+  "an all scope must dominate only its own copper item",
+)
 
 const fenced = await api.run({
   board,
@@ -658,6 +680,39 @@ const stagedFence = await api.run({
 })
 assert.equal(stagedFence.status, "complete")
 assert.equal(remainingSawFence, true, "remaining routing must see core-generated fence vias as fixed copper")
+
+const existingRoute = {
+  net: "VCC", layer: "F.Cu", widthMm: 0.3,
+  points: [{ x: 4, y: 2 }, { x: 8, y: 2 }],
+}
+const copperExistingFence = await api.run({
+  board: { ...board, copper: { fixed: { ...emptyCopper, tracks: [existingRoute] }, editable: emptyCopper } },
+  dsl: `viaStitch("EXISTING_GUARD", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5 }); runCopper()`,
+})
+assert.equal(copperExistingFence.status, "complete")
+assert.ok(copperExistingFence.copper.vias.length >= 2, "runCopper must stitch retained existing tracks without KRT")
+
+const oldAndNewFenceBackend = {
+  ...stagedFenceBackend,
+  async routeSpecial() {
+    return {
+      status: "complete",
+      copper: {
+        tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 8 }, { x: 8, y: 8 }] }],
+        vias: [], zones: [],
+      },
+      metrics: { openNetCount: 0, openNets: [] },
+    }
+  },
+}
+const oldAndNewFence = await api.run({
+  board: { ...board, copper: { fixed: { ...emptyCopper, tracks: [existingRoute] }, editable: emptyCopper } },
+  backend: oldAndNewFenceBackend,
+  dsl: `viaStitch("OLD_AND_NEW", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5, rows: 1 }); runAll()`,
+})
+assert.equal(oldAndNewFence.status, "complete")
+assert.ok(oldAndNewFence.copper.vias.some((via) => via.at.y < 4), "runAll must stitch retained existing tracks")
+assert.ok(oldAndNewFence.copper.vias.some((via) => via.at.y > 6), "runAll must stitch tracks created by the current route")
 
 const incompleteFenceBackend = {
   ...stagedFenceBackend,
@@ -1038,6 +1093,15 @@ const returnViaResult = await api.run({
 })
 assert.equal(returnViaResult.status, "complete")
 assert.ok(returnViaResult.copper.vias.some((via) => via.net === "GND" && String(via.id).startsWith("via-stitch:VCC_RETURN:")))
+
+const existingReturnVia = { net: "VCC", at: { x: 10, y: 5 }, diameterMm: 0.6, drillMm: 0.3, fromLayer: "F.Cu", toLayer: "B.Cu", type: "through" }
+const copperReturnViaResult = await api.run({
+  board: { ...board, copper: { fixed: { ...emptyCopper, vias: [existingReturnVia] }, editable: emptyCopper } },
+  dsl: `viaStitch("EXISTING_RETURN", { mode: "return", referenceNet: "GND", forNets: ["VCC"], maxDistanceMm: 2 }); runCopper()`,
+})
+assert.equal(copperReturnViaResult.status, "complete")
+assert.ok(copperReturnViaResult.copper.vias.some((via) => via.net === "GND" && String(via.id).startsWith("via-stitch:EXISTING_RETURN:")),
+  "runCopper must add return vias beside retained existing signal vias")
 
 const groundAndPowerResult = await api.run({
   board,

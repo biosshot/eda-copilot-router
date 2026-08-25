@@ -497,7 +497,9 @@ export function compileRoutingRules(
       "DSL_ATOMIC_SCOPE_CONFLICT", `Scope selects only part of atomic special group ${id}.`, { id, members },
     ))
   }
-  if (program.clearRouting?.nets !== "all") for (const net of program.clearRouting?.nets ?? []) checkNet(net)
+  for (const nets of Object.values(program.clearRouting ?? {})) {
+    if (nets !== "all") for (const net of nets) checkNet(net)
+  }
 
   for (const polygon of program.polygons) {
     required.add("preserve-fixed-copper")
@@ -671,12 +673,6 @@ export function compileRoutingRules(
       if (stitch.referenceNet !== "auto") checkNet(stitch.referenceNet)
       for (const net of stitch.forNets ?? []) checkNet(net)
     }
-  }
-  if (program.operation === "copper") for (const stitch of program.viaStitches) {
-    if (stitch.mode === "along" || stitch.mode === "return") diagnostics.push(diagnostic(
-      "DSL_COPPER_STITCH_REQUIRES_ROUTING",
-      `viaStitch mode ${stitch.mode} requires runRouting() or runAll().`,
-    ))
   }
   if (program.operation === "apply-stackup" && !program.stack) diagnostics.push(diagnostic(
     "DSL_STACK_REQUIRED", "applyStackup() requires stack(...).",

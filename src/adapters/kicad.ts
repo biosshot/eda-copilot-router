@@ -579,10 +579,12 @@ function selectedByClearIntent(
   if (!intent || locked(node) || findChild(node, "keepout")) return false
   const head = listHead(node)
   const item = head === "segment" || head === "arc" ? "tracks" : head === "via" ? "vias" : head === "zone" ? "zones" : undefined
-  if (!item || !intent.items.includes(item)) return false
-  if (intent.nets === "all") return true
+  if (!item) return false
+  const nets = intent[item]
+  if (!nets) return false
+  if (nets === "all") return true
   const net = nodeNet(root, node) ?? childText(node, "net_name")
-  return net !== undefined && intent.nets.includes(net)
+  return net !== undefined && nets.includes(net)
 }
 
 function clearSelectedNativeCopper(
