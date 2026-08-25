@@ -1,6 +1,6 @@
 /**
  * Local routing DSL. A file is a sequence of statements followed by exactly
- * exactly one of applyDrcRules(), applyStackup(), runCopper(), runRouting(),
+ * one of applyDrcRules(), applyStackup(), runCopper(), runRouting(),
  * or runAll(). Dimensions are mm.
  * Omitted values inherit the imported board/DSN rules.
  */
@@ -100,6 +100,14 @@ declare function plane(options: {
 
 declare function drc(options: RuleOptions): void;
 declare function netClass(name: string, options: RuleOptions & { nets: string[] }): void;
+/** Add or move nets into an existing net class without replacing its other members. */
+declare function assignNetsToNetClass(name: string, nets: string[]): void;
+/** Remove selected nets from one named net class. */
+declare function removeNetsFromNetClass(name: string, nets: string[]): void;
+/** Remove selected nets from whichever net class currently owns them. */
+declare function unassignNetClass(nets: string[]): void;
+/** Delete one net class relation. */
+declare function deleteNetClass(name: string): void;
 
 declare function signalNet(net: string, options?: RuleOptions & {
   netClass?: string;
@@ -124,11 +132,21 @@ declare function diffPair(id: string, options: RuleOptions & {
   maxUncoupledLengthMm?: number;
   impedance?: ImpedanceOptions;
 }): void;
+/** Delete one differential-pair relation. */
+declare function deleteDiffPair(id: string): void;
 
 declare function matchedGroup(id: string, options: {
   nets: string[];
   toleranceMm?: number;
 }): void;
+/** Add nets to an existing matched group without replacing its other members. */
+declare function addNetsToMatchedGroup(id: string, nets: string[]): void;
+/** Remove selected nets from one matched group. Groups with fewer than two members are removed. */
+declare function removeNetsFromMatchedGroup(id: string, nets: string[]): void;
+/** Move nets from any current matched group into the named group. */
+declare function moveNetsToMatchedGroup(id: string, nets: string[]): void;
+/** Delete one matched-group relation. */
+declare function deleteMatchedGroup(id: string): void;
 
 interface ViaStitchCommon {
   via?: Pick<ViaOptions, "diameterMm" | "drillMm"> | "drc-min";
