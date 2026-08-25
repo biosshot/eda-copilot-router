@@ -37,7 +37,7 @@ function failed(
   return {
     status: "error",
     operation,
-    rules: { effective: board.rules, applyRequested: operation === "apply-drc" || operation === "all", overriddenFields: [] },
+    rules: board.rules,
     diagnostics,
     metrics: { elapsedMs: performance.now() - startedAt },
     requiresNativeVerification: true,
@@ -241,14 +241,13 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   const compiled = compileRoutingRules(board, program, backend?.capabilities)
   const policy: RoutingPolicy = { ...program.quality, ...request.policy }
   const errors = compiled.diagnostics.filter((item) => item.severity === "error")
-  const applyRequested = program.operation === "apply-drc" || program.operation === "all"
   const stackup = program.stack && board.stackup
     ? { stackup: { effective: board.stackup, applyRequested: true as const } }
     : {}
   if (errors.length) return {
     status: "error",
     operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: compiled.diagnostics,
     metrics: { elapsedMs: performance.now() - startedAt },
@@ -257,7 +256,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   if (program.operation === "apply-drc") return {
     status: "complete",
     operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested: true, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: compiled.diagnostics,
     metrics: { elapsedMs: performance.now() - startedAt },
@@ -266,7 +265,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   if (program.operation === "apply-stackup") return {
     status: "complete",
     operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested: false, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: compiled.diagnostics,
     metrics: { elapsedMs: performance.now() - startedAt },
@@ -275,7 +274,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   if (request.signal?.aborted) return {
     status: "error",
     operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: [...compiled.diagnostics, exception("ROUTING_ABORTED", "Routing was aborted before backend execution.")],
     metrics: { elapsedMs: performance.now() - startedAt },
@@ -299,7 +298,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   } catch (error) {
     return {
       status: "error", operation: program.operation,
-      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      rules: compiled.effective,
       ...stackup,
       diagnostics: [...compiled.diagnostics, exception(
         "COPPER_PLANNING_EXCEPTION", "Polygon or plane planning threw an exception.",
@@ -312,7 +311,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   const plannedValidation = validateRoutingCopper(planned.copper, board)
   if (!plannedValidation.ok) return {
     status: "error", operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: [...compiled.diagnostics, ...planned.diagnostics, ...plannedValidation.diagnostics],
     metrics: { elapsedMs: performance.now() - startedAt },
@@ -358,7 +357,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       return {
         status: validation.ok && !diagnostics.some((item) => item.severity === "error") ? "complete" : "partial",
         operation: program.operation,
-        rules: { effective: compiled.effective, applyRequested: false, overriddenFields: compiled.overriddenFields },
+        rules: compiled.effective,
         ...stackup,
         ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
         copper: resultCopper,
@@ -372,7 +371,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     } catch (error) {
       return {
         status: "error", operation: program.operation,
-        rules: { effective: compiled.effective, applyRequested: false, overriddenFields: compiled.overriddenFields },
+        rules: compiled.effective,
         ...stackup,
         diagnostics: [...compiled.diagnostics, ...planned.diagnostics, exception(
           "COPPER_PLANNING_EXCEPTION", "Copper-only planning threw an exception.",
@@ -412,7 +411,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   if (backendPreflight.some((item) => item.severity === "error")) return {
     status: "error", operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: [...compiled.diagnostics, ...backendPreflight],
     metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
@@ -443,7 +442,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   if (request.signal?.aborted) return {
     status: "error", operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
       "ROUTING_ABORTED", "Routing was aborted by the caller.", request.signal.reason,
@@ -453,7 +452,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   }
   if (!candidates.length) return {
     status: "error", operation: program.operation,
-    rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+    rules: compiled.effective,
     ...stackup,
     diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
       "ROUTING_ABORTED",
@@ -548,7 +547,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     ]
     if (!copperValidation.ok) return {
       status: "error", operation: program.operation,
-      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      rules: compiled.effective,
       ...stackup,
       ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
       // Semantic/structural validation annotates a candidate; it must not
@@ -564,7 +563,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
         ? "error"
         : diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
       operation: program.operation,
-      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      rules: compiled.effective,
       ...stackup,
       ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
       copper: resultCopper,
@@ -585,7 +584,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   } catch (error) {
     return {
       status: "error", operation: program.operation,
-      rules: { effective: compiled.effective, applyRequested, overriddenFields: compiled.overriddenFields },
+      rules: compiled.effective,
       ...stackup,
       diagnostics: [
         ...compiled.diagnostics,

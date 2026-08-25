@@ -155,6 +155,20 @@ export type MatchedGroupIntent = Readonly<{
   toleranceMm?: number
 }>
 
+export type DrcRelationEdit = Readonly<
+  | { kind: "upsert-net-class"; name: string; nets: readonly string[] }
+  | { kind: "assign-net-class"; name: string; nets: readonly string[] }
+  | { kind: "remove-from-net-class"; name?: string; nets: readonly string[] }
+  | { kind: "delete-net-class"; name: string }
+  | { kind: "upsert-diff-pair"; id: string; positive: string; negative: string }
+  | { kind: "delete-diff-pair"; id: string }
+  | { kind: "upsert-matched-group"; id: string; nets: readonly string[] }
+  | { kind: "add-to-matched-group"; id: string; nets: readonly string[] }
+  | { kind: "remove-from-matched-group"; id: string; nets: readonly string[] }
+  | { kind: "move-to-matched-group"; id: string; nets: readonly string[] }
+  | { kind: "delete-matched-group"; id: string }
+>
+
 export type ViaStitchCommon = Readonly<{
   id: string
   via?: "drc-min" | Readonly<Pick<ViaGeometryIntent, "diameterMm" | "drillMm">>
@@ -252,6 +266,8 @@ export type RoutingProgram = Readonly<{
   /** Components or logical pads that automatic dense-package fanout must leave untouched. */
   fanoutExclusions: readonly FanoutTarget[]
   netClasses: readonly NetClassIntent[]
+  /** Ordered, explicit edits of native DRC relation membership. */
+  relationEdits?: readonly DrcRelationEdit[]
   drc?: DrcIntent
   stack?: StackIntent
   quality?: RoutingPolicy

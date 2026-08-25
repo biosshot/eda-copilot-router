@@ -128,7 +128,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   if (!program || typeof program !== "object") return { valid: false, diagnostics: [error("DSL_PROGRAM_REQUIRED", "Routing program is required.")] }
   exactKeys(program, [
     "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaStitches",
-    "fanouts", "fanoutExclusions", "netClasses", "drc", "stack", "quality", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
+    "fanouts", "fanoutExclusions", "netClasses", "relationEdits", "drc", "stack", "quality", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
   ], diagnostics, "program")
   if (!["apply-drc", "apply-stackup", "copper", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
   const polygons = array(program.polygons, "polygons", diagnostics)
@@ -141,6 +141,7 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   const fanouts = array(program.fanouts, "fanouts", diagnostics)
   const fanoutExclusions = array(program.fanoutExclusions, "fanoutExclusions", diagnostics)
   const classes = array(program.netClasses, "netClasses", diagnostics)
+  const relationEdits = program.relationEdits === undefined ? [] : array(program.relationEdits, "relationEdits", diagnostics)
   array(program.ignoreNets, "ignoreNets", diagnostics)
   const ids = new Set<string>()
 
@@ -308,6 +309,38 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     const path = `netClasses[${index}]`; exactKeys(raw, ["kind", "name", "nets", ...RULE_KEYS], diagnostics, path)
     const item = object(raw) ? raw : {}; if (item.kind !== "net-class" || typeof item.name !== "string" || !item.name || !Array.isArray(item.nets) || !item.nets.length) diagnostics.push(error("DSL_NET_CLASS_INVALID", `${path} is invalid.`, path))
     rule(item, path, diagnostics)
+  })
+
+  relationEdits.forEach((raw, index) => {
+    const path = `relationEdits[${index}]`
+    const item = object(raw) ? raw : {}
+    const common = ["kind"]
+    if (["upsert-net-class", "assign-net-class", "remove-from-net-class"].includes(String(item.kind))) {
+      exactKeys(item, [...common, "name", "nets"], diagnostics, path)
+      if (item.kind !== "remove-from-net-class" && (typeof item.name !== "string" || !item.name)) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path}.name is required.`, path))
+      if (item.name !== undefined && (typeof item.name !== "string" || !item.name)) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path}.name is invalid.`, path))
+      if (!Array.isArray(item.nets) || !item.nets.length || !item.nets.every((net) => typeof net === "string" && net)) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path}.nets is invalid.`, path))
+      return
+    }
+    if (["upsert-matched-group", "add-to-matched-group", "remove-from-matched-group", "move-to-matched-group"].includes(String(item.kind))) {
+      exactKeys(item, [...common, "id", "nets"], diagnostics, path)
+      if (typeof item.id !== "string" || !item.id || !Array.isArray(item.nets) || !item.nets.length
+        || !item.nets.every((net) => typeof net === "string" && net)) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path} is invalid.`, path))
+      return
+    }
+    if (item.kind === "upsert-diff-pair") {
+      exactKeys(item, [...common, "id", "positive", "negative"], diagnostics, path)
+      if (typeof item.id !== "string" || !item.id || typeof item.positive !== "string" || !item.positive
+        || typeof item.negative !== "string" || !item.negative || item.positive === item.negative) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path} is invalid.`, path))
+      return
+    }
+    if (["delete-net-class", "delete-diff-pair", "delete-matched-group"].includes(String(item.kind))) {
+      const key = item.kind === "delete-net-class" ? "name" : "id"
+      exactKeys(item, [...common, key], diagnostics, path)
+      if (typeof item[key] !== "string" || !item[key]) diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path}.${key} is invalid.`, path))
+      return
+    }
+    diagnostics.push(error("DSL_DRC_EDIT_INVALID", `${path}.kind is invalid.`, path))
   })
 
   if (program.drc !== undefined) { exactKeys(program.drc, RULE_KEYS, diagnostics, "drc"); if (object(program.drc)) rule(program.drc, "drc", diagnostics) }

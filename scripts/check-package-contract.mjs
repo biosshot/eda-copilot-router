@@ -304,10 +304,9 @@ const applyResult = await api.run({
 })
 assert.equal(applyResult.status, "complete")
 assert.equal(applyResult.operation, "apply-drc")
-assert.equal(applyResult.rules.applyRequested, true)
 assert.equal(applyResult.copper, undefined)
-assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
-assert.equal(applyResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
+assert.equal(applyResult.rules.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
+assert.equal(applyResult.rules.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.6)
 
 const namedClassResult = await api.run({
   board,
@@ -319,10 +318,131 @@ const namedClassResult = await api.run({
   `,
 })
 assert.equal(namedClassResult.status, "complete")
-assert.equal(namedClassResult.rules.effective.default.clearanceMm, 0.22)
-assert.equal(namedClassResult.rules.effective.netClasses[0].name, "RF")
-assert.equal(namedClassResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.31)
-assert.equal(namedClassResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
+assert.equal(namedClassResult.rules.default.clearanceMm, 0.22)
+assert.equal(namedClassResult.rules.netClasses[0].name, "RF")
+assert.equal(namedClassResult.rules.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 0.31)
+assert.equal(namedClassResult.rules.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
+
+const relationBoard = {
+  ...board,
+  rules: {
+    ...board.rules,
+    netClasses: [
+      { name: "OLD", nets: ["VCC", "GND"], values: ruleValues },
+      { name: "TARGET", nets: ["USB_DP"], values: { ...ruleValues, preferredTrackWidthMm: 0.3 } },
+    ],
+    differentialPairs: [{ id: "OLD_PAIR", positive: "USB_DP", negative: "USB_DM" }],
+    matchedGroups: [{ id: "OLD_MATCH", nets: ["VCC", "GND"], toleranceMm: 0.25 }],
+  },
+}
+const noOpRelations = await api.run({ board: relationBoard, dsl: `applyDrcRules()` })
+assert.deepEqual(noOpRelations.rules, relationBoard.rules, "no-op DRC must preserve the complete imported rule state")
+
+const emptyNativeClass = await api.run({
+  board: {
+    ...relationBoard,
+    rules: {
+      ...relationBoard.rules,
+      netClasses: [...relationBoard.rules.netClasses, { name: "EMPTY", nets: [], values: ruleValues }],
+    },
+  },
+  dsl: `applyDrcRules()`,
+})
+assert.equal(emptyNativeClass.status, "complete", "an imported empty native class must not make board validation fail")
+
+const incrementalNetRule = await api.run({
+  board: relationBoard,
+  dsl: `signalNet("VCC", { trackWidthMm: 0.42 }); applyDrcRules()`,
+})
+assert.deepEqual(
+  incrementalNetRule.rules.netClasses,
+  relationBoard.rules.netClasses,
+  "editing a net rule must not implicitly remove or move its imported class membership",
+)
+
+const movedClass = await api.run({
+  board: relationBoard,
+  dsl: `assignNetsToNetClass("TARGET", ["VCC"]); applyDrcRules()`,
+})
+assert.deepEqual(movedClass.rules.netClasses.find((item) => item.name === "OLD").nets, ["GND"])
+assert.deepEqual(movedClass.rules.netClasses.find((item) => item.name === "TARGET").nets, ["USB_DP", "VCC"])
+const movedClassAgain = await api.run({
+  board: { ...relationBoard, rules: movedClass.rules },
+  dsl: `assignNetsToNetClass("TARGET", ["VCC"]); applyDrcRules()`,
+})
+assert.deepEqual(movedClassAgain.rules, movedClass.rules, "class assignment must be idempotent")
+
+const removedFromClass = await api.run({
+  board: relationBoard,
+  dsl: `removeNetsFromNetClass("OLD", ["VCC"]); applyDrcRules()`,
+})
+assert.deepEqual(removedFromClass.rules.netClasses.find((item) => item.name === "OLD").nets, ["GND"])
+assert.deepEqual(removedFromClass.rules.netClasses.find((item) => item.name === "TARGET").nets, ["USB_DP"])
+
+const unassignedClass = await api.run({
+  board: relationBoard,
+  dsl: `unassignNetClass(["VCC"]); applyDrcRules()`,
+})
+assert.deepEqual(unassignedClass.rules.netClasses.find((item) => item.name === "OLD").nets, ["GND"])
+
+const deletedClass = await api.run({
+  board: relationBoard,
+  dsl: `deleteNetClass("OLD"); applyDrcRules()`,
+})
+assert.deepEqual(deletedClass.rules.netClasses.map((item) => item.name), ["TARGET"])
+
+const replacedPair = await api.run({
+  board: relationBoard,
+  dsl: `diffPair("NEW_PAIR", { positive: "USB_DP", negative: "USB_DM" }); applyDrcRules()`,
+})
+assert.deepEqual(replacedPair.rules.differentialPairs, [
+  { id: "NEW_PAIR", positive: "USB_DP", negative: "USB_DM" },
+])
+const deletedPair = await api.run({
+  board: relationBoard,
+  dsl: `deleteDiffPair("OLD_PAIR"); applyDrcRules()`,
+})
+assert.equal(deletedPair.rules.differentialPairs, undefined)
+
+const movedMatch = await api.run({
+  board: {
+    ...relationBoard,
+    rules: {
+      ...relationBoard.rules,
+      matchedGroups: [
+        { id: "OLD_MATCH", nets: ["VCC", "GND", "USB_DM"], toleranceMm: 0.25 },
+        { id: "TARGET_MATCH", nets: ["USB_DP", "USB_DM"], toleranceMm: 0.1 },
+      ],
+    },
+  },
+  dsl: `moveNetsToMatchedGroup("TARGET_MATCH", ["VCC"]); applyDrcRules()`,
+})
+assert.deepEqual(movedMatch.rules.matchedGroups.find((item) => item.id === "OLD_MATCH").nets, ["GND", "USB_DM"])
+assert.deepEqual(movedMatch.rules.matchedGroups.find((item) => item.id === "TARGET_MATCH").nets, ["USB_DP", "USB_DM", "VCC"])
+
+const addedMatch = await api.run({
+  board: relationBoard,
+  dsl: `addNetsToMatchedGroup("OLD_MATCH", ["USB_DP"]); applyDrcRules()`,
+})
+assert.deepEqual(addedMatch.rules.matchedGroups[0].nets, ["VCC", "GND", "USB_DP"])
+
+const removedMatch = await api.run({
+  board: {
+    ...relationBoard,
+    rules: {
+      ...relationBoard.rules,
+      matchedGroups: [{ id: "OLD_MATCH", nets: ["VCC", "GND", "USB_DP"], toleranceMm: 0.25 }],
+    },
+  },
+  dsl: `removeNetsFromMatchedGroup("OLD_MATCH", ["USB_DP"]); applyDrcRules()`,
+})
+assert.deepEqual(removedMatch.rules.matchedGroups[0].nets, ["VCC", "GND"])
+
+const deletedMatch = await api.run({
+  board: relationBoard,
+  dsl: `deleteMatchedGroup("OLD_MATCH"); applyDrcRules()`,
+})
+assert.equal(deletedMatch.rules.matchedGroups, undefined)
 
 const splitNominalAndMinimum = await api.run({
   board,
@@ -336,9 +456,9 @@ const splitNominalAndMinimum = await api.run({
   `,
 })
 assert.equal(splitNominalAndMinimum.status, "complete")
-assert.equal(splitNominalAndMinimum.rules.effective.default.minTrackWidthMm, 0.127)
-assert.equal(splitNominalAndMinimum.rules.effective.default.preferredTrackWidthMm, 0.254)
-assert.deepEqual(splitNominalAndMinimum.rules.effective.default.via, {
+assert.equal(splitNominalAndMinimum.rules.default.minTrackWidthMm, 0.127)
+assert.equal(splitNominalAndMinimum.rules.default.preferredTrackWidthMm, 0.254)
+assert.deepEqual(splitNominalAndMinimum.rules.default.via, {
   minDiameterMm: 0.45,
   preferredDiameterMm: 0.6,
   minDrillMm: 0.2,
@@ -379,12 +499,12 @@ const impedanceResult = await api.run({
 })
 assert.equal(impedanceResult.status, "complete")
 assert.deepEqual(
-  impedanceResult.rules.effective.nets.find((item) => item.net === "VCC").values.impedanceReferenceLayers,
+  impedanceResult.rules.nets.find((item) => item.net === "VCC").values.impedanceReferenceLayers,
   ["F.Cu", "B.Cu"],
   "TOP plane copper plus the BOTTOM reference must resolve grounded coplanar waveguide",
 )
 assert.equal(
-  impedanceResult.rules.effective.nets.find((item) => item.net === "VCC").values.impedanceTopology,
+  impedanceResult.rules.nets.find((item) => item.net === "VCC").values.impedanceTopology,
   "grounded-coplanar-waveguide",
 )
 
@@ -415,8 +535,7 @@ const backend = {
 const routed = await api.run({ board, dsl: "runAll()", backend })
 assert.equal(routed.status, "complete")
 assert.equal(routed.operation, "all")
-assert.equal(routed.rules.applyRequested, true)
-assert.equal(routed.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
+assert.equal(routed.rules.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 0.2)
 assert.equal(routed.copper.tracks.length, 1)
 assert.equal(backendCalls, 1)
 
@@ -931,8 +1050,8 @@ const groundAndPowerResult = await api.run({
   `,
 })
 assert.equal(groundAndPowerResult.status, "complete")
-assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 1.85)
-assert.equal(groundAndPowerResult.rules.effective.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 1.85)
+assert.equal(groundAndPowerResult.rules.nets.find((item) => item.net === "VCC").values.minTrackWidthMm, 1.85)
+assert.equal(groundAndPowerResult.rules.nets.find((item) => item.net === "VCC").values.preferredTrackWidthMm, 1.85)
 assert.deepEqual(groundAndPowerResult.copper.zones.map((zone) => ({
   net: zone.net, priority: zone.priority, minThicknessMm: zone.minThicknessMm,
 })), [

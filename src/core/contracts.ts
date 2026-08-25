@@ -170,7 +170,7 @@ export type RoutingRules = Readonly<{
   nets: readonly Readonly<{ net: string; values: RoutingRuleValues }>[]
   differentialPairs?: readonly DifferentialPairRule[]
   matchedGroups?: readonly MatchedLengthRule[]
-  /** Named classes requested by the DSL and persisted by the host adapter. */
+  /** Complete effective named-class state, including unchanged imported classes. */
   netClasses?: readonly Readonly<{
     name: string
     nets: readonly string[]
@@ -259,11 +259,8 @@ export type RoutingMetrics = Readonly<{
 export type RoutingResult = Readonly<{
   status: "complete" | "partial" | "error"
   operation: RoutingOperation
-  rules: Readonly<{
-    effective: RoutingRules
-    applyRequested: boolean
-    overriddenFields: readonly RoutingRuleOverride[]
-  }>
+  /** Complete effective rules. Compare with the input board rules to obtain a persistence patch. */
+  rules: RoutingRules
   /** Present when stack(...) requested a physical target-board stackup. */
   stackup?: Readonly<{
     effective: RoutingStackup

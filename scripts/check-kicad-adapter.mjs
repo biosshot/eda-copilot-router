@@ -52,7 +52,7 @@ try {
   assert.ok(imported.board.copper.fixed.zones.some((zone) => !zone.net), "copper text must become a netless fixed obstacle")
   const baseResult = {
     status: "complete", operation: "route", diagnostics: [], metrics: {},
-    rules: { effective: imported.board.rules, applyRequested: false, overriddenFields: [] },
+    rules: imported.board.rules,
   }
   const newTrack = { net: "N", layer: "F.Cu", widthMm: 0.2, points: [{ x: 8, y: 5 }, { x: 12, y: 5 }] }
 

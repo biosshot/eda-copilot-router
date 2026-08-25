@@ -272,6 +272,23 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
         ruleValues(item.values, diagnostics, `rules.nets[${index}].values`)
       }
     })
+    const classNames = new Set<string>()
+    if (value.rules.netClasses !== undefined) array(
+      value.rules.netClasses,
+      diagnostics,
+      "rules.netClasses",
+    ).forEach((item, index) => {
+      const at = `rules.netClasses[${index}]`
+      if (!object(item) || typeof item.name !== "string" || !item.name.trim()
+        || !Array.isArray(item.nets)
+        || !item.nets.every((net) => typeof net === "string" && nets.has(net))) {
+        error(diagnostics, "ROUTING_NET_CLASS_INVALID", `${at} is invalid.`, at)
+        return
+      }
+      if (classNames.has(item.name)) error(diagnostics, "ROUTING_RULE_DUPLICATE", `Net class ${item.name} is duplicated.`, at)
+      classNames.add(item.name)
+      ruleValues(item.values, diagnostics, `${at}.values`)
+    })
     const specialIds = new Set<string>()
     if (value.rules.differentialPairs !== undefined) array(
       value.rules.differentialPairs,

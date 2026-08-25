@@ -759,7 +759,12 @@ export async function applyKiCadRoutingResult(context: KiCadRoutingContext, resu
       appendCopper(root, context.version, newCopperOnly(result.copper, context.editableCopper))
     }
     await atomicCreate(target, `${printSExpression(root)}\n`)
-    await copyProject(context.path, target, result.rules.effective, result.rules.applyRequested)
+    await copyProject(
+      context.path,
+      target,
+      result.rules,
+      result.operation === "apply-drc" || result.operation === "all",
+    )
     return { outputPath: target, diagnostics, nativeVerification: "not-run" }
   } catch (error) {
     return { diagnostics: [...diagnostics, { code: "KICAD_ROUTING_APPLY_FAILED", severity: "error", message: error instanceof Error ? error.message : String(error) }], nativeVerification: "not-run" }

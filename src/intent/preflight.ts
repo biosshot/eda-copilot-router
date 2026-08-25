@@ -380,12 +380,12 @@ export function compileRoutingRules(
     }
   }
 
-  const classByName = new Map<string, RoutingProgram["netClasses"][number]>()
   const classValues = new Map<string, RoutingRuleValues>()
   const classForNet = new Map<string, string>()
+  const declaredClassNames = new Set<string>()
   for (const netClass of program.netClasses) {
-    if (classByName.has(netClass.name)) diagnostics.push(diagnostic("DSL_DUPLICATE_NET_CLASS", `Net class ${netClass.name} is declared more than once.`))
-    classByName.set(netClass.name, netClass)
+    if (declaredClassNames.has(netClass.name)) diagnostics.push(diagnostic("DSL_DUPLICATE_NET_CLASS", `Net class ${netClass.name} is declared more than once.`))
+    declaredClassNames.add(netClass.name)
     classValues.set(netClass.name, applyAbsolute(effectiveDefault, netClass, board))
     checkLayers(netClass.allowedLayers)
     for (const net of netClass.nets) {
@@ -398,9 +398,56 @@ export function compileRoutingRules(
       byNet.set(net, applyAbsolute(byNet.get(net) ?? effectiveDefault, netClass, board))
     }
   }
+
+  let netClasses: Array<NonNullable<RoutingRules["netClasses"]>[number]> = [...structuredClone(board.rules.netClasses ?? [])]
+  const relationEdits = program.relationEdits ?? [
+    ...program.netClasses.map((item) => ({ kind: "upsert-net-class" as const, name: item.name, nets: item.nets })),
+    ...program.differentialPairs.map((item) => ({
+      kind: "upsert-diff-pair" as const, id: item.id, positive: item.positive, negative: item.negative,
+    })),
+    ...program.matchedGroups.map((item) => ({ kind: "upsert-matched-group" as const, id: item.id, nets: item.nets })),
+  ]
+  for (const edit of relationEdits) {
+    if (edit.kind === "delete-net-class") {
+      netClasses = netClasses.filter((item) => item.name !== edit.name)
+      continue
+    }
+    if (edit.kind === "remove-from-net-class") {
+      const removed = new Set(edit.nets)
+      netClasses = netClasses.map((item) => (
+        edit.name === undefined || item.name === edit.name
+          ? { ...item, nets: item.nets.filter((net) => !removed.has(net)) }
+          : item
+      )).filter((item) => item.nets.length > 0)
+      continue
+    }
+    if (edit.kind !== "upsert-net-class" && edit.kind !== "assign-net-class") continue
+    for (const net of edit.nets) checkNet(net)
+    const moving = new Set(edit.nets)
+    netClasses = netClasses.map((item) => ({
+      ...item,
+      nets: item.name === edit.name && edit.kind === "upsert-net-class"
+        ? []
+        : item.nets.filter((net) => !moving.has(net)),
+    })).filter((item) => item.nets.length > 0)
+    const existing = netClasses.find((item) => item.name === edit.name)
+    const values = classValues.get(edit.name) ?? existing?.values
+    if (!values) {
+      diagnostics.push(diagnostic("DSL_UNKNOWN_NET_CLASS", `Net class ${edit.name} does not exist.`))
+      continue
+    }
+    const nets = edit.kind === "upsert-net-class"
+      ? [...edit.nets]
+      : [...new Set([...(existing?.nets ?? []), ...edit.nets])]
+    const replacement = { name: edit.name, nets, values }
+    const index = netClasses.findIndex((item) => item.name === edit.name)
+    if (index >= 0) netClasses[index] = replacement
+    else netClasses.push(replacement)
+    for (const net of edit.nets) byNet.set(net, values)
+  }
   for (const intent of [...program.signalNets, ...program.powerNets]) {
     if (!intent.netClass) continue
-    const declared = classByName.get(intent.netClass)
+    const declared = netClasses.find((item) => item.name === intent.netClass)
     if (!declared) diagnostics.push(diagnostic("DSL_UNKNOWN_NET_CLASS", `Net class ${intent.netClass} does not exist.`))
     else if (!declared.nets.includes(intent.net)) diagnostics.push(diagnostic(
       "DSL_NET_CLASS_MEMBERSHIP", `${intent.net} names class ${intent.netClass} but is not a member of it.`,
@@ -553,14 +600,24 @@ export function compileRoutingRules(
           (reference) => byNet.get(reference) ?? effectiveDefault)
       : negative)
   }
-  const differentialPairs = [...(board.rules.differentialPairs ?? [])]
-  for (const pair of program.differentialPairs) {
-    const replacement = { id: pair.id, positive: pair.positive, negative: pair.negative }
-    const index = differentialPairs.findIndex((item) => item.id === pair.id)
-    if (index >= 0) differentialPairs[index] = replacement
-    else differentialPairs.push(replacement)
+  let differentialPairs: Array<NonNullable<RoutingRules["differentialPairs"]>[number]> = [...structuredClone(board.rules.differentialPairs ?? [])]
+  for (const edit of relationEdits) {
+    if (edit.kind === "delete-diff-pair") {
+      differentialPairs = differentialPairs.filter((item) => item.id !== edit.id)
+      continue
+    }
+    if (edit.kind !== "upsert-diff-pair") continue
+    checkNet(edit.positive); checkNet(edit.negative)
+    differentialPairs = differentialPairs.filter((item) => (
+      item.id !== edit.id
+      && item.positive !== edit.positive && item.negative !== edit.positive
+      && item.positive !== edit.negative && item.negative !== edit.negative
+    ))
+    differentialPairs.push({ id: edit.id, positive: edit.positive, negative: edit.negative })
   }
-  const matchedGroups = [...(board.rules.matchedGroups ?? [])]
+
+  let matchedGroups: Array<NonNullable<RoutingRules["matchedGroups"]>[number]> = [...structuredClone(board.rules.matchedGroups ?? [])]
+  const declaredMatchedGroups = new Map<string, { id: string; nets: string[]; toleranceMm: number }>()
   for (const group of program.matchedGroups) {
     required.add("matched-length")
     for (const net of group.nets) checkNet(net)
@@ -570,11 +627,41 @@ export function compileRoutingRules(
       "DSL_MATCH_TOLERANCE_REQUIRED", `${group.id} needs toleranceMm because no source rule supplies it.`,
     ))
     else {
-      const index = matchedGroups.findIndex((item) => item.id === group.id)
       const replacement = { id: group.id, nets: [...group.nets], toleranceMm }
+      declaredMatchedGroups.set(group.id, replacement)
+    }
+  }
+  for (const edit of relationEdits) {
+    if (edit.kind === "delete-matched-group") {
+      matchedGroups = matchedGroups.filter((item) => item.id !== edit.id)
+      continue
+    }
+    if (edit.kind !== "upsert-matched-group" && edit.kind !== "add-to-matched-group"
+      && edit.kind !== "remove-from-matched-group" && edit.kind !== "move-to-matched-group") continue
+    for (const net of edit.nets) checkNet(net)
+    if (edit.kind === "upsert-matched-group") {
+      const replacement = declaredMatchedGroups.get(edit.id)
+      if (!replacement) continue
+      const index = matchedGroups.findIndex((item) => item.id === edit.id)
       if (index >= 0) matchedGroups[index] = replacement
       else matchedGroups.push(replacement)
+      continue
     }
+    let target = matchedGroups.find((item) => item.id === edit.id)
+    if (!target) {
+      diagnostics.push(diagnostic("DSL_UNKNOWN_MATCHED_GROUP", `Matched group ${edit.id} does not exist.`))
+      continue
+    }
+    const selectedNets = new Set(edit.nets)
+    if (edit.kind === "move-to-matched-group") matchedGroups = matchedGroups.map((item) => (
+      item.id === edit.id ? item : { ...item, nets: item.nets.filter((net) => !selectedNets.has(net)) }
+    )).filter((item) => item.nets.length >= 2)
+    target = matchedGroups.find((item) => item.id === edit.id) ?? target
+    const nets = edit.kind === "remove-from-matched-group"
+      ? target.nets.filter((net) => !selectedNets.has(net))
+      : [...new Set([...target.nets, ...edit.nets])]
+    matchedGroups = matchedGroups.filter((item) => item.id !== edit.id)
+    if (nets.length >= 2) matchedGroups.push({ ...target, nets })
   }
   for (const stitch of program.viaStitches) {
     required.add("vias")
@@ -616,13 +703,7 @@ export function compileRoutingRules(
     nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),
     ...(differentialPairs.length ? { differentialPairs } : {}),
     ...(matchedGroups.length ? { matchedGroups } : {}),
-    ...(program.netClasses.length ? {
-      netClasses: program.netClasses.map((item) => ({
-        name: item.name,
-        nets: item.nets,
-        values: classValues.get(item.name) ?? effectiveDefault,
-      })),
-    } : {}),
+    ...(netClasses.length ? { netClasses } : {}),
   }
   for (const { scope, values } of [
     { scope: "default", values: effective.default },

@@ -5,6 +5,7 @@ import type {
   ComponentTarget,
   CopperTarget,
   DifferentialPairIntent,
+  DrcRelationEdit,
   DrcIntent,
   FanoutIntent,
   FanoutTarget,
@@ -68,6 +69,11 @@ function object(value: unknown, label: string): Record<string, unknown> {
 function assertKnownKeys(source: Record<string, unknown>, allowed: readonly string[], label: string) {
   const unknown = Object.keys(source).filter((key) => !allowed.includes(key))
   if (unknown.length) throw new TypeError(`${label} has unknown field(s): ${unknown.join(", ")}`)
+}
+
+function netNames(value: unknown, label: string) {
+  if (!Array.isArray(value) || !value.length) throw new TypeError(`${label} must be a non-empty array`)
+  return [...new Set(value.map((item, index) => nonEmpty(item, `${label}[${index}]`)))]
 }
 
 function optionalPositive(source: Record<string, unknown>, key: string) {
@@ -267,6 +273,7 @@ class RoutingDslBuilder {
   private readonly fanouts = new Map<string, FanoutIntent>()
   private readonly fanoutExclusions = new Map<string, FanoutTarget>()
   private readonly netClasses: NetClassIntent[] = []
+  private readonly relationEdits: DrcRelationEdit[] = []
   private drcIntent: DrcIntent | undefined
   private stackIntent: StackIntent | undefined
   private qualityIntent: RoutingPolicy | undefined
@@ -282,10 +289,19 @@ class RoutingDslBuilder {
       plane: (options: unknown) => this.plane(options),
       drc: (options: unknown) => this.drc(options),
       netClass: (name: string, options: unknown) => this.netClass(name, options),
+      assignNetsToNetClass: (name: string, nets: unknown) => this.assignNetsToNetClass(name, nets),
+      removeNetsFromNetClass: (name: string, nets: unknown) => this.removeNetsFromNetClass(name, nets),
+      unassignNetClass: (nets: unknown) => this.unassignNetClass(nets),
+      deleteNetClass: (name: string) => this.deleteNetClass(name),
       powerNet: (net: string, options: unknown = {}) => this.powerNet(net, options),
       signalNet: (net: string, options: unknown = {}) => this.signalNet(net, options),
       diffPair: (id: string, options: unknown) => this.diffPair(id, options),
+      deleteDiffPair: (id: string) => this.deleteDiffPair(id),
       matchedGroup: (id: string, options: unknown) => this.matchedGroup(id, options),
+      addNetsToMatchedGroup: (id: string, nets: unknown) => this.addNetsToMatchedGroup(id, nets),
+      removeNetsFromMatchedGroup: (id: string, nets: unknown) => this.removeNetsFromMatchedGroup(id, nets),
+      moveNetsToMatchedGroup: (id: string, nets: unknown) => this.moveNetsToMatchedGroup(id, nets),
+      deleteMatchedGroup: (id: string) => this.deleteMatchedGroup(id),
       viaStitch: (id: string, options: unknown) => this.viaStitch(id, options),
       fanout: (target: FanoutTarget, options: unknown = {}) => this.fanout(target, options),
       disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
@@ -334,6 +350,7 @@ class RoutingDslBuilder {
       fanouts: [...this.fanouts.values()],
       fanoutExclusions: [...this.fanoutExclusions.values()],
       netClasses: this.netClasses,
+      relationEdits: this.relationEdits,
       ...(this.drcIntent ? { drc: this.drcIntent } : {}),
       ...(this.stackIntent ? { stack: this.stackIntent } : {}),
       ...(this.qualityIntent ? { quality: this.qualityIntent } : {}),
@@ -409,11 +426,33 @@ class RoutingDslBuilder {
     const source = object(input, "netClass")
     assertKnownKeys(source, ["nets", ...RULE_KEYS], "netClass")
     if (!Array.isArray(source.nets) || !source.nets.length) throw new TypeError("netClass.nets must be a non-empty array")
-    this.netClasses.push({
+    const item: NetClassIntent = {
       kind: "net-class", name: nonEmpty(name, "netClass name"),
-      nets: [...new Set(source.nets.map((item, index) => nonEmpty(item, `netClass.nets[${index}]`)))],
+      nets: netNames(source.nets, "netClass.nets"),
       ...ruleFields(source),
-    })
+    }
+    this.netClasses.push(item)
+    this.relationEdits.push({ kind: "upsert-net-class", name: item.name, nets: item.nets })
+    return undefined
+  }
+
+  private assignNetsToNetClass(name: string, nets: unknown): undefined {
+    this.relationEdits.push({ kind: "assign-net-class", name: nonEmpty(name, "net class name"), nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private removeNetsFromNetClass(name: string, nets: unknown): undefined {
+    this.relationEdits.push({ kind: "remove-from-net-class", name: nonEmpty(name, "net class name"), nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private unassignNetClass(nets: unknown): undefined {
+    this.relationEdits.push({ kind: "remove-from-net-class", nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private deleteNetClass(name: string): undefined {
+    this.relationEdits.push({ kind: "delete-net-class", name: nonEmpty(name, "net class name") })
     return undefined
   }
 
@@ -463,12 +502,19 @@ class RoutingDslBuilder {
     assertKnownKeys(source, [
       "positive", "negative", "gapMm", "maxSkewMm", "maxUncoupledLengthMm", "impedance", ...RULE_KEYS,
     ], "diffPair")
-    this.differentialPairs.push({
+    const item: DifferentialPairIntent = {
       kind: "differential-pair", id: nonEmpty(id, "diff pair id"),
       positive: nonEmpty(source.positive, "diffPair.positive"), negative: nonEmpty(source.negative, "diffPair.negative"),
       ...ruleFields(source), ...optionalPositive(source, "gapMm"), ...optionalPositive(source, "maxSkewMm"),
       ...optionalPositive(source, "maxUncoupledLengthMm"), ...optionalImpedance(source),
-    })
+    }
+    this.differentialPairs.push(item)
+    this.relationEdits.push({ kind: "upsert-diff-pair", id: item.id, positive: item.positive, negative: item.negative })
+    return undefined
+  }
+
+  private deleteDiffPair(id: string): undefined {
+    this.relationEdits.push({ kind: "delete-diff-pair", id: nonEmpty(id, "diff pair id") })
     return undefined
   }
 
@@ -476,11 +522,33 @@ class RoutingDslBuilder {
     const source = object(input, "matchedGroup options")
     assertKnownKeys(source, ["nets", "toleranceMm"], "matchedGroup")
     if (!Array.isArray(source.nets) || source.nets.length < 2) throw new TypeError("matchedGroup.nets needs at least two nets")
-    this.matchedGroups.push({
+    const item: MatchedGroupIntent = {
       kind: "matched-group", id: nonEmpty(id, "matched group id"),
       nets: source.nets.map((item, index) => nonEmpty(item, `matchedGroup.nets[${index}]`)),
       ...optionalPositive(source, "toleranceMm"),
-    })
+    }
+    this.matchedGroups.push(item)
+    this.relationEdits.push({ kind: "upsert-matched-group", id: item.id, nets: item.nets })
+    return undefined
+  }
+
+  private addNetsToMatchedGroup(id: string, nets: unknown): undefined {
+    this.relationEdits.push({ kind: "add-to-matched-group", id: nonEmpty(id, "matched group id"), nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private removeNetsFromMatchedGroup(id: string, nets: unknown): undefined {
+    this.relationEdits.push({ kind: "remove-from-matched-group", id: nonEmpty(id, "matched group id"), nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private moveNetsToMatchedGroup(id: string, nets: unknown): undefined {
+    this.relationEdits.push({ kind: "move-to-matched-group", id: nonEmpty(id, "matched group id"), nets: netNames(nets, "nets") })
+    return undefined
+  }
+
+  private deleteMatchedGroup(id: string): undefined {
+    this.relationEdits.push({ kind: "delete-matched-group", id: nonEmpty(id, "matched group id") })
     return undefined
   }
 
