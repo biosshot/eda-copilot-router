@@ -38,12 +38,12 @@ export type KrtMatchedGroup =
   | readonly string[]
   | { nets: readonly string[] }
 
-/** Exact argparse choices in KiCadRoutingTools 0.20.4. */
+/** Exact argparse choices in KiCadRoutingTools 0.21.3. */
 export const KRT_RIPUP_BLOCKER_SELECT_CHOICES = Object.freeze([
   "count", "near-target", "bidir", "mincut", "cost",
 ] as const)
 
-/** Exact route.py argparse choices in KiCadRoutingTools 0.20.4. */
+/** Exact route.py argparse choices in KiCadRoutingTools 0.21.3. */
 export const KRT_RIPUP_ABANDON_METRIC_CHOICES = Object.freeze([
   "stranded", "total-pads", "complete-nets", "congestion",
   "history", "weighted", "probe", "weighted-probe",
@@ -251,7 +251,11 @@ export type KrtProcessResult = {
   outputArtifactPath?: string
   protectedNetsPath?: string
   protectedNets?: string[]
+  /** KRT 0.21.3 route.py --json-out artifact with merged reconciliation state. */
+  mergedSummaryPath?: string
   jsonSummary?: Record<string, unknown>
+  /** Compact authoritative verdict emitted once by KRT 0.21.3 route.py. */
+  jsonSummaryMin?: Record<string, unknown>
   jsonSummaries: Record<string, unknown>[]
   diagnostics: KrtDiagnostic[]
   /**
@@ -610,6 +614,48 @@ function parseJsonSummaries(stdout: string, diagnostics: KrtDiagnostic[]) {
     }
   }
   return summaries
+}
+
+/** Parse KRT 0.21.3's one-per-outer-run compact merged verdict. */
+export function parseKrtJsonSummaryMin(stdout: string): Record<string, unknown> | undefined {
+  const values: Record<string, unknown>[] = []
+  for (const line of stdout.split(/\r?\n/)) {
+    const marker = line.indexOf("JSON_SUMMARY_MIN:")
+    if (marker < 0) continue
+    try {
+      const value: unknown = JSON.parse(line.slice(marker + "JSON_SUMMARY_MIN:".length).trim())
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        values.push(value as Record<string, unknown>)
+      }
+    } catch {
+      // executeStage retains the raw log and reports the missing compact verdict.
+    }
+  }
+  return values.length === 1 ? values[0] : undefined
+}
+
+async function readMergedJsonSummary(path: string, diagnostics: KrtDiagnostic[]) {
+  if (!(await exists(path))) return undefined
+  try {
+    const value: unknown = JSON.parse(await readFile(path, "utf8"))
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>
+    }
+    diagnostics.push(diagnostic(
+      "KRT_MERGED_SUMMARY_INVALID",
+      "warning",
+      "KRT --json-out did not contain a JSON object; falling back to the first log summary.",
+      { path },
+    ))
+  } catch (error) {
+    diagnostics.push(diagnostic(
+      "KRT_MERGED_SUMMARY_INVALID",
+      "warning",
+      `Could not read KRT --json-out: ${errorText(error)}`,
+      { path },
+    ))
+  }
+  return undefined
 }
 
 const KRT_ALREADY_CONNECTED_MARKER = "All nets are already fully connected - nothing to route!"
@@ -1500,6 +1546,17 @@ async function executeStage(
       return result
     }
 
+    // route.py may emit a run-scope summary followed by a reconciliation
+    // subset. KRT 0.21.3 owns their state/effort merge and exposes the result
+    // through --json-out; consuming that file avoids reimplementing upstream's
+    // scope semantics in TypeScript. route_diff.py and qfn_fanout.py retain
+    // their existing single-summary contracts.
+    if (scriptName === "route.py") {
+      result.mergedSummaryPath = join(normalizedArtifacts, `krt-${stage}-summary.json`)
+      await rm(result.mergedSummaryPath, { force: true }).catch(() => undefined)
+      args.push("--json-out", result.mergedSummaryPath)
+    }
+
     const scriptPath = join(normalizedKrt, "py_router", scriptName)
     const processArgs = pythonScriptArgs(scriptPath, args, spec.pythonPathEntries)
     result.command = [executable, ...processArgs]
@@ -1581,7 +1638,11 @@ async function executeStage(
     ))
 
     result.jsonSummaries = parseJsonSummaries(result.stdout, diagnostics)
-    if (!result.jsonSummaries.length) {
+    result.jsonSummaryMin = parseKrtJsonSummaryMin(result.stdout)
+    const mergedSummary = result.mergedSummaryPath
+      ? await readMergedJsonSummary(result.mergedSummaryPath, diagnostics)
+      : undefined
+    if (!mergedSummary && !result.jsonSummaries.length) {
       const noOp = await alreadyConnectedNoOpSummary(
         normalizedInput,
         normalizedOutput,
@@ -1597,12 +1658,23 @@ async function executeStage(
         ))
       }
     }
-    result.jsonSummary = result.jsonSummaries[0]
-    if (result.jsonSummaries.length > 1) diagnostics.push(diagnostic(
+    result.jsonSummary = mergedSummary ?? result.jsonSummaries[0]
+    if (mergedSummary && result.jsonSummaries.length > 1) diagnostics.push(diagnostic(
+      "KRT_RECONCILIATION_SUMMARY_MERGED",
+      "info",
+      "Consumed KRT's authoritative merged reconciliation summary.",
+      { count: result.jsonSummaries.length, path: result.mergedSummaryPath },
+    ))
+    else if (result.jsonSummaries.length > 1) diagnostics.push(diagnostic(
       "KRT_MULTIPLE_JSON_SUMMARIES",
       "warning",
-      "KRT emitted reconciliation sub-run summaries after the authoritative first summary; they are retained separately.",
+      "KRT emitted reconciliation sub-run summaries without a readable merged --json-out artifact; the first summary is retained as a compatibility fallback.",
       { count: result.jsonSummaries.length },
+    ))
+    if (scriptName === "route.py" && result.attempted && !result.jsonSummaryMin) diagnostics.push(diagnostic(
+      "KRT_SUMMARY_MIN_MISSING",
+      "warning",
+      "KRT route.py did not emit exactly one parseable JSON_SUMMARY_MIN verdict.",
     ))
     if (!result.jsonSummary) diagnostics.push(diagnostic(
       "KRT_SUMMARY_MISSING",

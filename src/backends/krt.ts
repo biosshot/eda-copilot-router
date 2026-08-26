@@ -33,6 +33,7 @@ export {
   buildKrtRemainingArgs,
   buildKrtSpecialCandidates,
   parseKrtDrcViolationCount,
+  parseKrtJsonSummaryMin,
   KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
   KRT_RIPUP_ABANDON_METRIC_CHOICES,
   KRT_RIPUP_BLOCKER_SELECT_CHOICES,

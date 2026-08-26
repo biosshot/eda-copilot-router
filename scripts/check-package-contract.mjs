@@ -39,6 +39,16 @@ assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... OK"), 0)
 assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... OK (1 same-net copper warning(s))"), 0)
 assert.equal(krt.parseKrtDrcViolationCount("Checking USB_DP for DRC... FAILED (3 violations)"), 3)
 assert.equal(krt.parseKrtDrcViolationCount("check_drc produced no summary"), undefined)
+assert.deepEqual(krt.parseKrtJsonSummaryMin([
+  'JSON_SUMMARY: {"scope":"run","failed":2}',
+  'JSON_SUMMARY: {"scope":"reconciliation-subset","failed":0}',
+  'JSON_SUMMARY_MIN: {"scope":"merged","failed":0,"open_single":[]}',
+].join("\n")), { scope: "merged", failed: 0, open_single: [] })
+assert.equal(krt.parseKrtJsonSummaryMin("JSON_SUMMARY_MIN: not-json"), undefined)
+assert.equal(krt.parseKrtJsonSummaryMin([
+  'JSON_SUMMARY_MIN: {"scope":"merged"}',
+  'JSON_SUMMARY_MIN: {"scope":"merged"}',
+].join("\n")), undefined, "KRT must emit exactly one compact verdict")
 assert.deepEqual(
   krt.krtAutomaticFanoutNets(["SIG", "USB_DP", "SIG", "USB_DM"], ["USB_DP", "USB_DM"]),
   ["SIG"],
@@ -85,7 +95,7 @@ assert.deepEqual(krt.KRT_RIPUP_ABANDON_METRIC_CHOICES, [
   "stranded", "total-pads", "complete-nets", "congestion",
   "history", "weighted", "probe", "weighted-probe",
 ])
-assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.20\.4\.zip$/)
+assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.21\.3\.zip$/)
 assert.deepEqual(krt.KRT_REQUIRED_NECKDOWN_ENVIRONMENT, {
   KICAD_IMPEDANCE_NECKDOWN: "1",
 }, "KRT impedance neck-down must never be disabled by the adapter")

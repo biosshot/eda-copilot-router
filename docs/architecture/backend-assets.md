@@ -29,7 +29,7 @@ version.
 
 ## Backend
 
-- KRT is managed from the official `v0.20.4` release archive. The package also
+- KRT is managed from the official `v0.21.3` release archive. The package also
   selects the release's platform-specific `grid_router` module and prepares
   every dependency declared by that release's `requirements.txt` in a
   backend-owned Python cache when the selected interpreter does not already
@@ -46,13 +46,14 @@ normal installation instructions.
 KRT is never discovered implicitly from the current working directory. An
 override must be explicit in configuration/environment; otherwise the pinned
 managed release is used. The final readiness probe imports both the native
-router module and the packaged Copilot Router patch, so an upstream API drift
-fails before board routing starts.
+router module and the packaged Copilot Router patch, then requires KRT's
+`route.py:--json-out` and `route_summary.py` capabilities. An upstream API
+drift therefore fails before board routing starts.
 
 ## Pinned releases
 
-- KRT: `v0.20.4`, SHA-256
-  `a989af2fa719c3b8d0763cae73dc0be5738a4c3e73c64741a7baaf0c4730c60c`
+- KRT: `v0.21.3`, SHA-256
+  `fd6e9f880e5defbd1747f4a5437735184486fabece55ce8b2a1397c25b611a64`
 - Python: CPython `3.12.14`, `python-build-standalone` release `20260814`;
   per-platform SHA-256 values are returned by `managedPythonRelease()`.
 Version upgrades are code changes: update the pinned metadata, run backend

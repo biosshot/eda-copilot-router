@@ -2,9 +2,15 @@
 
 ## Authority
 
-The managed backend uses KiCadRoutingTools `v0.20.4`. KRT supplies search;
+The managed backend uses KiCadRoutingTools `v0.21.3`. KRT supplies search;
 compiled `RoutingRules` and native verification remain authoritative. Quality
 profiles may change search effort and route costs, but must never weaken DRC.
+
+Ordinary `route.py` calls request an authoritative merged `--json-out`
+artifact. The adapter retains every raw `JSON_SUMMARY` for forensics and the
+single compact `JSON_SUMMARY_MIN` verdict, but derives diagnostics from the
+merged artifact so a successful reconciliation cannot remain reported as a
+first-pass failure.
 
 ## Hard geometry invariants
 
@@ -63,7 +69,7 @@ work after a successful search.
 
 ## Dense-package escape audit
 
-Managed KRT `0.20.4` already ships a separate `qfn_fanout.py`. It detects
+Managed KRT `0.21.3` ships a separate `qfn_fanout.py`. It detects
 QFN/QFP geometry and emits short outward surface stubs, or an optional
 under-pad via escape. `route.py` does not invoke this tool automatically, so
 terminal escalation currently starts from the original pad even though the

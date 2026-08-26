@@ -22,8 +22,13 @@ import {
   type RouterAssetPolicy,
 } from "./assets.js"
 
-export const KRT_MANAGED_VERSION = "0.20.4"
+export const KRT_MANAGED_VERSION = "0.21.3"
 export const MANAGED_PYTHON_VERSION = "3.12.14-20260814"
+
+const KRT_REQUIRED_CAPABILITIES = Object.freeze([
+  "route.py:--json-out",
+  "route_summary.py",
+])
 
 const MANAGED_PYTHON_RELEASE = "20260814"
 const MANAGED_PYTHON_ASSETS = Object.freeze({
@@ -52,12 +57,20 @@ const MANAGED_PYTHON_ASSETS = Object.freeze({
 const KRT_RELEASE = Object.freeze({
   backend: "krt",
   version: KRT_MANAGED_VERSION,
-  url: "https://github.com/drandyhaas/KiCadRoutingTools/releases/download/v0.20.4/KiCadRoutingTools-0.20.4.zip",
-  sha256: "a989af2fa719c3b8d0763cae73dc0be5738a4c3e73c64741a7baaf0c4730c60c",
-  sizeBytes: 5_924_458,
+  url: "https://github.com/drandyhaas/KiCadRoutingTools/releases/download/v0.21.3/KiCadRoutingTools-0.21.3.zip",
+  sha256: "fd6e9f880e5defbd1747f4a5437735184486fabece55ce8b2a1397c25b611a64",
+  sizeBytes: 6_813_810,
   archive: "zip" as const,
   rootDirectory: "plugins",
-  markers: ["py_router/route.py", "py_router/route_diff.py", "py_router/qfn_fanout.py", "requirements.txt", "LICENSE"],
+  markers: [
+    "py_router/route.py",
+    "py_router/route_diff.py",
+    "py_router/qfn_fanout.py",
+    "py_router/route_summary.py",
+    "krt_capabilities.py",
+    "requirements.txt",
+    "LICENSE",
+  ],
 })
 
 export type KrtRuntimeOptions = Readonly<{
@@ -111,6 +124,8 @@ async function validKrtDirectory(path: string | undefined) {
   return await readable(join(path, "py_router", "route.py"))
     && await readable(join(path, "py_router", "route_diff.py"))
     && await readable(join(path, "py_router", "qfn_fanout.py"))
+    && await readable(join(path, "py_router", "route_summary.py"))
+    && await readable(join(path, "krt_capabilities.py"))
 }
 
 async function packagedPatchDirectory() {
@@ -146,7 +161,7 @@ export async function discoverKrtOverride(explicit?: string) {
     if (await validKrtDirectory(candidate)) return candidate
     throw new RouterAssetError(
       "KRT_OVERRIDE_INVALID",
-      "The configured KRT development override does not contain route.py, route_diff.py, and qfn_fanout.py.",
+      "The configured KRT development override does not satisfy the KRT 0.21.3 route, fanout, summary, and capability module contract.",
       { directory: candidate },
     )
   }
@@ -327,6 +342,7 @@ async function probeKrtPython(
 ) {
   const entries = [
     ...dependencies,
+    krtDirectory,
     join(krtDirectory, "rust_router"),
     join(krtDirectory, "py_router"),
   ]
@@ -334,7 +350,7 @@ async function probeKrtPython(
     pythonPath,
     [
       "-c",
-      `import sys; sys.dont_write_bytecode=True; sys.path[:0]=${JSON.stringify(entries)}; from startup_checks import run_all_checks; run_all_checks()${verifyPatch ? "; import copilot_router_krt_patch" : ""}; print('ok')`,
+      `import sys; sys.dont_write_bytecode=True; sys.path[:0]=${JSON.stringify(entries)}; from startup_checks import run_all_checks; run_all_checks(); from krt_capabilities import capabilities,missing; gaps=missing(capabilities(${JSON.stringify(krtDirectory)}),${JSON.stringify(KRT_REQUIRED_CAPABILITIES)}); assert not gaps, '; '.join(gaps)${verifyPatch ? "; import copilot_router_krt_patch" : ""}; print('ok')`,
     ],
     pythonEnvironment([]),
     signal,

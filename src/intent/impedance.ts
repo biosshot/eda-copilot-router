@@ -1,4 +1,4 @@
-/** Closed-form impedance approximations aligned with KRT 0.20.4. */
+/** Closed-form impedance approximations aligned with KRT 0.21.3. */
 
 export type ResolvedImpedanceTopology =
   | "microstrip"

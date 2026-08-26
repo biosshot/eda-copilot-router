@@ -22,7 +22,7 @@ const result = await run({
 })
 ```
 
-The package lazily prepares pinned KRT `v0.20.4`; no manual checkout is
+The package lazily prepares pinned KRT `v0.21.3`; no manual checkout is
 required. Downloads are integrity-checked and cached. The optional
 `COPILOT_ROUTER_KRT_DIR` override is intended for development or air-gapped
 installations.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Upgrade the managed KiCadRoutingTools backend from `0.20.4` to `0.21.3`,
+  including the new release archive integrity pin and runtime capability gate.
+- Consume `route.py --json-out` as the authoritative merged reconciliation
+  result and retain `JSON_SUMMARY_MIN` for compact machine-readable evidence.
+- Document measured improvements, compatibility changes, and A/B regressions in
+  `docs/krt-0.21.3-upgrade-report.md`.
 - Add a pinned, private portable CPython fallback for machines without Python.
 - Install KRT dependencies from the pinned runtime's `requirements.txt` into a
   versioned router cache instead of hardcoding or modifying global packages.
