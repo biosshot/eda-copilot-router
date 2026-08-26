@@ -1459,6 +1459,18 @@ function dynamicIterationsEnvironment(spec: KrtStageSpec): Record<string, string
     : { KICAD_DYNAMIC_ITERATIONS: spec.dynamicIterations ? "1" : "0" }
 }
 
+function explicitDiffPairEnvironment(
+  pairs: readonly NormalizedPair[],
+): Record<string, string> {
+  return pairs.length
+    ? {
+        COPILOT_ROUTER_DIFF_PAIRS: JSON.stringify(
+          pairs.map((pair) => [pair.positive, pair.negative]),
+        ),
+      }
+    : {}
+}
+
 async function executeStage(
   stage: "fanout" | "special" | "remaining",
   inputBoard: string,
@@ -2065,6 +2077,8 @@ async function runKrtSpecialPipeline(
         if (diagnostics.some((item) => item.severity === "error")) return undefined
         return specialArgs(inputBoard, diffOutput, diffSpec, current.pairs, current.coupledGroups)
       },
+      "special",
+      explicitDiffPairEnvironment(normalized.pairs),
     )
     subcalls.push(diff)
     if (diff.attempted && await exists(diffOutput)) {

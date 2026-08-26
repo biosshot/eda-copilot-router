@@ -12,7 +12,10 @@ const values = Object.freeze({
   differential: { trackWidthMm: 0.25, gapMm: 0.2 },
 })
 
-const nets = ["DPA_N", "DPA_P", "DPB_N", "DPB_P"]
+// These names deliberately do not use a KRT-recognized polarity suffix.
+// They prove that the router DSL's explicit positive/negative mapping reaches
+// the managed KRT process instead of being re-inferred from net names.
+const nets = ["USB_DM_CONN", "USB_DP_CONN", "USB_DM_ESD", "USB_DP_ESD"]
 
 export const board = Object.freeze({
   outline: [
@@ -33,38 +36,38 @@ export const board = Object.freeze({
   ],
   pads: [
     {
-      component: "C1", number: "1", net: "DPA_P", at: { x: 17.52, y: 13 }, rotationDeg: 0,
+      component: "C1", number: "1", net: "USB_DP_CONN", at: { x: 17.52, y: 13 }, rotationDeg: 0,
       layers: ["F.Cu"], shape: { kind: "round-rect", widthMm: 0.56, heightMm: 0.62, cornerRadiusMm: 0.14 },
     },
     {
-      component: "C1", number: "2", net: "DPB_P", at: { x: 18.48, y: 13 }, rotationDeg: 0,
+      component: "C1", number: "2", net: "USB_DP_ESD", at: { x: 18.48, y: 13 }, rotationDeg: 0,
       layers: ["F.Cu"], shape: { kind: "round-rect", widthMm: 0.56, heightMm: 0.62, cornerRadiusMm: 0.14 },
     },
     {
-      component: "C2", number: "1", net: "DPA_N", at: { x: 17.52, y: 17 }, rotationDeg: 0,
+      component: "C2", number: "1", net: "USB_DM_CONN", at: { x: 17.52, y: 17 }, rotationDeg: 0,
       layers: ["F.Cu"], shape: { kind: "round-rect", widthMm: 0.56, heightMm: 0.62, cornerRadiusMm: 0.14 },
     },
     {
-      component: "C2", number: "2", net: "DPB_N", at: { x: 18.48, y: 17 }, rotationDeg: 0,
+      component: "C2", number: "2", net: "USB_DM_ESD", at: { x: 18.48, y: 17 }, rotationDeg: 0,
       layers: ["F.Cu"], shape: { kind: "round-rect", widthMm: 0.56, heightMm: 0.62, cornerRadiusMm: 0.14 },
     },
     {
-      component: "J2", number: "1", net: "DPB_P", at: { x: 26, y: 15 }, rotationDeg: 0,
+      component: "J2", number: "1", net: "USB_DP_ESD", at: { x: 26, y: 15 }, rotationDeg: 0,
       layers: ["F.Cu", "B.Cu"], shape: { kind: "rect", widthMm: 1.7, heightMm: 1.7 },
       hole: { shape: "round", diameterMm: 1, plated: true },
     },
     {
-      component: "J2", number: "2", net: "DPB_N", at: { x: 26, y: 17.54 }, rotationDeg: 0,
+      component: "J2", number: "2", net: "USB_DM_ESD", at: { x: 26, y: 17.54 }, rotationDeg: 0,
       layers: ["F.Cu", "B.Cu"], shape: { kind: "circle", diameterMm: 1.7 },
       hole: { shape: "round", diameterMm: 1, plated: true },
     },
     {
-      component: "J1", number: "1", net: "DPA_P", at: { x: 10, y: 15 }, rotationDeg: 0,
+      component: "J1", number: "1", net: "USB_DP_CONN", at: { x: 10, y: 15 }, rotationDeg: 0,
       layers: ["F.Cu", "B.Cu"], shape: { kind: "rect", widthMm: 1.7, heightMm: 1.7 },
       hole: { shape: "round", diameterMm: 1, plated: true },
     },
     {
-      component: "J1", number: "2", net: "DPA_N", at: { x: 10, y: 17.54 }, rotationDeg: 0,
+      component: "J1", number: "2", net: "USB_DM_CONN", at: { x: 10, y: 17.54 }, rotationDeg: 0,
       layers: ["F.Cu", "B.Cu"], shape: { kind: "circle", diameterMm: 1.7 },
       hole: { shape: "round", diameterMm: 1, plated: true },
     },
@@ -88,7 +91,7 @@ export const board = Object.freeze({
 })
 
 export const dsl = `
-  diffPair("DPA", { positive: "DPA_P", negative: "DPA_N" })
-  diffPair("DPB", { positive: "DPB_P", negative: "DPB_N" })
+  diffPair("USB_CONNECTOR_PAIR", { positive: "USB_DP_CONN", negative: "USB_DM_CONN" })
+  diffPair("USB_ESD_PAIR", { positive: "USB_DP_ESD", negative: "USB_DM_ESD" })
   runRouting()
 `

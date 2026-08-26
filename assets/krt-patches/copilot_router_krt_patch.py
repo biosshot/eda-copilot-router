@@ -14,6 +14,7 @@ import os
 import re
 import math
 import copy
+import json
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -22,7 +23,7 @@ import kicad_exact_fill
 import obstacle_cache
 import obstacle_map
 import single_ended_routing
-from routing_config import GridCoord
+from routing_config import DiffPairNet, GridCoord
 from routing_utils import build_layer_map
 
 
@@ -465,6 +466,106 @@ obstacle_cache.precompute_net_obstacles = _precompute_net_obstacles
 obstacle_map.build_base_obstacle_map = _build_base_obstacle_map
 
 
+_EXPLICIT_DIFF_PAIRS_ENV = "COPILOT_ROUTER_DIFF_PAIRS"
+
+
+def _parse_explicit_diff_pairs(raw: str):
+    """Validate the host-owned exact P/N mapping passed to route_diff.py."""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"{_EXPLICIT_DIFF_PAIRS_ENV} must contain valid JSON: {error}"
+        ) from error
+    if not isinstance(parsed, list) or not parsed:
+        raise RuntimeError(
+            f"{_EXPLICIT_DIFF_PAIRS_ENV} must be a non-empty array of [P, N] pairs"
+        )
+
+    pairs = []
+    owned = set()
+    for index, item in enumerate(parsed):
+        if not isinstance(item, list) or len(item) != 2:
+            raise RuntimeError(
+                f"{_EXPLICIT_DIFF_PAIRS_ENV}[{index}] must be [positive, negative]"
+            )
+        positive, negative = item
+        if not isinstance(positive, str) or not positive.strip():
+            raise RuntimeError(
+                f"{_EXPLICIT_DIFF_PAIRS_ENV}[{index}][0] must be a non-empty string"
+            )
+        if not isinstance(negative, str) or not negative.strip():
+            raise RuntimeError(
+                f"{_EXPLICIT_DIFF_PAIRS_ENV}[{index}][1] must be a non-empty string"
+            )
+        if positive == negative:
+            raise RuntimeError(
+                f"{_EXPLICIT_DIFF_PAIRS_ENV}[{index}] must contain distinct nets"
+            )
+        duplicate = next((name for name in (positive, negative) if name in owned), None)
+        if duplicate is not None:
+            raise RuntimeError(
+                f"{_EXPLICIT_DIFF_PAIRS_ENV} assigns net {duplicate!r} more than once"
+            )
+        owned.update((positive, negative))
+        pairs.append((positive, negative))
+    return pairs
+
+
+def _install_explicit_diff_pairs():
+    """Make the router DSL's exact pairs authoritative over KRT name inference.
+
+    route_diff.py imports ``find_differential_pairs`` after this packaged patch
+    is loaded.  The wrapper activates only for a call whose selected net names
+    contain every explicit member, leaving secondary pattern queries and all
+    ordinary KRT invocations on their upstream behavior.
+    """
+    raw = os.environ.get(_EXPLICIT_DIFF_PAIRS_ENV)
+    if not raw:
+        return
+
+    explicit_pairs = _parse_explicit_diff_pairs(raw)
+    explicit_members = {name for pair in explicit_pairs for name in pair}
+    import net_queries
+
+    original = net_queries.find_differential_pairs
+
+    def find_differential_pairs(pcb_data, patterns):
+        selected = {str(pattern) for pattern in (patterns or [])}
+        if not explicit_members.issubset(selected):
+            return original(pcb_data, patterns)
+
+        ids_by_name = {
+            str(net.name): int(net_id)
+            for net_id, net in pcb_data.nets.items()
+            if net_id != 0 and getattr(net, "name", None)
+        }
+        missing = sorted(explicit_members.difference(ids_by_name))
+        if missing:
+            raise RuntimeError(
+                "Explicit differential-pair nets are missing from the PCB: "
+                + ", ".join(missing)
+            )
+
+        output = {}
+        for index, (positive, negative) in enumerate(explicit_pairs, start=1):
+            pair_name = f"COPILOT_EXPLICIT_{index}"
+            output[pair_name] = DiffPairNet(
+                base_name=pair_name,
+                p_net_id=ids_by_name[positive],
+                n_net_id=ids_by_name[negative],
+                p_net_name=positive,
+                n_net_name=negative,
+            )
+        print(
+            f"Using {len(output)} explicit differential pair(s) from "
+            f"{_EXPLICIT_DIFF_PAIRS_ENV}"
+        )
+        return output
+
+    net_queries.find_differential_pairs = find_differential_pairs
+
+
 def _install_qfn_pad_allowlist():
     """Keep QFN geometry intact while suppressing explicitly excluded pads.
 
@@ -476,7 +577,6 @@ def _install_qfn_pad_allowlist():
     raw = os.environ.get("COPILOT_ROUTER_QFN_PAD_ALLOWLIST")
     if not raw:
         return
-    import json
     import qfn_fanout
 
     parsed = json.loads(raw)
@@ -504,4 +604,5 @@ def _install_qfn_pad_allowlist():
     qfn_fanout.generate_qfn_fanout = filtered
 
 
+_install_explicit_diff_pairs()
 _install_qfn_pad_allowlist()

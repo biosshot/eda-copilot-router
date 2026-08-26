@@ -23,4 +23,9 @@ for (const pad of board.pads) {
 assert.equal(result.metrics?.backend, "krt")
 assert.notEqual(result.metrics?.details?.runtime?.source, "override",
   "managed KRT must not use a local KRT checkout")
+const pairReports = result.metrics?.details?.special?.pair_reports ?? []
+assert.deepEqual(pairReports.map((report) => [report.p_net, report.n_net]), [
+  ["USB_DP_CONN", "USB_DM_CONN"],
+  ["USB_DP_ESD", "USB_DM_ESD"],
+], "managed KRT must preserve exact DSL pair membership for non-standard net names")
 console.log(`managed KRT no-KiCad E2E: ok (${result.copper.tracks.length} tracks, ${result.copper.vias.length} vias)`)
