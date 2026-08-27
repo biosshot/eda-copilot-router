@@ -80,9 +80,11 @@ function rotate(point: PointMm, degrees: number): PointMm {
   }
 }
 
-function placedPoint(point: PointMm, origin: PointMm, rotationDeg: number, bottom: boolean) {
-  const mirrored = bottom ? { x: -point.x, y: point.y } : point
-  const value = rotate(mirrored, bottom ? rotationDeg : -rotationDeg)
+function placedPoint(point: PointMm, origin: PointMm, rotationDeg: number) {
+  // KiCad stores B-side footprint-local coordinates already pre-mirrored in
+  // the board file. pcbnew and KRT consequently apply the same negated
+  // footprint rotation to pad positions on both sides.
+  const value = rotate(point, -rotationDeg)
   return { x: origin.x + value.x, y: origin.y + value.y }
 }
 
@@ -373,7 +375,7 @@ function graphicalCopper(root: SExpression[], available: readonly string[]) {
   for (const [footprintIndex, footprint] of [...listChildren(root, "footprint"), ...listChildren(root, "module")].entries()) {
     const atNode = findChild(footprint, "at"); const origin = pointAt(atNode); const rotation = numberAt(atNode, 3)
     const bottom = childText(footprint, "layer") === "B.Cu"
-    const transform = (point: PointMm) => placedPoint(point, origin, rotation, bottom)
+    const transform = (point: PointMm) => placedPoint(point, origin, rotation)
     for (const [index, node] of listChildren(footprint, "fp_line").entries()) add(
       childText(node, "layer"), rectangleAround(transform(pointAt(findChild(node, "start"))), transform(pointAt(findChild(node, "end"))), numberAt(findChild(findChild(node, "stroke") ?? [], "width"), 1, 0.15)), `fp-${footprintIndex}-line-${index}`,
     )
@@ -537,7 +539,7 @@ export async function importKiCadRoutingBoard(path: string, options: KiCadRouter
         pads.push({
           id: `${childText(pad, "uuid") ?? childText(pad, "tstamp") ?? `${designator}:${padIndex}`}:${componentIndex}:${padIndex}`,
           component: designator, number: atom(pad[1]) ?? String(padIndex + 1), ...(net ? { net } : {}),
-          at: placedPoint(pointAt(localAt), origin, footprintRotation, bottom),
+          at: placedPoint(pointAt(localAt), origin, footprintRotation),
           // KiCad's pad angle is already absolute in the board frame; only
           // the pad x/y coordinates are footprint-local.
           rotationDeg: numberAt(localAt, 3),

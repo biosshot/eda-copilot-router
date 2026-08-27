@@ -26,6 +26,7 @@ const board = {
     { component: "U2", number: "1", net: "N", at: { x: 5, y: 3 }, rotationDeg: 90, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
     { component: "B1", number: "1", net: "N", at: { x: 12, y: 3 }, rotationDeg: 90, layers: ["B.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
     { component: "B1", number: "2", net: "N", at: { x: 12, y: 7 }, rotationDeg: 90, layers: ["B.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
+    { component: "B1", number: "3", net: "N", at: { x: 14, y: 5 }, rotationDeg: 90, layers: ["B.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
   ],
   keepouts: [{ layers: ["F.Cu"], polygon: { outer: [{ x: 10, y: 10 }, { x: 15, y: 10 }, { x: 15, y: 15 }, { x: 10, y: 15 }], holes: [[{ x: 11, y: 11 }, { x: 12, y: 11 }, { x: 12, y: 12 }, { x: 11, y: 12 }]] }, forbid: { tracks: true, vias: true, zones: true } }],
   rules: { default: values, nets: [{ net: "N", values }] },
@@ -44,6 +45,8 @@ try {
   assert.match(source, /\(drill oval 1\.3 0\.5\)/)
   assert.match(source, /\(property "Reference" "U2"[\s\S]*?\(pad "1" smd rect[\s\S]*?\(at 2 0 90\)/)
   assert.match(source, /\(property "Reference" "B1"[\s\S]*?\(pad "1" smd rect[\s\S]*?\(layers "B\.Cu" "B\.Mask" "B\.Paste"\)/)
+  assert.match(source, /\(property "Reference" "B1"[\s\S]*?\(pad "3" smd rect\s+\(at 0 2 90\)/,
+    "KRT board files keep bottom pad coordinates pre-mirrored and must not receive another X reflection")
   const roundTrip = await importKiCadRoutingBoard(inputBoard)
   assert.ok(roundTrip.board, JSON.stringify(roundTrip.diagnostics))
   assert.deepEqual(roundTrip.board.pads.filter((pad) => pad.component === "B1").map((pad) => ({
@@ -51,6 +54,7 @@ try {
   })), [
     { number: "1", at: { x: 12, y: 3 }, rotationDeg: 90, layers: ["B.Cu"] },
     { number: "2", at: { x: 12, y: 7 }, rotationDeg: 90, layers: ["B.Cu"] },
+    { number: "3", at: { x: 14, y: 5 }, rotationDeg: 90, layers: ["B.Cu"] },
   ])
   assert.match(source, /\(zone \(layer "F\.Cu"\)[\s\S]*?\(keepout \(tracks not_allowed\)/)
   assert.ok((source.match(/\(polygon \(pts/g) ?? []).length >= 4, "zone and keepout hole contours must be serialized")
