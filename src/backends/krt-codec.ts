@@ -46,8 +46,13 @@ function rotate(point: PointMm, degrees: number): PointMm {
 
 function localPadPoint(pad: RoutingPad, component: BackendRouteRequest["board"]["components"][number]) {
   // KiCad's board Y axis makes footprint rotation the inverse of the usual
-  // Cartesian transform used by the portable contract.
-  const local = rotate({ x: pad.at.x - component.at.x, y: pad.at.y - component.at.y }, component.rotationDeg)
+  // Cartesian transform used by the portable contract. Bottom footprints
+  // apply their mirror before the opposite rotation, so their inverse needs
+  // the opposite angle before mirroring the local X coordinate.
+  const local = rotate(
+    { x: pad.at.x - component.at.x, y: pad.at.y - component.at.y },
+    component.side === "bottom" ? -component.rotationDeg : component.rotationDeg,
+  )
   return component.side === "bottom" ? { x: -local.x, y: local.y } : local
 }
 
