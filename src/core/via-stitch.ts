@@ -63,9 +63,18 @@ function rulesForNet(rules: RoutingRules, net: string) {
 }
 
 function physicalLayers(board: RoutingBoard) {
-  const from = board.layers[0]?.name
-  const to = board.layers.at(-1)?.name
-  return from && to ? [from, to] as const : undefined
+  const layers = [...board.layers].sort((left, right) => left.index - right.index).map((layer) => layer.name)
+  return layers.length >= 2 ? layers : undefined
+}
+
+function viaSpanLayers(board: RoutingBoard, via: RoutedVia) {
+  const layers = physicalLayers(board)
+  if (!layers) return [via.fromLayer, via.toLayer]
+  if (via.type === "through") return layers
+  const from = layers.indexOf(via.fromLayer)
+  const to = layers.indexOf(via.toLayer)
+  if (from < 0 || to < 0) return [...new Set([via.fromLayer, via.toLayer])]
+  return layers.slice(Math.min(from, to), Math.max(from, to) + 1)
 }
 
 function zoneContains(point: PointMm, zone: RoutingCopper["zones"][number]) {
@@ -277,7 +286,7 @@ export function planViaStitches(
     const layers = physicalLayers(board)
     const value = rulesForNet(rules, fence.net)
     if (!layers || !board.layers.some((layer) => layer.name === layers[0])
-      || !board.layers.some((layer) => layer.name === layers[1])) {
+      || !board.layers.some((layer) => layer.name === layers.at(-1))) {
       diagnostics.push({ code: "VIA_STITCH_ALONG_LAYER_INVALID", severity: "error", message: `Along-via stitch ${fence.id} has invalid via layers.` })
       continue
     }
@@ -317,7 +326,7 @@ export function planViaStitches(
         const via: RoutedVia = {
           id: `via-stitch:${fence.id}:${vias.length + fenceVias.length}`,
           net: fence.net, at: point, diameterMm, drillMm,
-          fromLayer: layers[0], toLayer: layers[1], type: "through",
+          fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
         }
         fenceVias.push(via)
         accepted.push(via)
@@ -344,11 +353,12 @@ export function planViaStitches(
     for (const source of sourceVias) {
       if (generatedCount >= limit) break
       const sourceRule = rulesForNet(rules, source.net)
+      const sourceLayers = viaSpanLayers(board, source)
       let referenceNet = stitch.referenceNet === "auto" ? sourceRule.impedanceReferenceNet : stitch.referenceNet
       if (!referenceNet) {
         const actual = new Set([...board.copper.fixed.zones, ...board.copper.editable.zones]
           .filter((zone) => zone.fill?.style !== "hatched" && zoneContains(source.at, zone)
-            && zone.layers.some((layer) => layer === source.fromLayer || layer === source.toLayer))
+            && zone.layers.some((layer) => sourceLayers.includes(layer)))
           .map((zone) => zone.net)
           .filter((net): net is string => net !== undefined))
         if (actual.size === 1) referenceNet = [...actual][0]
@@ -363,6 +373,8 @@ export function planViaStitches(
       }
       const referenceRule = rulesForNet(rules, referenceNet)
       const geometry = viaGeometry(stitch, referenceRule)
+      const layers = physicalLayers(board)
+      if (!layers) continue
       const maximumDistance = stitch.maxDistanceMm ?? 1
       const allExisting = [...existingVias, ...vias]
       if (allExisting.some((via) => via.net === referenceNet
@@ -376,13 +388,12 @@ export function planViaStitches(
         for (let direction = 0; direction < 8; direction += 1) {
           const angle = 2 * Math.PI * direction / 8
           const at = { x: source.at.x + radius * Math.cos(angle), y: source.at.y + radius * Math.sin(angle) }
-          if (!legalVia(board, at, referenceNet, [source.fromLayer, source.toLayer], geometry.diameterMm, geometry.drillMm,
+          if (!legalVia(board, at, referenceNet, layers, geometry.diameterMm, geometry.drillMm,
             rules, tracks, zones, allExisting)) continue
           placed = {
             id: `via-stitch:${stitch.id}:${vias.length}`, net: referenceNet, at,
             diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
-            fromLayer: board.layers[0]?.name ?? source.fromLayer,
-            toLayer: board.layers.at(-1)?.name ?? source.toLayer, type: "through",
+            fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
           }
           break
         }
@@ -413,7 +424,7 @@ export function planViaStitches(
         const via: RoutedVia = {
           id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at,
           diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
-          fromLayer: layers[0], toLayer: layers[1], type: "through",
+          fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
         }
         generated.push(via); accepted.push(via)
       }
@@ -448,7 +459,7 @@ export function planViaStitches(
         const via: RoutedVia = {
           id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at: pad.at,
           diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
-          fromLayer: layers[0], toLayer: layers[1], type: "through",
+          fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
         }
         generated.push(via); accepted.push(via)
       }
@@ -467,7 +478,7 @@ export function planViaStitches(
           const via: RoutedVia = {
             id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at,
             diameterMm: geometry.diameterMm, drillMm: geometry.drillMm,
-            fromLayer: layers[0], toLayer: layers[1], type: "through",
+            fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
           }
           generated.push(via); accepted.push(via)
         }

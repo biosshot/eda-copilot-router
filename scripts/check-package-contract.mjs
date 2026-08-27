@@ -779,6 +779,109 @@ assert.ok(gridAvoidingRoutedZones.vias.length > 0)
 assert.ok(gridAvoidingRoutedZones.vias.every((via) => Math.hypot(via.at.x - 2, via.at.y - 2) >= 0.7),
   "via stitches must apply the complete via radius and clearance to routed foreign-net zones")
 
+const multilayerStitchBoard = {
+  ...board,
+  layers: [
+    { name: "F.Cu", index: 0, side: "top" },
+    { name: "In1.Cu", index: 1, side: "inner" },
+    { name: "In2.Cu", index: 2, side: "inner" },
+    { name: "B.Cu", index: 3, side: "bottom" },
+  ],
+  components: [], pads: [], keepouts: [], stackup: undefined,
+  copper: { fixed: emptyCopper, editable: emptyCopper },
+}
+const multilayerGroundZone = {
+  net: "GND", layers: ["F.Cu", "B.Cu"], outline: { outer: multilayerStitchBoard.outline }, fill: { style: "solid" },
+}
+const innerTrack = {
+  net: "VCC", layer: "In1.Cu", widthMm: 1,
+  points: [{ x: 4, y: 5 }, { x: 6, y: 5 }],
+}
+const multilayerGrid = api.planViaStitches(
+  multilayerStitchBoard,
+  { tracks: [innerTrack], vias: [], zones: [multilayerGroundZone] },
+  [{ kind: "via-stitch", mode: "grid", id: "MULTILAYER_GRID", net: "GND", region: { kind: "board" }, pitchMm: 10 }],
+  multilayerStitchBoard.rules,
+  { completedNets: [] },
+)
+assert.deepEqual(multilayerGrid.vias.map((via) => via.at), [{ x: 15, y: 5 }],
+  "grid stitching must reject a candidate blocked by a foreign track on an inner layer")
+assert.ok(multilayerGrid.vias.every((via) => via.fromLayer === "F.Cu" && via.toLayer === "B.Cu"),
+  "multilayer stitching vias must retain their complete through-board span")
+
+const innerForeignZone = {
+  net: "VCC", layers: ["In1.Cu"], outline: { outer: multilayerStitchBoard.outline }, fill: { style: "solid" },
+}
+const multilayerAlong = api.planViaStitches(
+  multilayerStitchBoard,
+  {
+    tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 16, y: 5 }] }],
+    vias: [], zones: [innerForeignZone],
+  },
+  [{ kind: "via-stitch", mode: "along", id: "MULTILAYER_ALONG", routes: ["VCC"], net: "GND", pitchMm: 2, rows: 1 }],
+  multilayerStitchBoard.rules,
+  { completedNets: ["VCC"] },
+)
+assert.equal(multilayerAlong.vias.length, 0,
+  "along stitching must see foreign zones on every layer crossed by its through vias")
+
+const multilayerAround = api.planViaStitches(
+  {
+    ...multilayerStitchBoard,
+    keepouts: [{
+      layers: ["In2.Cu"], polygon: { outer: multilayerStitchBoard.outline },
+      forbid: { tracks: false, vias: true, zones: false },
+    }],
+  },
+  emptyCopper,
+  [{ kind: "via-stitch", mode: "around", id: "MULTILAYER_AROUND", net: "GND", target: { kind: "board" }, pitchMm: 2 }],
+  multilayerStitchBoard.rules,
+  { completedNets: [] },
+)
+assert.equal(multilayerAround.vias.length, 0,
+  "around stitching must see via keepouts on every layer crossed by its through vias")
+
+const sourceThroughVia = {
+  net: "VCC", at: { x: 10, y: 5 }, diameterMm: 0.6, drillMm: 0.3,
+  fromLayer: "F.Cu", toLayer: "B.Cu", type: "through",
+}
+const multilayerReturn = api.planViaStitches(
+  multilayerStitchBoard,
+  { tracks: [], vias: [sourceThroughVia], zones: [{ ...innerForeignZone, net: "USB_DP" }] },
+  [{ kind: "via-stitch", mode: "return", id: "MULTILAYER_RETURN", referenceNet: "GND", forNets: ["VCC"], maxDistanceMm: 2 }],
+  multilayerStitchBoard.rules,
+  { completedNets: [] },
+)
+assert.equal(multilayerReturn.vias.length, 0,
+  "return stitching must see foreign zones on every layer crossed by its through vias")
+
+const innerReferenceBoard = {
+  ...multilayerStitchBoard,
+  copper: { fixed: { ...emptyCopper, zones: [{ ...multilayerGroundZone, layers: ["In1.Cu"] }] }, editable: emptyCopper },
+}
+const multilayerAutoReturn = api.planViaStitches(
+  innerReferenceBoard,
+  { tracks: [], vias: [sourceThroughVia], zones: [] },
+  [{ kind: "via-stitch", mode: "return", id: "MULTILAYER_AUTO_RETURN", referenceNet: "auto", forNets: ["VCC"], maxDistanceMm: 2 }],
+  innerReferenceBoard.rules,
+  { completedNets: [] },
+)
+assert.ok(multilayerAutoReturn.vias.some((via) => via.net === "GND"),
+  "automatic return stitching must resolve a solid reference plane on an inner layer crossed by the source via")
+
+const multilayerPlaneProgram = dsl.compileRoutingDsl(`
+  plane({ net: "GND", layers: "OUTER", region: board(), stitching: { gridMm: 10, viaInPad: false } })
+  runCopper()
+`)
+const multilayerPlaneRules = dsl.compileRoutingRules(multilayerStitchBoard, multilayerPlaneProgram).effective
+const multilayerPlane = api.planRoutingCopper(
+  { ...multilayerStitchBoard, copper: { fixed: { ...emptyCopper, tracks: [{ ...innerTrack, points: [{ x: 0, y: 5 }, { x: 20, y: 5 }] }] }, editable: emptyCopper } },
+  multilayerPlaneProgram,
+  multilayerPlaneRules,
+)
+assert.equal(multilayerPlane.copper.vias.length, 0,
+  "OUTER plane stitching must still check the full through-via span for inner-layer obstacles")
+
 const compactPlaneProgram = dsl.compileRoutingDsl(`
   polygon("VCC").connect(pad("U1", 1), pad("C1", 1)).on("TOP").compact()
   plane({ net: "GND", layers: "OUTER", region: board(), stitching: { gridMm: 1 } })

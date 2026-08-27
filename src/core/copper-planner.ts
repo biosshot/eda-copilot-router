@@ -224,8 +224,9 @@ function stitchingCandidates(
 ): RoutedVia[] {
   if (!plane.stitching) return []
   const stitching = plane.stitching
-  const layers = selectedLayers(board, plane.layers)
-  if (layers.length < 2 || !board.outline.length) return []
+  const planeLayers = selectedLayers(board, plane.layers)
+  const viaLayers = [...board.layers].sort((left, right) => left.index - right.index).map((layer) => layer.name)
+  if (planeLayers.length < 2 || viaLayers.length < 2 || !board.outline.length) return []
   const viaRule = stitching.via === "drc-min"
     ? { diameterMm: rules.via.minDiameterMm, drillMm: rules.via.minDrillMm }
     : stitching.via
@@ -237,8 +238,8 @@ function stitchingCandidates(
   const accepted: RoutedVia[] = []
   const candidateAllowed = (point: PointMm, ownerPad?: { component: string; number: string }) => {
     if (!boardPointAllowed(board, point, radius, rules.edgeClearanceMm)) return false
-    if (keepoutBlocksVia(board, point, layers, radius)) return false
-    if (foreignZoneBlocksCircle(point, plane.net, layers, radius, rules.clearanceMm, zones)) return false
+    if (keepoutBlocksVia(board, point, viaLayers, radius)) return false
+    if (foreignZoneBlocksCircle(point, plane.net, viaLayers, radius, rules.clearanceMm, zones)) return false
     for (const pad of board.pads) {
       if (ownerPad?.component === pad.component && ownerPad.number === pad.number) continue
       const distance = Math.hypot(point.x - pad.at.x, point.y - pad.at.y)
@@ -254,7 +255,7 @@ function stitchingCandidates(
         < viaRule.drillMm / 2 + hole.radiusMm + holeClearance - EPSILON) return false
     }
     for (const track of copper.tracks) {
-      if (track.net === plane.net || !layers.includes(track.layer)) continue
+      if (track.net === plane.net || !viaLayers.includes(track.layer)) continue
       const clearance = radius + track.widthMm / 2 + rules.clearanceMm
       if (track.points.slice(1).some((end, index) =>
         distanceToSegment(point, track.points[index], end) < clearance - EPSILON)) return false
@@ -273,7 +274,7 @@ function stitchingCandidates(
     const end = via.at
     if (Math.hypot(end.x - start.x, end.y - start.y) > stitching.maxPadViaDistanceMm) return false
     if (board.keepouts.some((keepout) => keepout.forbid.zones
-      && keepout.layers.some((layer) => layers.includes(layer))
+      && keepout.layers.some((layer) => planeLayers.includes(layer))
       && keepout.polygon.outer.some((point, index) => segmentsIntersect(
         start, end, point, keepout.polygon.outer[(index + 1) % keepout.polygon.outer.length],
       )))) return false
@@ -283,7 +284,7 @@ function stitchingCandidates(
         < padRadius(board, other.component, other.number) + rules.clearanceMm - EPSILON) return false
     }
     for (const track of copper.tracks) {
-      if (track.net === plane.net || !layers.includes(track.layer)) continue
+      if (track.net === plane.net || !planeLayers.includes(track.layer)) continue
       const clearance = track.widthMm / 2 + rules.clearanceMm
       if (track.points.slice(1).some((point, index) => distanceBetweenSegments(
         start, end, track.points[index], point,
@@ -298,8 +299,8 @@ function stitchingCandidates(
       at: { ...point },
       diameterMm: viaRule.diameterMm,
       drillMm: viaRule.drillMm,
-      fromLayer: layers[0],
-      toLayer: layers.at(-1)!,
+      fromLayer: viaLayers[0],
+      toLayer: viaLayers.at(-1)!,
       type: "through",
     })
     return true
