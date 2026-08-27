@@ -1884,7 +1884,10 @@ async function auditKrtDrc(
   artifactName: string,
 ): Promise<KrtDrcAudit> {
   const scriptPath = join(resolve(spec.krtDirectory), "py_router", "check_drc.py")
-  const args = [resolve(boardPath), "--quiet", "--nets", ...unique(netNames)]
+  const args = [resolve(boardPath), "--quiet", "--clearance", numberArg(spec.rules.clearance)]
+  pushNumericArg(args, "--hole-to-hole-clearance", spec.rules.holeToHoleClearance)
+  pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
+  args.push("--nets", ...unique(netNames))
   const captured = await runCaptured(
     pythonCommand(spec.pythonPath),
     pythonScriptArgs(scriptPath, args, spec.pythonPathEntries),

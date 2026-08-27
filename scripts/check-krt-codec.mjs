@@ -6,8 +6,12 @@ import { approximateKiCadArc, writeKrtBoard } from "../package-dist/backends/krt
 import { importKiCadRoutingBoard } from "../package-dist/adapters/kicad.js"
 
 const values = {
-  clearanceMm: 0.2, edgeClearanceMm: 0.2, minTrackWidthMm: 0.127, preferredTrackWidthMm: 0.2,
+  clearanceMm: 0.2, edgeClearanceMm: 0.2, holeToHoleClearanceMm: 0.175,
+  minTrackWidthMm: 0.127, preferredTrackWidthMm: 0.2,
   via: { minDiameterMm: 0.6, preferredDiameterMm: 0.6, minDrillMm: 0.3, preferredDrillMm: 0.3 },
+}
+const defaultValues = {
+  ...values, clearanceMm: 0.25, holeToHoleClearanceMm: 0.2, preferredTrackWidthMm: 0.25,
 }
 const board = {
   outline: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }], cutouts: [],
@@ -29,7 +33,7 @@ const board = {
     { component: "B1", number: "3", net: "N", at: { x: 14, y: 5 }, rotationDeg: 90, layers: ["B.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
   ],
   keepouts: [{ layers: ["F.Cu"], polygon: { outer: [{ x: 10, y: 10 }, { x: 15, y: 10 }, { x: 15, y: 15 }, { x: 10, y: 15 }], holes: [[{ x: 11, y: 11 }, { x: 12, y: 11 }, { x: 12, y: 12 }, { x: 11, y: 12 }]] }, forbid: { tracks: true, vias: true, zones: true } }],
-  rules: { default: values, nets: [{ net: "N", values }] },
+  rules: { default: defaultValues, nets: [{ net: "N", values }] },
   copper: { fixed: { tracks: [], vias: [], zones: [
     { net: "N", layers: ["In1.Cu"], outline: { outer: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }], holes: [[{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }, { x: 2, y: 3 }]] }, fill: { style: "solid" }, padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.25 }, removeIslandsBelowMm2: 1 },
     { layers: ["F.Cu"], outline: { outer: [{ x: 16, y: 1 }, { x: 19, y: 1 }, { x: 19, y: 4 }, { x: 16, y: 4 }] } },
@@ -38,8 +42,23 @@ const board = {
 
 const directory = await mkdtemp(join(tmpdir(), "copilot-router-codec-"))
 try {
-  const { inputBoard } = await writeKrtBoard({ board }, directory)
+  const { inputBoard, inputProject } = await writeKrtBoard({ board, rules: board.rules }, directory)
   const source = await readFile(inputBoard, "utf8")
+  const project = JSON.parse(await readFile(inputProject, "utf8"))
+  assert.equal(project.board.design_settings.rules.min_track_width, 0.127)
+  assert.equal(project.board.design_settings.rules.min_clearance, 0.2)
+  assert.equal(project.board.design_settings.rules.min_hole_to_hole, 0.175)
+  assert.deepEqual(project.net_settings.classes, [
+    {
+      name: "Default", clearance: 0.25, track_width: 0.25,
+      via_diameter: 0.6, via_drill: 0.3, diff_pair_width: 0.25, diff_pair_gap: 0.25,
+    },
+    {
+      name: "Router_1", clearance: 0.2, track_width: 0.2,
+      via_diameter: 0.6, via_drill: 0.3, diff_pair_width: 0.2, diff_pair_gap: 0.2,
+    },
+  ])
+  assert.deepEqual(project.net_settings.netclass_assignments, { N: "Router_1" })
   assert.match(source, /\(0 "F\.Cu" signal\)[\s\S]*\(4 "In1\.Cu" signal\)[\s\S]*\(6 "In2\.Cu" signal\)[\s\S]*\(2 "B\.Cu" signal\)/)
   assert.match(source, /\(pad "" np_thru_hole circle[\s\S]*\(drill 0\.5 \(offset 0\.1 -0\.1\)\)/)
   assert.match(source, /\(drill oval 1\.3 0\.5\)/)

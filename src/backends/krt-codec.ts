@@ -402,10 +402,63 @@ function subtractCopper(before: RoutingCopper, after: RoutingCopper): RoutingCop
   }
 }
 
+function projectSource(rules: BackendRouteRequest["rules"]) {
+  const values = [rules.default, ...rules.nets.map((entry) => entry.values)]
+  const groups = new Map<string, { values: typeof rules.default; nets: string[] }>()
+  const defaultKey = JSON.stringify(rules.default)
+  groups.set(defaultKey, { values: rules.default, nets: [] })
+  for (const entry of rules.nets) {
+    const key = JSON.stringify(entry.values)
+    const group = groups.get(key) ?? { values: entry.values, nets: [] }
+    group.nets.push(entry.net)
+    groups.set(key, group)
+  }
+  const grouped = [...groups.values()]
+  const className = (index: number) => index === 0 ? "Default" : `Router_${index}`
+  const holeToHoleClearances = values.flatMap((value) => (
+    value.holeToHoleClearanceMm === undefined ? [] : [value.holeToHoleClearanceMm]
+  ))
+  return `${JSON.stringify({
+    board: {
+      design_settings: {
+        rules: {
+          min_track_width: Math.min(...values.map((value) => value.minTrackWidthMm)),
+          min_clearance: Math.min(...values.map((value) => value.clearanceMm)),
+          min_copper_edge_clearance: Math.min(...values.map((value) => value.edgeClearanceMm)),
+          min_via_diameter: Math.min(...values.map((value) => value.via.minDiameterMm)),
+          min_through_hole_diameter: Math.min(...values.map((value) => value.via.minDrillMm)),
+          ...(holeToHoleClearances.length
+            ? { min_hole_to_hole: Math.min(...holeToHoleClearances) }
+            : {}),
+        },
+      },
+    },
+    net_settings: {
+      classes: grouped.map((group, index) => ({
+        name: className(index),
+        clearance: group.values.clearanceMm,
+        track_width: group.values.preferredTrackWidthMm,
+        via_diameter: group.values.via.preferredDiameterMm,
+        via_drill: group.values.via.preferredDrillMm,
+        diff_pair_width: group.values.differential?.trackWidthMm ?? group.values.preferredTrackWidthMm,
+        diff_pair_gap: group.values.differential?.gapMm ?? group.values.clearanceMm,
+      })),
+      netclass_assignments: Object.fromEntries(grouped.flatMap((group, index) => (
+        group.nets.map((net) => [net, className(index)])
+      ))),
+      netclass_patterns: [],
+    },
+  }, null, 2)}\n`
+}
+
 export async function writeKrtBoard(request: BackendRouteRequest, directory: string) {
   const inputBoard = join(directory, "routing-board.kicad_pcb")
-  await writeFile(inputBoard, boardSource(request), "utf8")
-  return { inputBoard }
+  const inputProject = join(directory, "routing-board.kicad_pro")
+  await Promise.all([
+    writeFile(inputBoard, boardSource(request), "utf8"),
+    writeFile(inputProject, projectSource(request.rules), "utf8"),
+  ])
+  return { inputBoard, inputProject }
 }
 
 export async function readKrtBoard(preparedBoard: string, routedBoard: string) {
