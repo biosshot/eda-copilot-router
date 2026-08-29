@@ -539,10 +539,18 @@ export function krtStageDrcGatePasses(
 export function krtStageConnectivityGatePasses(evidence: Readonly<{
   connectivityNonRegressing: boolean
   connectivityImproved: boolean
+  allowWeightedTradeoff?: boolean
+  hardConnectivityNonRegressing?: boolean
+  weightedConnectivityImproved?: boolean
   requireConnectivityImprovement?: boolean
 }>) {
-  return evidence.connectivityNonRegressing
-    && (!evidence.requireConnectivityImprovement || evidence.connectivityImproved)
+  const weightedTradeoffPasses = evidence.allowWeightedTradeoff === true
+    && evidence.hardConnectivityNonRegressing === true
+    && evidence.weightedConnectivityImproved === true
+  return (evidence.connectivityNonRegressing || weightedTradeoffPasses)
+    && (!evidence.requireConnectivityImprovement
+      || evidence.connectivityImproved
+      || weightedTradeoffPasses)
 }
 
 const KRT_HARD_STAGE_DAMAGE = new Set([
@@ -1250,6 +1258,119 @@ export function connectivityComponentsImproved(
   })
 }
 
+type KrtStageConnectivitySnapshot = ConnectivityAuditEvidence & Readonly<{
+  openNets: readonly string[]
+}>
+
+type KrtStageConnectivityPolicy = Readonly<{
+  net: string
+  priorityWeight: number
+  protectOnSuccess?: boolean
+}>
+
+export type KrtStageConnectivityTradeoff = Readonly<{
+  evidenceComplete: boolean
+  hardConnectivityNonRegressing: boolean
+  weightedConnectivityImproved: boolean
+  baselinePriorityOpenPenalty: number
+  candidatePriorityOpenPenalty: number
+  baselineOpenNetCount: number
+  candidateOpenNetCount: number
+  baselineComponentExcess: number
+  candidateComponentExcess: number
+  newlyOpenedNets: readonly string[]
+  newlyOpenedHardNets: readonly string[]
+  newlyClosedNets: readonly string[]
+}>
+
+/**
+ * Compare two full-board connectivity snapshots without making every ordinary
+ * net monotonic. Critical and already-protected nets remain hard invariants;
+ * unprotected nets may trade places only when the same priority/open/component
+ * tuple used by final candidate selection strictly improves.
+ */
+export function krtStageConnectivityTradeoff(
+  baseline: KrtStageConnectivitySnapshot,
+  candidate: KrtStageConnectivitySnapshot,
+  netPolicies: readonly KrtStageConnectivityPolicy[],
+  protectedNets: readonly string[] = [],
+): KrtStageConnectivityTradeoff {
+  const weights = new Map(netPolicies.map((policy) => [policy.net, policy.priorityWeight] as const))
+  const hardNets = new Set([
+    ...protectedNets,
+    ...netPolicies.filter((policy) => policy.protectOnSuccess).map((policy) => policy.net),
+  ])
+  const baselineOpen = new Set(baseline.openNets)
+  const candidateOpen = new Set(candidate.openNets)
+  const newlyOpenedNets = [...candidateOpen].filter((net) => !baselineOpen.has(net)).sort()
+  const newlyClosedNets = [...baselineOpen].filter((net) => !candidateOpen.has(net)).sort()
+  const newlyOpenedHardNets = newlyOpenedNets.filter((net) => hardNets.has(net))
+  const score = (snapshot: KrtStageConnectivitySnapshot, open: ReadonlySet<string>) => {
+    let priorityOpenPenalty = 0
+    let componentExcess = 0
+    for (const net of open) {
+      const count = snapshot.componentCountByNet[net]
+      if (!Number.isFinite(count) || count < 1) return undefined
+      const configuredWeight = weights.get(net)
+      priorityOpenPenalty += Number.isFinite(configuredWeight) && configuredWeight! > 0
+        ? configuredWeight!
+        : 4
+      componentExcess += count - 1
+    }
+    return {
+      priorityOpenPenalty,
+      openNetCount: open.size,
+      componentExcess,
+      tuple: [priorityOpenPenalty, open.size, componentExcess] as const,
+    }
+  }
+  const baselineScore = score(baseline, baselineOpen)
+  const candidateScore = score(candidate, candidateOpen)
+  const hardEvidence = (snapshot: KrtStageConnectivitySnapshot, open: ReadonlySet<string>) => {
+    const componentCountByNet: Record<string, number> = {}
+    const issueFingerprintsByNet: Record<string, readonly string[]> = {}
+    for (const net of open) {
+      if (!hardNets.has(net)) continue
+      const count = snapshot.componentCountByNet[net]
+      if (!Number.isFinite(count) || count < 1) return undefined
+      componentCountByNet[net] = count
+      issueFingerprintsByNet[net] = snapshot.issueFingerprintsByNet[net] ?? []
+    }
+    return { componentCountByNet, issueFingerprintsByNet }
+  }
+  const baselineHard = hardEvidence(baseline, baselineOpen)
+  const candidateHard = hardEvidence(candidate, candidateOpen)
+  const evidenceComplete = Boolean(baselineScore && candidateScore && baselineHard && candidateHard)
+  const weightedConnectivityImproved = Boolean(
+    evidenceComplete
+    && candidateScore!.tuple.some((value, index) => (
+      value < baselineScore!.tuple[index]
+      && candidateScore!.tuple.slice(0, index).every((prefix, prefixIndex) => (
+        prefix === baselineScore!.tuple[prefixIndex]
+      ))
+    )),
+  )
+  const hardConnectivityNonRegressing = Boolean(
+    evidenceComplete
+    && newlyOpenedHardNets.length === 0
+    && connectivityComponentsNonRegressing(candidateHard!, baselineHard!),
+  )
+  return {
+    evidenceComplete,
+    hardConnectivityNonRegressing,
+    weightedConnectivityImproved,
+    baselinePriorityOpenPenalty: baselineScore?.priorityOpenPenalty ?? Number.MAX_SAFE_INTEGER,
+    candidatePriorityOpenPenalty: candidateScore?.priorityOpenPenalty ?? Number.MAX_SAFE_INTEGER,
+    baselineOpenNetCount: baselineScore?.openNetCount ?? Number.MAX_SAFE_INTEGER,
+    candidateOpenNetCount: candidateScore?.openNetCount ?? Number.MAX_SAFE_INTEGER,
+    baselineComponentExcess: baselineScore?.componentExcess ?? Number.MAX_SAFE_INTEGER,
+    candidateComponentExcess: candidateScore?.componentExcess ?? Number.MAX_SAFE_INTEGER,
+    newlyOpenedNets,
+    newlyOpenedHardNets,
+    newlyClosedNets,
+  }
+}
+
 function processFailed(result: KrtProcessResult) {
   return result.status !== "completed" || result.diagnostics.some((item) => item.severity === "error")
 }
@@ -1671,15 +1792,30 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             && (candidateConnectivity!.openNets.length < baselineOpen.size
               || connectivityComponentsImproved(candidateConnectivity!, baseline.connectivity!)),
           )
+          const connectivityTradeoff = baselineConnectivityUsable && candidateConnectivityUsable
+            ? krtStageConnectivityTradeoff(
+                baseline.connectivity!,
+                candidateConnectivity!,
+                request.plan.netPolicies,
+                [...protectedNets],
+              )
+            : undefined
+          const allowWeightedTradeoff = gate === "ordinary"
+          const weightedTradeoffPasses = Boolean(
+            allowWeightedTradeoff
+            && connectivityTradeoff?.hardConnectivityNonRegressing
+            && connectivityTradeoff.weightedConnectivityImproved,
+          )
+          const effectiveConnectivityImproved = connectivityImproved || weightedTradeoffPasses
           // An ordinary full-board pass is allowed to retain useful partial
           // copper with a new non-short DRC diagnostic. Rejecting 900 newly
           // connected nets because of one clearance item recreates the old
-          // all-or-nothing failure mode. Physical shorts, connectivity damage,
-          // protected damage and hard-rule violations remain hard gates.
+          // all-or-nothing failure mode. Physical shorts, critical/protected
+          // connectivity damage and hard-rule violations remain hard gates.
           const drcGatePassed = krtStageDrcGatePasses(gate, {
             drcNonRegressing,
             shortsNonRegressing,
-            connectivityImproved,
+            connectivityImproved: effectiveConnectivityImproved,
           })
           const hardDamage = result.diagnostics.filter((item) => (
             item.severity === "error" && KRT_HARD_STAGE_DAMAGE.has(item.code)
@@ -1692,6 +1828,9 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             && krtStageConnectivityGatePasses({
               connectivityNonRegressing,
               connectivityImproved,
+              allowWeightedTradeoff,
+              hardConnectivityNonRegressing: connectivityTradeoff?.hardConnectivityNonRegressing,
+              weightedConnectivityImproved: connectivityTradeoff?.weightedConnectivityImproved,
               requireConnectivityImprovement,
             })
             && drcGatePassed,
@@ -1704,6 +1843,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           ]
           const stageDiagnostics = [...resultDiagnostics, ...auditDiagnostics, ...ruleDiagnostics]
           diagnostics.push(...(accepted ? stageDiagnostics : demoteErrors(stageDiagnostics)))
+          if (accepted && !connectivityNonRegressing && weightedTradeoffPasses) diagnostics.push(diagnostic(
+            "KRT_STAGE_WEIGHTED_CONNECTIVITY_TRADEOFF_SELECTED",
+            "info",
+            "Selected a stage that strictly improves weighted full-board connectivity while preserving every critical/protected net.",
+            { tag, gate, ...connectivityTradeoff },
+          ))
           if (accepted) {
             current = output
             fallbackCurrentBoard = current
@@ -1735,6 +1880,9 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
               afterDrcViolations: candidateDrc?.violationCount,
               connectivityNonRegressing,
               connectivityImproved,
+              effectiveConnectivityImproved,
+              allowWeightedTradeoff,
+              connectivityTradeoff,
               requireConnectivityImprovement,
               shortsNonRegressing,
               drcNonRegressing,

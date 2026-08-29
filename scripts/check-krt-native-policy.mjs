@@ -176,6 +176,29 @@ assert.equal(krt.krtStageConnectivityGatePasses({
   connectivityImproved: true,
   requireConnectivityImprovement: true,
 }), true, "a strictly improving monolithic fallback may proceed to the remaining safety gates")
+assert.equal(krt.krtStageConnectivityGatePasses({
+  connectivityNonRegressing: false,
+  connectivityImproved: true,
+  allowWeightedTradeoff: true,
+  hardConnectivityNonRegressing: true,
+  weightedConnectivityImproved: true,
+  requireConnectivityImprovement: true,
+}), true, "ordinary routing may trade unprotected nets when weighted connectivity strictly improves")
+assert.equal(krt.krtStageConnectivityGatePasses({
+  connectivityNonRegressing: false,
+  connectivityImproved: true,
+  allowWeightedTradeoff: true,
+  hardConnectivityNonRegressing: false,
+  weightedConnectivityImproved: true,
+  requireConnectivityImprovement: true,
+}), false, "a weighted trade must never open or fragment a critical/protected net")
+assert.equal(krt.krtStageConnectivityGatePasses({
+  connectivityNonRegressing: false,
+  connectivityImproved: true,
+  allowWeightedTradeoff: false,
+  hardConnectivityNonRegressing: true,
+  weightedConnectivityImproved: true,
+}), false, "strict stages must retain monotonic full-board connectivity")
 
 const connectivity = (components, fingerprints = []) => ({
   componentCountByNet: { N1: components },
@@ -189,6 +212,56 @@ assert.equal(krt.connectivityComponentsNonRegressing(
   connectivity(2, ["different-pad-partition"]),
   connectivity(2, ["original-pad-partition"]),
 ), false, "same component count must not hide a disconnected-pad partition regression")
+
+const stageAudit = (openNets) => ({
+  openNets,
+  componentCountByNet: Object.fromEntries(openNets.map((net) => [net, 2])),
+  issueFingerprintsByNet: Object.fromEntries(openNets.map((net) => [net, [`open:${net}`]])),
+})
+const h743ClosedOrdinary = Array.from({ length: 73 }, (_, index) => `N${index + 1}`)
+const h743RetainedOrdinary = Array.from({ length: 11 }, (_, index) => `R${index + 1}`)
+const h743ReopenedHigh = ["GYRO1_SCK", "GYRO2_SCK", "VBAT_IN"]
+const h743Policies = [
+  ...h743ClosedOrdinary,
+  ...h743RetainedOrdinary,
+].map((net) => ({ net, priorityWeight: 4, protectOnSuccess: false })).concat(
+  h743ReopenedHigh.map((net) => ({ net, priorityWeight: 16, protectOnSuccess: false })),
+  [{ net: "CRITICAL", priorityWeight: 64, protectOnSuccess: true }],
+)
+const h743Tradeoff = krt.krtStageConnectivityTradeoff(
+  stageAudit([...h743ClosedOrdinary, ...h743RetainedOrdinary]),
+  stageAudit([...h743RetainedOrdinary, ...h743ReopenedHigh]),
+  h743Policies,
+  [],
+)
+assert.equal(h743Tradeoff.baselineOpenNetCount, 84)
+assert.equal(h743Tradeoff.candidateOpenNetCount, 14)
+assert.equal(h743Tradeoff.baselinePriorityOpenPenalty, 336)
+assert.equal(h743Tradeoff.candidatePriorityOpenPenalty, 92)
+assert.deepEqual(h743Tradeoff.newlyOpenedNets, h743ReopenedHigh)
+assert.equal(h743Tradeoff.newlyClosedNets.length, 73)
+assert.equal(h743Tradeoff.hardConnectivityNonRegressing, true)
+assert.equal(h743Tradeoff.weightedConnectivityImproved, true,
+  "the measured H743 84-to-14 fallback must survive three newly-open high nets")
+
+const criticalRegressionTradeoff = krt.krtStageConnectivityTradeoff(
+  stageAudit([...h743ClosedOrdinary, ...h743RetainedOrdinary]),
+  stageAudit([...h743RetainedOrdinary, "CRITICAL"]),
+  h743Policies,
+  [],
+)
+assert.equal(criticalRegressionTradeoff.weightedConnectivityImproved, true)
+assert.equal(criticalRegressionTradeoff.hardConnectivityNonRegressing, false,
+  "even a large aggregate gain must not reopen a critical net")
+
+const protectedRegressionTradeoff = krt.krtStageConnectivityTradeoff(
+  stageAudit([...h743ClosedOrdinary, ...h743RetainedOrdinary]),
+  stageAudit([...h743RetainedOrdinary, "GYRO1_SCK"]),
+  h743Policies,
+  ["GYRO1_SCK"],
+)
+assert.equal(protectedRegressionTradeoff.hardConnectivityNonRegressing, false,
+  "the dynamic protected ledger must remain a hard gate independently of DSL priority")
 assert.ok(krt.krtDrcViolationItem({ type: "clearance", accepted: false }))
 assert.equal(krt.krtDrcViolationItem({ type: "clearance", accepted: true }), undefined)
 assert.equal(krt.krtDrcViolationItem({ type: "clearance", accepted: "quantization-margin" }), undefined,

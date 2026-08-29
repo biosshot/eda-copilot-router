@@ -63,6 +63,18 @@ const KRT_TRANSPORT_DIAGNOSTICS = new Set([
 
 type JsonRecord = Readonly<Record<string, unknown>>
 
+// KRT exposes these raw stage summaries for provenance. They are not snapshots
+// of the promoted board and can include failures from candidates that a stage
+// gate rolled back. `special` is intentionally retained because it is the
+// canonical semantic report for differential pairs and matched groups;
+// `specialBatches` is only its duplicate expanded representation.
+const KRT_NATIVE_AUTO_HISTORY_ROOT_KEYS = new Set([
+  "specialBatches",
+  "critical",
+  "early",
+  "main",
+])
+
 export type RoutingCandidateGrade = Readonly<{
   structurallyUsable: boolean
   structuralDiagnostics: readonly RoutingDiagnostic[]
@@ -133,21 +145,32 @@ function detailRecords(details: unknown) {
   const output: JsonRecord[] = []
   const seen = new Set<unknown>()
   const excluded = new Set(["attempts", "candidates", "fanout", "runtime", "subcalls"])
-  const visit = (value: unknown, depth: number) => {
+  const nativeAuto = record(details)?.policy === "native-auto"
+  const visit = (value: unknown, depth: number, path: readonly string[]) => {
     if (depth > 4 || seen.has(value)) return
     const object = record(value)
     if (object) {
       seen.add(value)
+      // Orchestrators retain rejected attempts in metrics.details for
+      // diagnostics and reproducibility. Their nested summaries describe a
+      // board that was explicitly rolled back, so they are not evidence about
+      // the copper in this candidate. The original details remain available to
+      // callers; only the final-state grade ignores this rejected subtree.
+      if (nativeAuto && path.length === 1 && path[0] === "repairs" && object.accepted === false) return
       output.push(object)
-      for (const [key, child] of Object.entries(object)) if (!excluded.has(key)) visit(child, depth + 1)
+      for (const [key, child] of Object.entries(object)) {
+        if (excluded.has(key)) continue
+        if (nativeAuto && depth === 0 && KRT_NATIVE_AUTO_HISTORY_ROOT_KEYS.has(key)) continue
+        visit(child, depth + 1, [...path, key])
+      }
       return
     }
     if (Array.isArray(value)) {
       seen.add(value)
-      for (const child of value.slice(0, 128)) visit(child, depth + 1)
+      for (const child of value.slice(0, 128)) visit(child, depth + 1, path)
     }
   }
-  visit(details, 0)
+  visit(details, 0, [])
   return output
 }
 

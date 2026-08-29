@@ -97,6 +97,7 @@ declare function polygon(net: string): PolygonBuilder;
 
 declare function plane(options: {
   net: string;
+  /** Layers to pour. Default OUTER (TOP and BOTTOM). For ordinary two-layer GND, write OUTER explicitly; use one layer only for a verified reason. */
   layers?: LayerSelector;
   region?: RegionSelector;
   zone?: ZoneOptions;
@@ -207,7 +208,7 @@ interface BusDetectOptions {
 /** true emits only backend enablement; omitted numeric fields stay backend defaults. */
 declare function busDetect(enabled: boolean | BusDetectOptions): void;
 
-/** Explicitly enable fanout for a component or one logical pad. Fanout is off unless declared. */
+/** Explicit dense-package escape retry for a component or one logical pad. The first routing attempt must omit it unless the user requires it; successful fanout copper is created before main routing. */
 declare function fanout(target: FanoutTarget, options?: FanoutOptions): void;
 
 /**

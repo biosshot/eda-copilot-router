@@ -102,6 +102,81 @@ const lostProtectedCopper = candidate("lost-protected", 1, result({
 assert.equal(recoveredRip.grade.criticalRegressionCount, 0, "safe native blocker recovery is not a regression")
 assert.ok(lostProtectedCopper.grade.criticalRegressionCount > 0, "unrecovered protected copper is a critical regression")
 
+const rejectedRepairHistory = candidate("useful-partial-with-rejected-repair", 1, result({
+  status: "partial",
+  metrics: {
+    openNetCount: 1,
+    openNets: ["AUX"],
+    connectivityComponentCount: 2,
+    details: {
+      policy: "native-auto",
+      main: [{
+        coverage_gate_nets: ["CRIT", "OSC"],
+        preexisting_rips: { CRIT: "NOT RECOVERED", OSC: "PARTIAL" },
+        failed_diff_pairs: ["DP"],
+        matched_group_violations: ["MATCH"],
+        addedDrcViolations: 4,
+      }],
+      repairs: [{
+        accepted: false,
+        criticalRegressions: ["CRIT"],
+        summary: {
+          coverage_gate_nets: ["CRIT", "OSC"],
+          preexisting_rips: { CRIT: "NOT RECOVERED", OSC: "PARTIAL" },
+          failed_diff_pairs: ["DP"],
+          matched_group_violations: ["MATCH"],
+          addedDrcViolations: 4,
+        },
+      }],
+    },
+  },
+  diagnostics: [
+    { code: "KRT_COVERAGE_GATE_FAILED", severity: "warning", message: "rejected repair only" },
+    { code: "KRT_RIP_VICTIM_INCOMPLETE", severity: "warning", message: "rejected repair only" },
+  ],
+}))
+const preRouteCheckpoint = candidate("pre-route-checkpoint", -1, result({
+  status: "partial",
+  metrics: { openNetCount: 2, openNets: ["CRIT", "AUX"], connectivityComponentCount: 3 },
+}))
+assert.equal(rejectedRepairHistory.grade.criticalRegressionCount, 0,
+  "a rolled-back repair must not poison the promoted board's critical grade")
+assert.equal(rejectedRepairHistory.grade.differentialViolationCount, 0,
+  "a rolled-back repair must not poison the promoted board's differential grade")
+assert.equal(rejectedRepairHistory.grade.matchedViolationCount, 0,
+  "a rolled-back repair must not poison the promoted board's matched-length grade")
+assert.equal(rejectedRepairHistory.grade.drcViolationCount, 0,
+  "a rolled-back repair must not poison the promoted board's DRC grade")
+assert.equal(core.retainRoutingChampion(preRouteCheckpoint, rejectedRepairHistory), rejectedRepairHistory,
+  "a useful partial route must beat the empty checkpoint despite rejected repair history")
+
+const finalDetailsRegression = candidate("final-details-regression", 0, result({
+  metrics: {
+    openNetCount: 0,
+    openNets: [],
+    connectivityComponentCount: 1,
+    details: { criticalRegressions: ["CRIT"] },
+  },
+}))
+assert.equal(finalDetailsRegression.grade.criticalRegressionCount, 1,
+  "authoritative final-state regression details must remain a hard candidate penalty")
+
+const customVerdict = candidate("custom-final-verdict", 0, result({
+  metrics: {
+    openNetCount: 0,
+    openNets: [],
+    connectivityComponentCount: 1,
+    details: {
+      verdict: {
+        accepted: false,
+        summary: { criticalRegressions: ["CRIT"] },
+      },
+    },
+  },
+}))
+assert.equal(customVerdict.grade.criticalRegressionCount, 1,
+  "an open-ended custom detail named accepted=false must not be mistaken for KRT rollback history")
+
 const parseableTransportError = candidate("transport-error", 0, result({ status: "error" }))
 assert.equal(parseableTransportError.grade.errorCount, 0, "transport status alone must not poison parseable copper")
 
