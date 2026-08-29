@@ -2404,7 +2404,21 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             output,
             {
               ...boardAuditSpec(),
+              // Dedicated stack-plane layers remain visible to KRT as
+              // full-stack forbidden layers, but are never offered as signal
+              // routing layers during the weld/finalize pass.
+              layers: routeLayersFor(request, planeNetNames),
               remainingNets: planeNetNames,
+              // Preserve explicit power-net identity in the separate
+              // finalizer process. Besides width/ampacity policy, the managed
+              // KRT patch uses this exact scope to retire only redundant
+              // Stack Power Plane copper (never GND or an ordinary plane()).
+              powerNets: request.program.powerNets
+                .filter((intent) => planeNetNames.includes(intent.net))
+                .map((intent) => ({
+                  net: intent.net,
+                  width: ruleFor(request, intent.net).preferredTrackWidthMm,
+                })),
               planeFinalize: true,
             },
             join(root, "plane-finalize"),
