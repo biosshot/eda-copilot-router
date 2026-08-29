@@ -20,10 +20,10 @@ const backend = {
       status: "complete",
       copper: {
         tracks: [
-          { net: "DPA_P", layer: "F.Cu", widthMm: 0.25, points: [{ x: 10, y: 15 }, { x: 17.52, y: 13 }] },
-          { net: "DPA_N", layer: "F.Cu", widthMm: 0.25, points: [{ x: 10, y: 17.54 }, { x: 17.52, y: 17 }] },
-          { net: "DPB_P", layer: "F.Cu", widthMm: 0.25, points: [{ x: 18.48, y: 13 }, { x: 26, y: 15 }] },
-          { net: "DPB_N", layer: "F.Cu", widthMm: 0.25, points: [{ x: 18.48, y: 17 }, { x: 26, y: 17.54 }] },
+          { net: "USB_DP_CONN", layer: "TOP", widthMm: 0.25, points: [{ x: 10, y: 15 }, { x: 17.52, y: 13 }] },
+          { net: "USB_DM_CONN", layer: "TOP", widthMm: 0.25, points: [{ x: 10, y: 17.54 }, { x: 17.52, y: 17 }] },
+          { net: "USB_DP_ESD", layer: "TOP", widthMm: 0.25, points: [{ x: 18.48, y: 13 }, { x: 26, y: 15 }] },
+          { net: "USB_DM_ESD", layer: "TOP", widthMm: 0.25, points: [{ x: 18.48, y: 17 }, { x: 26, y: 17.54 }] },
         ],
         vias: [],
         zones: [],
@@ -39,4 +39,3 @@ assert.equal(result.metrics.backend, "portable-no-kicad")
 assert.equal(result.copper?.tracks.length, 4)
 assert.equal(result.requiresNativeVerification, true)
 console.log("portable no-KiCad E2E: ok")
-

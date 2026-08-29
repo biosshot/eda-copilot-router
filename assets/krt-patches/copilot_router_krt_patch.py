@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import math
 import copy
 import json
@@ -520,11 +521,14 @@ def _install_explicit_diff_pairs():
     contain every explicit member, leaving secondary pattern queries and all
     ordinary KRT invocations on their upstream behavior.
     """
-    raw = os.environ.get(_EXPLICIT_DIFF_PAIRS_ENV)
-    if not raw:
-        return
-
-    explicit_pairs = _parse_explicit_diff_pairs(raw)
+    explicit_pairs = list(_EXACT_SELECTOR_SCOPE.get("diffPairs", ()))
+    source = _EXACT_SELECTORS_FILE_ENV
+    if not explicit_pairs:
+        raw = os.environ.get(_EXPLICIT_DIFF_PAIRS_ENV)
+        if not raw:
+            return
+        explicit_pairs = _parse_explicit_diff_pairs(raw)
+        source = _EXPLICIT_DIFF_PAIRS_ENV
     explicit_members = {name for pair in explicit_pairs for name in pair}
     import net_queries
 
@@ -559,7 +563,7 @@ def _install_explicit_diff_pairs():
             )
         print(
             f"Using {len(output)} explicit differential pair(s) from "
-            f"{_EXPLICIT_DIFF_PAIRS_ENV}"
+            f"{source}"
         )
         return output
 
@@ -604,5 +608,370 @@ def _install_qfn_pad_allowlist():
     qfn_fanout.generate_qfn_fanout = filtered
 
 
+_EXACT_SELECTORS_FILE_ENV = "COPILOT_ROUTER_EXACT_SELECTORS_FILE"
+_EXACT_NET_SENTINEL = "__COPILOT_ROUTER_EXACT_NET_SCOPE_V1__"
+_EXACT_RIP_SENTINEL = "__COPILOT_ROUTER_EXACT_RIP_SCOPE_V1__"
+
+
+def _load_exact_selector_scope():
+    path = os.environ.get(_EXACT_SELECTORS_FILE_ENV)
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as source:
+        parsed = json.load(source)
+    if not isinstance(parsed, dict) or parsed.get("schemaVersion") != 1:
+        raise RuntimeError(
+            f"{_EXACT_SELECTORS_FILE_ENV} must reference a version-1 JSON object"
+        )
+    output = {}
+    for key in ("netSelection", "ripSelection", "ripAuthorization"):
+        values = parsed.get(key, [])
+        if not isinstance(values, list) or any(
+                not isinstance(name, str) or not name.strip() for name in values):
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.{key} must be an array of non-empty strings"
+            )
+        output[key] = tuple(dict.fromkeys(name.strip() for name in values))
+    selected_names = set(output["netSelection"]) | set(output["ripSelection"])
+    sentinels = {}
+    for key, default in (("netSentinel", _EXACT_NET_SENTINEL),
+                         ("ripSentinel", _EXACT_RIP_SENTINEL)):
+        value = parsed.get(key, default)
+        if not isinstance(value, str) or not value:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.{key} must be a non-empty string"
+            )
+        if value in selected_names:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.{key} collides with an exact raw net name"
+            )
+        sentinels[key] = value
+    if sentinels["netSentinel"] == sentinels["ripSentinel"]:
+        raise RuntimeError(
+            f"{_EXACT_SELECTORS_FILE_ENV} must use distinct net and rip sentinels"
+        )
+    output.update(sentinels)
+    selector_tokens = parsed.get("selectorTokens", [])
+    if not isinstance(selector_tokens, list):
+        raise RuntimeError(
+            f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens must be an array of [token, name] pairs"
+        )
+    normalized_tokens = []
+    owned_tokens = set()
+    owned_token_names = set()
+    for index, item in enumerate(selector_tokens):
+        if (not isinstance(item, list) or len(item) != 2
+                or not all(isinstance(value, str) and value for value in item)):
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens[{index}] must be [non-empty token, non-empty name]"
+            )
+        token, name = item
+        if name not in selected_names:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens[{index}] names a net outside the exact selection"
+            )
+        if token in selected_names:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens[{index}] collides with an exact raw net name"
+            )
+        if token in owned_tokens or name in owned_token_names:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens must assign one unique token per net"
+            )
+        owned_tokens.add(token)
+        owned_token_names.add(name)
+        normalized_tokens.append((token, name))
+    if selected_names and owned_token_names != selected_names:
+        missing = sorted(selected_names.difference(owned_token_names))
+        raise RuntimeError(
+            f"{_EXACT_SELECTORS_FILE_ENV}.selectorTokens is missing exact nets: "
+            + ", ".join(missing)
+        )
+    output["selectorTokens"] = tuple(normalized_tokens)
+    diff_pairs = parsed.get("diffPairs", [])
+    if not isinstance(diff_pairs, list):
+        raise RuntimeError(
+            f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs must be an array of [P, N] pairs"
+        )
+    normalized_pairs = []
+    owned = set()
+    for index, item in enumerate(diff_pairs):
+        if not isinstance(item, list) or len(item) != 2:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs[{index}] must be [positive, negative]"
+            )
+        positive, negative = item
+        if not isinstance(positive, str) or not positive.strip():
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs[{index}][0] must be a non-empty string"
+            )
+        if not isinstance(negative, str) or not negative.strip():
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs[{index}][1] must be a non-empty string"
+            )
+        positive = positive.strip()
+        negative = negative.strip()
+        if positive == negative:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs[{index}] must contain distinct nets"
+            )
+        duplicate = next((name for name in (positive, negative) if name in owned), None)
+        if duplicate is not None:
+            raise RuntimeError(
+                f"{_EXACT_SELECTORS_FILE_ENV}.diffPairs assigns net {duplicate!r} more than once"
+            )
+        owned.update((positive, negative))
+        normalized_pairs.append((positive, negative))
+    output["diffPairs"] = tuple(normalized_pairs)
+    return output
+
+
+_EXACT_SELECTOR_SCOPE = _load_exact_selector_scope()
+
+
+def _install_exact_rip_overrides():
+    """Preserve exact override authority after host-side fnmatch escaping.
+
+    KRT correctly treats CLI selectors as globs, while protected_nets uses a
+    raw token without glob metacharacters as the deliberate permission to rip
+    protected copper.  A literal KiCad name such as ``DATA[0]`` therefore must
+    travel in two forms: escaped through the CLI selector and raw through this
+    private, validated authorization channel.  KiCad-locked copper remains
+    non-overridable in upstream filter_rippable_names.
+    """
+    authorized = set(_EXACT_SELECTOR_SCOPE.get("ripAuthorization", ()))
+    # Keep developer-override compatibility without making normal invocations
+    # pay Windows' environment-block cost for a JSON array of every net.
+    raw = os.environ.get("COPILOT_ROUTER_EXACT_RIP_NETS")
+    if raw:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list) or any(
+                not isinstance(name, str) or not name.strip() for name in parsed):
+            raise RuntimeError(
+                "COPILOT_ROUTER_EXACT_RIP_NETS must be a JSON array of non-empty strings"
+            )
+        authorized.update(name.strip() for name in parsed)
+    if not authorized:
+        return
+    import protected_nets
+    original = protected_nets.exact_names
+
+    def exact_names(patterns):
+        return set(original(patterns)) | authorized
+
+    protected_nets.exact_names = exact_names
+
+
+def _exact_selector_pairs(key: str):
+    raw = os.environ.get(key)
+    if not raw:
+        return []
+    parsed = json.loads(raw)
+    if not isinstance(parsed, list):
+        raise RuntimeError(f"{key} must be a JSON array of [pattern, name] pairs")
+    output = []
+    for index, item in enumerate(parsed):
+        if (not isinstance(item, list) or len(item) != 2
+                or not all(isinstance(value, str) and value for value in item)):
+            raise RuntimeError(f"{key}[{index}] must be [non-empty pattern, non-empty name]")
+        output.append((item[0], item[1]))
+    return output
+
+
+def _literal_net_filter_pattern(name: str):
+    pattern = name.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]")
+    if pattern.startswith("-"):
+        pattern = "[-]" + pattern[1:]
+    return "\\" + pattern if name.startswith("!") else pattern
+
+
+def _exact_selector_map(names, sentinel, selector_tokens):
+    mapping = {}
+
+    def add(token, resolved):
+        resolved = tuple(resolved)
+        previous = mapping.get(token)
+        if previous is not None and previous != resolved:
+            raise RuntimeError(
+                "Exact host selector token collision for " + repr(token)
+            )
+        mapping[token] = resolved
+
+    names = tuple(dict.fromkeys(names))
+    if names:
+        add(sentinel, names)
+    for name in names:
+        # KRT passes raw names into recovery filters after expansion. CLI glob
+        # spellings use collision-free opaque tokens from the sidecar instead
+        # of sharing a namespace with legal raw KiCad names.
+        add(name, (name,))
+    for token, name in selector_tokens:
+        if name in names:
+            add(token, (name,))
+    return mapping
+
+
+def _install_exact_net_selection():
+    """Make host-owned DSL net names exact, including hierarchical aliases.
+
+    Upstream intentionally lets a bare ``SIG`` pattern also select
+    ``/Sheet/SIG``.  That is convenient for the CLI but unsafe for an exact DSL
+    and for targeted rip authorization. Calls made with the compact sentinel,
+    encoded CLI tokens, or raw names returned by an earlier exact expansion
+    are narrowed; every other native KRT query keeps its upstream
+    wildcard/sheet-leaf semantics.
+    """
+    selector_tokens = _EXACT_SELECTOR_SCOPE.get("selectorTokens", ())
+    net_selection = _EXACT_SELECTOR_SCOPE.get("netSelection", ())
+    rip_selection = _EXACT_SELECTOR_SCOPE.get("ripSelection", ())
+    net_sentinel = _EXACT_SELECTOR_SCOPE.get("netSentinel", _EXACT_NET_SENTINEL)
+    rip_sentinel = _EXACT_SELECTOR_SCOPE.get("ripSentinel", _EXACT_RIP_SENTINEL)
+    selectors = [
+        _exact_selector_map(
+            net_selection,
+            net_sentinel,
+            selector_tokens,
+        ),
+        _exact_selector_map(
+            rip_selection,
+            rip_sentinel,
+            selector_tokens,
+        ),
+    ]
+    owned_tokens = {token for token, _name in selector_tokens}
+    if net_selection:
+        owned_tokens.add(net_sentinel)
+    if rip_selection:
+        owned_tokens.add(rip_sentinel)
+    # Legacy mappings remain accepted for developer invocations. Precompute
+    # them once as token -> immutable exact-name tuple as well.
+    for key in ("COPILOT_ROUTER_EXACT_NET_SELECTION",
+                "COPILOT_ROUTER_EXACT_RIP_SELECTION"):
+        pairs = _exact_selector_pairs(key)
+        if pairs:
+            mapping = {}
+            for pattern, name in pairs:
+                mapping[pattern] = (name,)
+                mapping[name] = (name,)
+                owned_tokens.add(pattern)
+            selectors.append(mapping)
+    selectors = [mapping for mapping in selectors if mapping]
+    if not selectors:
+        return
+
+    # A host-owned token must have one meaning across every exact scope.  Do
+    # this check before choosing a scope so a colliding legacy developer
+    # mapping cannot silently win by list order.
+    resolved_by_token = {}
+    for mapping in selectors:
+        for token, names in mapping.items():
+            previous = resolved_by_token.get(token)
+            if previous is not None and previous != names:
+                raise RuntimeError(
+                    "Exact host selector token collision for " + repr(token)
+                )
+            resolved_by_token[token] = names
+
+    import net_queries
+    original_expand = net_queries.expand_net_patterns
+    original_matches = net_queries.matches_net_filter
+
+    missing = object()
+    resolve_cache = {}
+    available_cache = {}
+
+    def resolve(patterns):
+        requested = tuple(patterns or ())
+        if not requested:
+            return None
+        cached = resolve_cache.get(requested, missing)
+        if cached is not missing:
+            return cached
+        for mapping in selectors:
+            if all(pattern in mapping for pattern in requested):
+                ordered = tuple(dict.fromkeys(
+                    name for pattern in requested for name in mapping[pattern]
+                ))
+                result = (ordered, frozenset(ordered))
+                resolve_cache[requested] = result
+                return result
+        resolve_cache[requested] = None
+        return None
+
+    def exact_or_native(patterns, context):
+        exact = resolve(patterns)
+        if exact is None and any(pattern in owned_tokens for pattern in (patterns or ())):
+            raise RuntimeError(
+                f"Exact host {context} selector mixes an owned token with "
+                "patterns outside its exact scope"
+            )
+        return exact
+
+    def available_names(pcb_data):
+        key = id(pcb_data)
+        cached = available_cache.get(key)
+        if cached is not None and cached[0] is pcb_data:
+            return cached[1]
+        available = {
+            str(net.name) for net in pcb_data.nets.values()
+            if getattr(net, "name", None)
+        }
+        for pads in pcb_data.pads_by_net.values():
+            available.update(
+                str(pad.net_name) for pad in pads if getattr(pad, "net_name", None)
+            )
+        frozen = frozenset(available)
+        available_cache[key] = (pcb_data, frozen)
+        return frozen
+
+    def expand_net_patterns(pcb_data, patterns, exclude_unconnected=True):
+        exact = exact_or_native(patterns, "net")
+        if exact is None:
+            return original_expand(pcb_data, patterns, exclude_unconnected)
+        ordered, exact_set = exact
+        absent = sorted(exact_set.difference(available_names(pcb_data)))
+        if absent:
+            raise RuntimeError("Exact host net selector is absent from the PCB: " + ", ".join(absent))
+        return list(ordered)
+
+    def matches_net_filter(net_name, patterns):
+        exact = exact_or_native(patterns, "net filter")
+        return net_name in exact[1] if exact is not None else original_matches(net_name, patterns)
+
+    net_queries.expand_net_patterns = expand_net_patterns
+    net_queries.matches_net_filter = matches_net_filter
+
+    # Length matching has its own glob matcher and routing_common imports it
+    # into a module-local alias.  Resolve the same opaque selector tokens here
+    # so names containing glob syntax (for example DATA[0]) remain literal.
+    import length_matching
+    original_length_match_finder = length_matching.find_nets_matching_patterns
+
+    def find_nets_matching_patterns(all_net_names, patterns):
+        exact = exact_or_native(patterns, "length-match")
+        if exact is None:
+            return original_length_match_finder(all_net_names, patterns)
+        ordered, exact_set = exact
+        available = frozenset(str(name) for name in all_net_names)
+        absent = sorted(exact_set.difference(available))
+        if absent:
+            raise RuntimeError(
+                "Exact host length-match selector is absent from routed nets: "
+                + ", ".join(absent)
+            )
+        return list(ordered)
+
+    length_matching.find_nets_matching_patterns = find_nets_matching_patterns
+    # Rebind aliases in modules that may have imported the original before
+    # this patch. Modules imported later receive the patched attribute from
+    # length_matching normally.
+    for module_name in ("routing_common", "route"):
+        module = sys.modules.get(module_name)
+        if module is not None and hasattr(module, "find_nets_matching_patterns"):
+            module.find_nets_matching_patterns = find_nets_matching_patterns
+
+
+_install_exact_net_selection()
+_install_exact_rip_overrides()
 _install_explicit_diff_pairs()
 _install_qfn_pad_allowlist()

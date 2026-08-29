@@ -122,13 +122,24 @@ function rule(value: Record<string, unknown>, path: string, diagnostics: Routing
 }
 
 const RULE_KEYS = ["trackWidthMm", "minTrackWidthMm", "clearanceMm", "edgeClearanceMm", "holeToHoleClearanceMm", "allowedLayers", "via"]
+const NET_PRIORITIES = ["critical", "high", "normal", "low"]
+const VIA_PREFERENCES = ["auto", "avoid", "forbid"]
+
+function netRoutingPreference(value: Record<string, unknown>, path: string, diagnostics: RoutingDiagnostic[]) {
+  if (value.priority !== undefined && !NET_PRIORITIES.includes(String(value.priority))) {
+    diagnostics.push(error("DSL_NET_PRIORITY_INVALID", `${path}.priority must be critical, high, normal, or low.`, `${path}.priority`))
+  }
+  if (value.viaPreference !== undefined && !VIA_PREFERENCES.includes(String(value.viaPreference))) {
+    diagnostics.push(error("DSL_VIA_PREFERENCE_INVALID", `${path}.viaPreference must be auto, avoid, or forbid.`, `${path}.viaPreference`))
+  }
+}
 
 export function validateRoutingProgram(program: RoutingProgram): ProgramValidation {
   const diagnostics: RoutingDiagnostic[] = []
   if (!program || typeof program !== "object") return { valid: false, diagnostics: [error("DSL_PROGRAM_REQUIRED", "Routing program is required.")] }
   exactKeys(program, [
     "polygons", "planes", "signalNets", "powerNets", "differentialPairs", "matchedGroups", "viaStitches",
-    "fanouts", "fanoutExclusions", "netClasses", "relationEdits", "drc", "stack", "quality", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
+    "fanouts", "fanoutExclusions", "netClasses", "relationEdits", "drc", "stack", "busDetect", "onlyNets", "ignoreNets", "clearRouting", "operation",
   ], diagnostics, "program")
   if (!["apply-drc", "apply-stackup", "copper", "route", "all"].includes(program.operation)) diagnostics.push(error("DSL_TERMINAL_REQUIRED", "Routing program requires one terminal command.", "operation"))
   const polygons = array(program.polygons, "polygons", diagnostics)
@@ -183,15 +194,15 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   })
 
   signalNets.forEach((raw, index) => {
-    const path = `signalNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "impedance", ...RULE_KEYS], diagnostics, path)
+    const path = `signalNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "impedance", "priority", "viaPreference", ...RULE_KEYS], diagnostics, path)
     const item = object(raw) ? raw : {}; if (item.kind !== "signal-net" || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_SIGNAL_INVALID", `${path} is invalid.`, path))
-    rule(item, path, diagnostics); impedance(item.impedance, `${path}.impedance`, diagnostics)
+    rule(item, path, diagnostics); impedance(item.impedance, `${path}.impedance`, diagnostics); netRoutingPreference(item, path, diagnostics)
   })
 
   powerNets.forEach((raw, index) => {
-    const path = `powerNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "maxCurrentA", "maxTempRiseC", "maxTrackWidthMm", "powerPads", "tapWidthMm", ...RULE_KEYS], diagnostics, path)
+    const path = `powerNets[${index}]`; exactKeys(raw, ["kind", "net", "netClass", "maxCurrentA", "maxTempRiseC", "maxTrackWidthMm", "powerPads", "tapWidthMm", "priority", "viaPreference", ...RULE_KEYS], diagnostics, path)
     const item = object(raw) ? raw : {}; if (item.kind !== "power-net" || typeof item.net !== "string" || !item.net) diagnostics.push(error("DSL_POWER_INVALID", `${path} is invalid.`, path))
-    rule(item, path, diagnostics)
+    rule(item, path, diagnostics); netRoutingPreference(item, path, diagnostics)
     for (const key of ["maxCurrentA", "maxTempRiseC", "maxTrackWidthMm"] as const) if (item[key] !== undefined && !positive(item[key])) diagnostics.push(error("DSL_VALUE_INVALID", `${path}.${key} must be > 0.`, `${path}.${key}`))
     if (Number(item.maxTrackWidthMm ?? 0) > 10) diagnostics.push(error("DSL_MAX_WIDTH_LIMIT", "maxTrackWidthMm may not exceed 10 mm.", `${path}.maxTrackWidthMm`))
     if (item.minTrackWidthMm !== undefined && item.maxTrackWidthMm !== undefined && Number(item.minTrackWidthMm) > Number(item.maxTrackWidthMm)) diagnostics.push(error("DSL_RULE_CONFLICT", `${item.net} minimum width exceeds maximum width.`, path))
@@ -344,11 +355,6 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
   })
 
   if (program.drc !== undefined) { exactKeys(program.drc, RULE_KEYS, diagnostics, "drc"); if (object(program.drc)) rule(program.drc, "drc", diagnostics) }
-  if (program.quality !== undefined) {
-    exactKeys(program.quality, ["profile", "maxCandidates", "meander"], diagnostics, "quality")
-    if (program.quality.maxCandidates !== undefined && (!Number.isInteger(program.quality.maxCandidates) || program.quality.maxCandidates < 1 || program.quality.maxCandidates > 16)) diagnostics.push(error("DSL_CANDIDATE_LIMIT", "quality.maxCandidates must be 1..16.", "quality.maxCandidates"))
-    if (program.quality.profile !== undefined && !["fast", "balanced", "quality-first", "completion-first"].includes(program.quality.profile)) diagnostics.push(error("DSL_QUALITY_PROFILE_INVALID", "quality.profile is invalid.", "quality.profile"))
-  }
   if (program.busDetect !== undefined && program.busDetect !== true) {
     exactKeys(program.busDetect, ["detectionRadiusMm", "minNets", "attractionRadiusMm"], diagnostics, "busDetect")
     if (program.busDetect.minNets !== undefined && (!Number.isInteger(program.busDetect.minNets) || program.busDetect.minNets < 2)) diagnostics.push(error("DSL_VALUE_INVALID", "busDetect.minNets must be an integer >= 2.", "busDetect.minNets"))

@@ -48,6 +48,16 @@ interface ImpedanceOptions {
   referenceNet?: string | "auto";
 }
 
+type NetPriority = "critical" | "high" | "normal" | "low";
+type ViaPreference = "auto" | "avoid" | "forbid";
+
+interface NetRoutingPreference {
+  /** Relative routing importance. Default: normal. */
+  priority?: NetPriority;
+  /** auto uses the router default; avoid is strong; forbid is prohibitive best-effort. Neither is a DRC rule. Default: auto. */
+  viaPreference?: ViaPreference;
+}
+
 interface ZoneOptions {
   clearanceMm?: number;
   minThicknessMm?: number;
@@ -109,12 +119,12 @@ declare function unassignNetClass(nets: string[]): void;
 /** Delete one net class relation. */
 declare function deleteNetClass(name: string): void;
 
-declare function signalNet(net: string, options?: RuleOptions & {
+declare function signalNet(net: string, options?: RuleOptions & NetRoutingPreference & {
   netClass?: string;
   impedance?: ImpedanceOptions;
 }): void;
 
-declare function powerNet(net: string, options?: RuleOptions & {
+declare function powerNet(net: string, options?: RuleOptions & NetRoutingPreference & {
   netClass?: string;
   maxCurrentA?: number;
   maxTempRiseC?: number;
@@ -197,12 +207,12 @@ interface BusDetectOptions {
 /** true emits only backend enablement; omitted numeric fields stay backend defaults. */
 declare function busDetect(enabled: boolean | BusDetectOptions): void;
 
-/** Configure automatic fanout for a component or one logical pad. */
+/** Explicitly enable fanout for a component or one logical pad. Fanout is off unless declared. */
 declare function fanout(target: FanoutTarget, options?: FanoutOptions): void;
 
 /**
- * Disable automatic dense-package fanout for whole components or individual
- * logical pads. This does not exclude their nets from normal routing.
+ * Exclude whole components or individual logical pads from explicit
+ * dense-package fanout. This does not exclude their nets from normal routing.
  */
 declare function disableFanout(...targets: FanoutTarget[]): void;
 
@@ -219,12 +229,6 @@ declare function stack(options: {
     top?: { thicknessMm?: number; relativePermittivity?: number };
     bottom?: { thicknessMm?: number; relativePermittivity?: number };
   };
-}): void;
-
-declare function quality(options: {
-  profile?: "fast" | "balanced" | "quality-first" | "completion-first";
-  /** 1..16; KRT also uses this as the cheap special-stage candidate cap. */
-  maxCandidates?: number;
 }): void;
 
 declare function onlyNets(...nets: string[]): void;

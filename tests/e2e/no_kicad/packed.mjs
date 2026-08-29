@@ -32,7 +32,7 @@ try {
   const output = join(temporary, "routed.kicad_pcb")
   const routed = await execute(process.execPath, [
     cli, "route", join(temporary, "board.kicad_pcb"), "--dsl", join(temporary, "routing.js"),
-    "--profile", "fast", "-o", output,
+    "-o", output,
   ], { cwd: consumer, maxBuffer: 20 * 1024 * 1024 })
   const summary = JSON.parse(routed.stdout)
   assert.equal(summary.status, "complete", routed.stdout)

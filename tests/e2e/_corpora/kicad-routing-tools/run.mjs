@@ -14,31 +14,26 @@ function usage() {
     "",
     "Usage:",
     "  npm run e2e:krt-corpus -- --list",
-    "  npm run e2e:krt-corpus -- --case cap_chain [--profile balanced] [--max-candidates 1]",
-    "  npm run e2e:krt-corpus -- --all [--profile balanced] [--max-candidates 1]",
+    "  npm run e2e:krt-corpus -- --case cap_chain",
+    "  npm run e2e:krt-corpus -- --all",
     "",
     "No case runs by default. There is no internal timeout; Ctrl+C is forwarded as AbortSignal.",
   ].join("\n")
 }
 
 function parseArguments(argv) {
-  const options = { profile: manifest.defaultProfile, maxCandidates: 1, cases: [] }
+  const options = { cases: [] }
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     const value = argv[index + 1]
     if (argument === "--case" && value) options.cases.push(value), index += 1
     else if (argument === "--all") options.all = true
     else if (argument === "--list") options.list = true
-    else if (argument === "--profile" && value) options.profile = value, index += 1
-    else if (argument === "--max-candidates" && value) options.maxCandidates = Number(value), index += 1
     else if (argument === "--run-id" && value) options.runId = value, index += 1
     else if (argument === "--help") options.help = true
     else throw new TypeError(`Unknown or incomplete argument: ${argument}`)
   }
   if (options.all && options.cases.length) throw new TypeError("Use either --all or --case, not both")
-  if (!Number.isInteger(options.maxCandidates) || options.maxCandidates < 1 || options.maxCandidates > 32) {
-    throw new TypeError("--max-candidates must be an integer from 1 to 32")
-  }
   return options
 }
 
@@ -49,7 +44,7 @@ function resolveCase(id) {
 }
 
 async function runCase(entry, options, signal) {
-  const arguments_ = [join(e2eDirectory, entry.directory, "run.mjs"), "--profile", options.profile, "--max-candidates", String(options.maxCandidates)]
+  const arguments_ = [join(e2eDirectory, entry.directory, "run.mjs")]
   if (options.runId) arguments_.push("--run-id", options.runId)
 
   console.log(`\n[corpus] ${entry.id}: ${entry.focus}`)

@@ -250,6 +250,8 @@ export type RoutingMetrics = Readonly<{
   openNetCount?: number
   /** Exact unresolved nets when the backend can report them. */
   openNets?: readonly string[]
+  /** Sum of geometry-aware connected components over the routed scope. */
+  connectivityComponentCount?: number
   trackLengthMm?: number
   viaCount?: number
   candidateCount?: number

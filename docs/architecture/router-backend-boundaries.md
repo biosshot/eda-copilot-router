@@ -1,7 +1,7 @@
 # Router backend boundaries
 
 Status: accepted
-Date: 2026-08-11
+Date: 2026-08-28
 
 ## Decision
 
@@ -15,9 +15,10 @@ The public orchestration model uses three independent boundaries:
 1. A host adapter imports native data into the single internal
    `RoutingBoard` and later applies `RoutingResult` without rebuilding unrelated
    native objects.
-2. `RouterBackendAdapter` translates `RoutingBoard` for one routing algorithm
-   and returns untrusted router-owned copper. It never reads or writes the
-   source board directly.
+2. `RouterBackendAdapter` receives one normalized `BackendRouteRequest`,
+   including its board-aware `request.plan`, and exposes one `route()` entry
+   point. It returns an untrusted complete replacement for transaction-owned
+   editable copper. It never reads or writes the source board directly.
 3. The host's board adapter runs the target EDA's zone refill, DRC, and
    connectivity checks after the result has been applied. This remains outside
    `run(...)`; no separate verifier callback is required by the current core
@@ -39,27 +40,60 @@ Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
 delegates only supported ordinary nets to a backend.
 
-The complete-cycle implementation uses adapters and six ordered stages:
+Before that call, the core canonicalizes all layers to `TOP`, `INNER_n`, and
+`BOTTOM`, compiles rules, resolves `priority` and `viaPreference`, and plans
+compact polygons as fixed obstacles. The resolved plan partitions compatible
+differential, matched, and critical groups without exposing engine flags in the
+authoring surface.
 
-1. Plan all requested power polygons, apply every ready outline, and run the
-   native EDA refill.
-2. Invoke the backend once for all special nets: every declared differential
-   pair, every explicit equal-length group, and every net followed by a
-   `viaStitch(...)` mode-`along` statement. After routing, the core materializes
-   requested via rows from the retained special-track geometry. Persist this copper as
-   protected and run native refill before the next backend invocation.
-3. Invoke the same backend once for all remaining non-GND nets, excluding the
-   special nets from the ordinary pass.
-4. Refill, derive the exact residual ordinary-net set, and run a bounded
-   completion portfolio. Candidates start from the same incumbent, preserve
-   prior copper/placement/zone outlines, and vary only search/order/rip-up
-   policy; they never weaken compiled geometry.
-5. Materialize requested plane/stitching intents and refill.
-6. Run the final native refill and complete validation.
+The current KRT adapter then owns this sequence inside the single `route()`
+call:
 
-This staging is an orchestration policy, not a set of DSL route-job types. A
-future backend may replace KiCadRoutingTools without changing the electrical
-intent or the stage contract.
+1. Run QFN/QFP fanout only for explicit `fanout(...)` targets. A failed
+   fanout remains a diagnostic search aid and does not suppress maze routing.
+2. Route differential pairs and matched groups in compatible native batches.
+   Successfully verified special copper becomes protected before ordinary
+   routing.
+3. Route critical ordinary groups and protect only results that pass the
+   critical connectivity/protection gate.
+4. Give high-priority and via-sensitive (`avoid` or `forbid`) ordinary nets an
+   early bounded pass. They remain editable so native blocker recovery can
+   still move them.
+5. Route all remaining and still-open ordinary nets with KRT's native rescue,
+   terminal escalation, pre-existing rip-up recovery, dynamic iteration, and
+   finalization recovery enabled.
+6. Audit full-scope connectivity and DRC. Group still-open ordinary nets by
+   compatible layer/via policy. Then consider already-connected ordinary
+   `avoid`/`forbid` nets that are at most 10 mm long and still contain vias;
+   these are force-rerouted one net at a time. Both job kinds share a maximum
+   of eight attempts and about 30% of measured ordinary-route time after the
+   main pass (with a 5 s minimum on tiny boards). Routing, connectivity and DRC
+   audits all share this wall-clock bound.
+7. Accept each repair only when full-scope connectivity does not regress,
+   scoped native DRC does not increase, and no protected copper is damaged.
+   Open-net jobs must improve connectivity or DRC. Connected-net jobs must
+   strictly reduce the target's via count. Rejected boards remain artifacts,
+   not routing input.
+8. Return the final accepted audit and complete editable replacement, even when
+   the result is partial.
+
+Repair remains a backend-internal stage, not another public route entry point
+or an unbounded per-net fan-out. Connected-net force routing is deliberately
+restricted to short via-sensitive ordinary nets. Special nets stay under their
+dedicated verification flow. A critical ordinary target may be temporarily
+unprotected only from its own isolated force-reroute; all other protected nets
+remain locked, and the target ledger entry must be restored before acceptance.
+
+After `route()` returns, the core semantically compares the snapshot with its
+pre-route checkpoint, then materializes core-owned plane and `viaStitch(...)`
+intents through structural checkpoints. The host finally maps canonical layers
+back to native names, applies the result, refills native zones, and runs native
+DRC/connectivity checks.
+
+This staging is orchestration policy, not a set of DSL route-job types. There
+is no public quality profile, candidate-count knob, or special/remaining
+backend method. A future backend may replace KiCadRoutingTools without changing
+the electrical intent or the single-call contract.
 
 ## Rule ownership and preflight
 
@@ -118,12 +152,14 @@ add redundant tracks between them.
 ## Special-net routing
 
 A differential pair is never intentionally routed as two independent ordinary
-nets followed by length tuning. The special stage submits all declared
-differential pairs and explicit equal-length groups to one backend invocation.
-There is no core-owned differential-pair router and no protocol-specific
-exception, including for USB-C. If the backend cannot represent the required
-coupling or matching constraints, preflight records `CAPABILITY_MISMATCH` and
-does not invoke that backend.
+nets followed by length tuning. The plan places all declared differential pairs
+and explicit equal-length groups in special constraint groups; KRT coalesces
+only groups whose native geometry, tolerances, and layer sets are compatible.
+These are internal subprocesses of the one backend invocation, not separate
+core/backend calls. There is no core-owned differential-pair router and no
+protocol-specific exception, including for USB-C. If the backend cannot
+represent the required coupling or matching constraints, preflight records
+`CAPABILITY_MISMATCH` and does not invoke that backend.
 
 The special-net result is untrusted geometry. Coupling, connectivity, pair gap,
 skew, maximum uncoupled length, equal-length tolerance, widths, vias, and layers
@@ -131,82 +167,95 @@ are checked during final native validation when the native project declares
 those rules; the workflow never invents missing electrical limits. A backend
 fallback that emits single-ended members is not silently accepted as a
 differential-pair result.
-The special nets are excluded from the remaining-net invocation so the ordinary
-pass cannot reinterpret or replace them as independent nets. Their exact
-segment/arc/via geometry is also protected in backend project metadata and
-compared after the pass; net-count equality is insufficient because a
-same-count reroute can still destroy coupling or matching.
+Successfully verified special nets are recorded as protected in backend project
+metadata and checked after later batches; net-count equality is insufficient
+because a same-count reroute can still destroy coupling or matching.
 
-### Deferred KRT limitations
+Ordinary batches are partitioned by compatible allowed-layer sets, clearance
+buckets and hard neck-down-width buckets. Early
+via-sensitive batches are additionally partitioned by `viaPreference` so the
+semantic preference can become a KRT search cost without turning it into a DRC
+rule. `avoid` is a strong preference; `forbid` is represented as a prohibitive
+search cost and is also audited in the core snapshot score. A shared 32-batch
+execution ceiling bounds critical/early/main process growth; unscheduled
+compatibility overflow is reported as open partial scope rather than widening
+allowed layers or exhausting memory. Native logs are spooled in full to disk
+and retained in memory only as bounded tails.
 
-These are known adapter limitations, not extra DSL restrictions:
+Exact net scopes and explicit P/N mappings travel in JSON sidecars with
+collision-free opaque tokens and constant-size CLI sentinels. Sentinels are
+dynamically displaced if a legal net has the same spelling. The complete native tool argv is also disk-backed;
+the operating-system command contains only a fixed bootstrap and file paths.
+This avoids the Windows command-line limit on large boards and keeps literal
+names exact even when KRT reuses expanded raw names in recovery filters.
+Connectivity and DRC verdicts also use result sidecars, so a large payload
+cannot be truncated out of the bounded log tail.
 
-- A mixed remaining invocation does not yet preserve different per-net
-  `allowedLayers` sets independently. A future adapter should partition the
-  logical remaining stage into compatible internal KRT calls.
-- Differential pairs and ordinary matched groups with heterogeneous geometry
-  or tolerance rules are not yet partitioned into compatible internal KRT
-  calls. A future implementation should retain one logical special stage while
-  compiling each compatible rule group separately.
-
-`viaStitch(...)` mode `along` does not add a backend-specific route job or a
-seventh stage. Its `routes` nets join the same special scope, then a core-owned postprocessor
-places ordinary net-assigned vias beside their routed tracks. A backend need
-not understand along-stitch placement, but it must preserve selected special copper and the
-remaining pass must treat the emitted vias as fixed obstacles. The presence of
-a fence via does not prove connectivity to a plane or other same-net copper;
-that remains a final native connectivity question.
+`viaStitch(...)` remains a core-owned postprocessor. Mode `along` uses only
+source nets that the backend reports completed; `return`, `grid`, and `around`
+run with final board context after routing and plane planning. No stitch mode
+creates another backend route job. The presence of a net-assigned fence via
+does not itself prove connectivity to a plane or other same-net copper; that
+remains a final native connectivity question.
 
 ## Stage diagnostics and final validity
 
-Runtime failures do not crash the workflow. Every stage records its status,
-diagnostics, elapsed time, memory metrics when available, and the latest board
-artifact it was able to produce. A failed polygon plan does not suppress other
-ready polygon plans. A failed routing or refill stage does not prevent a later
-stage when a usable input artifact still exists; an impossible dependency is
-recorded as `skipped_due_to_dependency`.
+Runtime failures do not erase useful work. KRT records subprocess diagnostics
+and artifacts, and returns the latest parseable replacement even if the engine
+status is `partial` or `error`. Transport status is diagnostic input, not a
+standalone quality gate.
 
-Intermediate stage statuses are diagnostic only. In particular, polygon plan
-or post-refill connectivity errors do not directly make the board invalid.
-The board's `valid` value is derived solely from the final validation result
-after the last native refill. Final validation re-evaluates all applicable DRC,
-connectivity, polygon-target, differential-pair, and equal-length constraints
-against the actual final copper. A previously reported stage error may therefore
-coexist with `valid: true` if the final board satisfies every required check.
-Conversely, successful stages never imply `valid: true`.
+The core performs one semantic comparison between that backend snapshot and
+the pre-route editable checkpoint. Structural validity and protected-copper
+regressions outrank completion; then priority-weighted opens, special-constraint
+violations, DRC evidence, via preferences, via count, and route length decide
+whether the backend snapshot is retained. This is recovery selection between
+the incumbent and one backend result, not a user-configurable profile or
+candidate cascade.
+
+Core postprocessors similarly retain the last structurally applicable
+checkpoint. Consequently open nets, a failed internal subprocess, or an
+unavailable postprocessor normally produce an applicable `partial` result.
+Only hard preflight failure, caller abort, structurally unusable copper, or
+immutable/protected-copper damage may reject the affected snapshot. Final
+native validity still belongs to the host after apply, zone refill, DRC, and
+connectivity checks.
 
 ## Transaction invariant
 
 The source board is immutable throughout routing:
 
-1. Import an immutable `RoutingBoard` and separate fixed from editable copper.
-2. Compile rules and complete capability negotiation.
-3. Plan and refill polygons on a temporary native board.
-4. Route all special nets in one backend invocation, protect their copper, and
-   run native refill on the resulting snapshot.
-5. Route all remaining non-GND nets in one backend invocation.
-6. Evaluate bounded completion candidates only for native-open ordinary nets.
-7. Add requested plane/stitching copper and refill.
-8. Run the final native refill and complete validation.
-9. Return `RoutingResult`; the host applies it transactionally and owns the
-   final native validation/commit decision.
+1. Import an immutable board, split fixed/editable copper, and canonicalize all
+   physical layers to `TOP`/`INNER_n`/`BOTTOM`.
+2. Compile rules, resolve `request.plan`, and complete capability negotiation.
+3. Apply `clearRouting()` only to the transaction copy and plan compact polygon
+   obstacles as fixed copper.
+4. Call `backend.route(request)` exactly once. The backend may run its bounded
+   internal stages and returns a complete editable replacement.
+5. Audit that replacement against the pre-route checkpoint and retain the safer
+   applicable snapshot.
+6. Add requested planes and all `viaStitch(...)` modes through structural
+   checkpoints.
+7. Return `RoutingResult`, including useful copper when status is `partial`.
+8. The host maps canonical layers back to native identifiers, applies the
+   transaction, refills zones, and owns final native DRC/connectivity validation.
 
-No failed result modifies the source document. A parseable partial or invalid
-candidate is retained as an explicitly named diagnostic artifact together with
-its stage report. Post-validation annotates candidate copper and never silently
-deletes or rewrites it; only a structural import/parse failure can prevent that
-candidate from reaching the result. A preflight conflict prevents backend
-invocation, while runtime routing/refill diagnostics are recorded and the
-workflow continues whenever a usable board artifact remains.
+No failed or partial result modifies the source document by itself. A preflight
+conflict prevents backend invocation, while runtime diagnostics remain attached
+to the best usable snapshot. Because backend copper is a full editable
+replacement, a native rip-up/recovery is preserved instead of being merged with
+obsolete editable input.
 
 ## Backend roles
 
-- `KiCadRoutingToolsBackendAdapter`: first complete-cycle backend for both the
-  single special-net invocation and the single remaining-net invocation.
+- `KiCadRoutingToolsBackendAdapter`: production single-call backend; it owns
+  compatible special batches, critical/high ordering, native recovery, final
+  connectivity audit, and conversion of the routed board to one replacement.
 - Core polygon engine: native-zone outline planning, independent of trace
   routing backends.
-- Core special-net intent and final validators remain backend-neutral; detailed
-  coupled routing and length tuning belong to a capable backend.
+- Core route planning, snapshot grading, plane/stitch postprocessing, and final
+  contracts remain backend-neutral; detailed coupled routing and length tuning
+  belong to a capable backend.
 
 Longer term, a backend-neutral global capacity planner should reserve routing
 regions, bottlenecks, layer transitions, pair corridors, and tuning space. This

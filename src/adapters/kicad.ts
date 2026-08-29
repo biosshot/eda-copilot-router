@@ -15,6 +15,7 @@ import type {
   RoutingRules,
 } from "../core/contracts.js"
 import { validateRoutingBoard } from "../core/validation.js"
+import { canonicalizeRoutingBoard } from "../core/layers.js"
 import {
   atom,
   findChild,
@@ -95,6 +96,16 @@ function copperLayers(root: SExpression[]) {
     return name?.endsWith(".Cu") ? [name] : []
   }) ?? []
   return values.length ? values : ["F.Cu", "B.Cu"]
+}
+
+/** Translate the core's canonical layer namespace at the KiCad boundary. */
+function nativeCopperLayer(root: SExpression[], name: string) {
+  const available = copperLayers(root)
+  if (available.includes(name)) return name
+  if (name === "TOP") return available[0] ?? "F.Cu"
+  if (name === "BOTTOM") return available.at(-1) ?? "B.Cu"
+  const inner = /^INNER_(\d+)$/.exec(name)
+  return inner ? available[Number(inner[1])] ?? name : name
 }
 
 function nodeLayers(node: SExpression[], available: readonly string[], fallback = "F.Cu") {
@@ -338,6 +349,82 @@ function circlePoints(center: PointMm, radius: number, count = 24) {
   }))
 }
 
+function truthyChild(node: SExpression[] | undefined, head: string) {
+  const child = node ? findChild(node, head) : undefined
+  if (!child) return false
+  const value = atom(child[1])
+  return value === undefined || value !== "no"
+}
+
+function textIsHidden(node: SExpression[]) {
+  return truthyChild(node, "hide")
+}
+
+/**
+ * Portable conservative envelope for KiCad text when pcbnew's font renderer is
+ * unavailable. KiCad stores (size height width), while electrical clearance is
+ * deliberately left to KRT's obstacle expansion.
+ */
+function textCopperEnvelope(
+  node: SExpression[],
+  text: string,
+  anchor: PointMm,
+  rotationDeg: number,
+): PolygonMm {
+  const effects = findChild(node, "effects")
+  const font = findChild(effects ?? [], "font")
+  const size = findChild(font ?? [], "size")
+  const height = Math.max(0.001, numberAt(size, 1, 1))
+  const characterWidth = Math.max(0.001, numberAt(size, 2, height))
+  const thickness = Math.max(0.001, numberAt(findChild(font ?? [], "thickness"), 1, height * 0.15))
+  const lines = text.replace(/\r\n?/g, "\n").split("\n")
+  const maximumCharacters = Math.max(1, ...lines.map((line) => Array.from(line).length))
+  const unresolvedVariable = /\$\{[^}]+\}/.test(text)
+  const nonAscii = /[^\x20-\x7e]/.test(text)
+  const customFont = Boolean(childText(font ?? [], "face"))
+    || truthyChild(font, "bold") || truthyChild(font, "italic")
+  const advance = Math.max(height, characterWidth)
+    * (unresolvedVariable || customFont ? 2 : nonAscii ? 1.25 : 1)
+  const contentWidth = maximumCharacters * advance
+  const blockHeight = height + Math.max(0, lines.length - 1) * height * 1.75
+  const justify = new Set((findChild(effects ?? [], "justify")?.slice(1) ?? [])
+    .map(atom).filter((item): item is string => item !== undefined))
+  let minX = justify.has("left") ? 0 : justify.has("right") ? -contentWidth : -contentWidth / 2
+  let maxX = justify.has("left") ? contentWidth : justify.has("right") ? 0 : contentWidth / 2
+  let minY = justify.has("top") ? 0 : justify.has("bottom") ? -blockHeight : -blockHeight / 2
+  let maxY = justify.has("top") ? blockHeight : justify.has("bottom") ? 0 : blockHeight / 2
+  minX -= thickness
+  maxX += thickness
+  const verticalEnvelope = height / 2 + thickness
+  minY -= verticalEnvelope
+  maxY += verticalEnvelope
+  if (justify.has("mirror")) [minX, maxX] = [-maxX, -minX]
+  const local = [
+    { x: minX, y: minY }, { x: maxX, y: minY },
+    { x: maxX, y: maxY }, { x: minX, y: maxY },
+  ]
+  return {
+    outer: local.map((point) => {
+      const value = rotate(point, -rotationDeg)
+      return { x: anchor.x + value.x, y: anchor.y + value.y }
+    }),
+  }
+}
+
+function textBoxCopperEnvelope(node: SExpression[], transform: (point: PointMm) => PointMm): PolygonMm | undefined {
+  if (textIsHidden(node)) return undefined
+  const startNode = findChild(node, "start")
+  const endNode = findChild(node, "end")
+  if (!startNode || !endNode) return undefined
+  const start = pointAt(startNode)
+  const end = pointAt(endNode)
+  return {
+    outer: [
+      start, { x: end.x, y: start.y }, end, { x: start.x, y: end.y },
+    ].map(transform),
+  }
+}
+
 function graphicalCopper(root: SExpression[], available: readonly string[]) {
   const zones: RoutedZone[] = []
   const add = (layer: string | undefined, outline: PolygonMm, id: string) => {
@@ -362,19 +449,18 @@ function graphicalCopper(root: SExpression[], available: readonly string[]) {
   }
   for (const [index, node] of listChildren(root, "gr_text").entries()) {
     const layer = childText(node, "layer")
-    if (!layer || !available.includes(layer)) continue
+    if (!layer || !available.includes(layer) || textIsHidden(node)) continue
     const at = pointAt(findChild(node, "at")); const text = atom(node[1]) ?? ""
-    const font = findChild(findChild(node, "effects") ?? [], "font")
-    const size = findChild(font ?? [], "size")
-    const height = numberAt(size, 2, numberAt(size, 1, 1))
-    const width = Math.max(height * 0.6, text.length * numberAt(size, 1, 1) * 0.65)
-    const local = [{ x: -width / 2, y: -height / 2 }, { x: width / 2, y: -height / 2 }, { x: width / 2, y: height / 2 }, { x: -width / 2, y: height / 2 }]
     const rotation = numberAt(findChild(node, "at"), 3)
-    add(layer, { outer: local.map((point) => { const value = rotate(point, -rotation); return { x: at.x + value.x, y: at.y + value.y } }) }, `gr-text-${index}`)
+    add(layer, textCopperEnvelope(node, text, at, rotation), `gr-text-${index}`)
+  }
+  for (const [index, node] of listChildren(root, "gr_text_box").entries()) {
+    const layer = childText(node, "layer")
+    const outline = textBoxCopperEnvelope(node, (point) => point)
+    if (layer && outline) add(layer, outline, `gr-text-box-${index}`)
   }
   for (const [footprintIndex, footprint] of [...listChildren(root, "footprint"), ...listChildren(root, "module")].entries()) {
     const atNode = findChild(footprint, "at"); const origin = pointAt(atNode); const rotation = numberAt(atNode, 3)
-    const bottom = childText(footprint, "layer") === "B.Cu"
     const transform = (point: PointMm) => placedPoint(point, origin, rotation)
     for (const [index, node] of listChildren(footprint, "fp_line").entries()) add(
       childText(node, "layer"), rectangleAround(transform(pointAt(findChild(node, "start"))), transform(pointAt(findChild(node, "end"))), numberAt(findChild(findChild(node, "stroke") ?? [], "width"), 1, 0.15)), `fp-${footprintIndex}-line-${index}`,
@@ -395,13 +481,28 @@ function graphicalCopper(root: SExpression[], available: readonly string[]) {
     }
     for (const [index, node] of listChildren(footprint, "fp_text").entries()) {
       const layer = childText(node, "layer")
-      if (!layer || !available.includes(layer)) continue
+      if (!layer || !available.includes(layer) || textIsHidden(node)) continue
       const localAt = findChild(node, "at"); const center = transform(pointAt(localAt)); const text = atom(node[2]) ?? ""
-      const font = findChild(findChild(node, "effects") ?? [], "font"); const size = findChild(font ?? [], "size")
-      const height = numberAt(size, 2, numberAt(size, 1, 1)); const width = Math.max(height * 0.6, text.length * numberAt(size, 1, 1) * 0.65)
-      const textRotation = rotation + numberAt(localAt, 3)
-      const local = [{ x: -width / 2, y: -height / 2 }, { x: width / 2, y: -height / 2 }, { x: width / 2, y: height / 2 }, { x: -width / 2, y: height / 2 }]
-      add(layer, { outer: local.map((point) => { const value = rotate(point, bottom ? textRotation : -textRotation); return { x: center.x + value.x, y: center.y + value.y } }) }, `fp-${footprintIndex}-text-${index}`)
+      // KiCad v9/v10 stores fp_text angle in board files as the absolute text
+      // angle; adding the footprint rotation a second time rotates the obstacle
+      // away from the actual glyphs.
+      add(layer, textCopperEnvelope(node, text, center, numberAt(localAt, 3)), `fp-${footprintIndex}-text-${index}`)
+    }
+    for (const [index, node] of listChildren(footprint, "property").entries()) {
+      const layer = childText(node, "layer")
+      if (!layer || !available.includes(layer) || textIsHidden(node)) continue
+      const localAt = findChild(node, "at")
+      const center = transform(pointAt(localAt))
+      add(
+        layer,
+        textCopperEnvelope(node, atom(node[2]) ?? "", center, numberAt(localAt, 3)),
+        `fp-${footprintIndex}-property-${index}`,
+      )
+    }
+    for (const [index, node] of listChildren(footprint, "fp_text_box").entries()) {
+      const layer = childText(node, "layer")
+      const outline = textBoxCopperEnvelope(node, transform)
+      if (layer && outline) add(layer, outline, `fp-${footprintIndex}-text-box-${index}`)
     }
   }
   return zones
@@ -409,8 +510,18 @@ function graphicalCopper(root: SExpression[], available: readonly string[]) {
 
 type ProjectRules = Readonly<{
   minimumClearance: number; minimumTrackWidth: number; minimumViaDiameter: number; minimumViaDrill: number; minimumAnnular: number; edgeClearance: number
-  classes: readonly Readonly<{ name: string; clearance: number; track: number; via: number; drill: number; diffWidth: number; diffGap: number }>[]
-  assignments: Readonly<Record<string, string>>
+  classes: readonly Readonly<{
+    name: string
+    priority: number
+    clearance?: number
+    track?: number
+    via?: number
+    drill?: number
+    diffWidth?: number
+    diffGap?: number
+  }>[]
+  assignments: Readonly<Record<string, readonly string[]>>
+  patterns: readonly Readonly<{ pattern: string; className: string }>[]
 }>
 
 function object(value: unknown): Record<string, unknown> {
@@ -419,6 +530,23 @@ function object(value: unknown): Record<string, unknown> {
 
 function finite(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+/** KiCad matches a pattern as anchored regex OR anchored `*`/`?` wildcard. */
+function netclassPatternMatches(net: string, pattern: string) {
+  let regexMatch = false
+  try {
+    regexMatch = new RegExp(`^(?:${pattern})$`, "u").test(net)
+  } catch {
+    // An invalid raw regex can still be a valid KiCad wildcard below.
+  }
+  let wildcard = "^"
+  for (const character of pattern) {
+    if (character === "*") wildcard += ".*"
+    else if (character === "?") wildcard += "."
+    else wildcard += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
+  }
+  return regexMatch || new RegExp(`${wildcard}$`, "u").test(net)
 }
 
 async function projectPath(pcbPath: string) {
@@ -433,18 +561,39 @@ async function readProjectRules(pcbPath: string): Promise<ProjectRules> {
   const global = object(object(object(root.board).design_settings).rules)
   const classes = (Array.isArray(netSettings.classes) ? netSettings.classes : []).flatMap((entry) => {
     const item = object(entry); const name = typeof item.name === "string" ? item.name : ""
-    return name ? [{ name, clearance: finite(item.clearance, DEFAULT_CLEARANCE_MM), track: finite(item.track_width, 0.25), via: finite(item.via_diameter, DEFAULT_VIA_MM), drill: finite(item.via_drill, DEFAULT_DRILL_MM), diffWidth: finite(item.diff_pair_width, 0.25), diffGap: finite(item.diff_pair_gap, DEFAULT_CLEARANCE_MM) }] : []
+    const optional = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined
+    return name ? [{
+      name,
+      priority: typeof item.priority === "number" && Number.isFinite(item.priority) ? item.priority : 0,
+      ...(optional(item.clearance) === undefined ? {} : { clearance: optional(item.clearance) }),
+      ...(optional(item.track_width) === undefined ? {} : { track: optional(item.track_width) }),
+      ...(optional(item.via_diameter) === undefined ? {} : { via: optional(item.via_diameter) }),
+      ...(optional(item.via_drill) === undefined ? {} : { drill: optional(item.via_drill) }),
+      ...(optional(item.diff_pair_width) === undefined ? {} : { diffWidth: optional(item.diff_pair_width) }),
+      ...(optional(item.diff_pair_gap) === undefined ? {} : { diffGap: optional(item.diff_pair_gap) }),
+    }] : []
   })
-  if (!classes.some((item) => item.name === "Default")) classes.push({ name: "Default", clearance: DEFAULT_CLEARANCE_MM, track: 0.25, via: DEFAULT_VIA_MM, drill: DEFAULT_DRILL_MM, diffWidth: 0.25, diffGap: DEFAULT_CLEARANCE_MM })
-  const assignments = Object.fromEntries(Object.entries(object(netSettings.netclass_assignments)).flatMap(([net, value]) => typeof value === "string" ? [[net, value]] : []))
+  if (!classes.some((item) => item.name === "Default")) classes.push({ name: "Default", priority: Number.MAX_SAFE_INTEGER, clearance: DEFAULT_CLEARANCE_MM, track: 0.25, via: DEFAULT_VIA_MM, drill: DEFAULT_DRILL_MM, diffWidth: 0.25, diffGap: DEFAULT_CLEARANCE_MM })
+  const assignments = Object.fromEntries(Object.entries(object(netSettings.netclass_assignments)).flatMap(([net, value]) => {
+    const names = typeof value === "string"
+      ? [value]
+      : Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
+    return names.length ? [[net, names]] : []
+  }))
+  const patterns = (Array.isArray(netSettings.netclass_patterns) ? netSettings.netclass_patterns : []).flatMap((entry) => {
+    const item = object(entry)
+    return typeof item.pattern === "string" && typeof item.netclass === "string"
+      ? [{ pattern: item.pattern, className: item.netclass }]
+      : []
+  })
   return {
     minimumClearance: finite(global.min_clearance, 0), minimumTrackWidth: finite(global.min_track_width, 0),
     minimumViaDiameter: finite(global.min_via_diameter, 0), minimumViaDrill: finite(global.min_through_hole_diameter, 0),
-    minimumAnnular: finite(global.min_via_annular_width, 0), edgeClearance: finite(global.min_copper_edge_clearance, 0), classes, assignments,
+    minimumAnnular: finite(global.min_via_annular_width, 0), edgeClearance: finite(global.min_copper_edge_clearance, 0), classes, assignments, patterns,
   }
 }
 
-function values(source: ProjectRules, rule: ProjectRules["classes"][number]): RoutingRuleValues {
+function values(source: ProjectRules, rule: Required<Omit<ProjectRules["classes"][number], "priority">>): RoutingRuleValues {
   const minTrack = source.minimumTrackWidth > 0 ? source.minimumTrackWidth : DEFAULT_TRACK_MM
   const minDrill = source.minimumViaDrill > 0 ? source.minimumViaDrill : DEFAULT_DRILL_MM
   const declaredDiameter = source.minimumViaDiameter > 0 ? source.minimumViaDiameter : DEFAULT_VIA_MM
@@ -461,9 +610,37 @@ function values(source: ProjectRules, rule: ProjectRules["classes"][number]): Ro
 function routingRules(source: ProjectRules, nets: readonly string[]): RoutingRules {
   const defaultClass = source.classes.find((item) => item.name === "Default") ?? source.classes[0]
   const byName = new Map(source.classes.map((item) => [item.name, item]))
+  const matchingClasses = (net: string) => source.patterns
+    .filter((item) => item.pattern && netclassPatternMatches(net, item.pattern))
+    .map((item) => item.className)
+  const resolveClasses = (names: readonly string[]) => {
+    const selected = [...new Set(names)].flatMap((name) => byName.get(name) ?? [])
+      .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name))
+    const cascade = selected.some((item) => item.name === defaultClass.name)
+      ? selected
+      : [...selected, defaultClass]
+    const property = <K extends "clearance" | "track" | "via" | "drill" | "diffWidth" | "diffGap">(
+      key: K,
+      fallback: number,
+    ) => cascade.find((item) => item[key] !== undefined)?.[key] ?? fallback
+    return {
+      name: cascade[0]?.name ?? "Default",
+      clearance: property("clearance", DEFAULT_CLEARANCE_MM),
+      track: property("track", 0.25),
+      via: property("via", DEFAULT_VIA_MM),
+      drill: property("drill", DEFAULT_DRILL_MM),
+      diffWidth: property("diffWidth", 0.25),
+      diffGap: property("diffGap", DEFAULT_CLEARANCE_MM),
+    }
+  }
+  const valuesForNet = (net: string) => {
+    const patternClasses = matchingClasses(net)
+    const explicitClasses = source.assignments[net] ?? []
+    return values(source, resolveClasses([...explicitClasses, ...patternClasses]))
+  }
   return {
-    default: values(source, defaultClass),
-    nets: nets.map((net) => ({ net, values: values(source, byName.get(source.assignments[net] ?? "Default") ?? defaultClass) })),
+    default: values(source, resolveClasses([defaultClass.name])),
+    nets: nets.map((net) => ({ net, values: valuesForNet(net) })),
   }
 }
 
@@ -555,9 +732,10 @@ export async function importKiCadRoutingBoard(path: string, options: KiCadRouter
       copper: splitCopper(importedCopper(root, layerNames), ownership, graphicalCopper(root, layerNames)),
     }
     const validation = validateRoutingBoard(board); diagnostics.push(...validation.diagnostics)
+    const canonical = validation.ok ? canonicalizeRoutingBoard(board).board : undefined
     return validation.ok ? {
-      board,
-      context: { path: absolute, source, root, version, existingCopper: ownership, editableCopper: board.copper.editable },
+      board: canonical,
+      context: { path: absolute, source, root, version, existingCopper: ownership, editableCopper: canonical!.copper.editable },
       diagnostics,
     } : { diagnostics }
   } catch (error) {
@@ -601,16 +779,92 @@ function clearSelectedNativeCopper(
   }
 }
 
+type CopperKind = "tracks" | "vias" | "zones"
+type IdentifiedCopper = RoutedTrack | RoutedVia | RoutedZone
+
+function copperIdentity(kind: CopperKind, item: IdentifiedCopper) {
+  return item.id && kind === "zones" ? item.id.replace(/:fill-\d+$/, "") : item.id
+}
+
+function canonicalCopperValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalCopperValue)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key, item]) => key !== "id" && key !== "sourceLocked" && item !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => [key, canonicalCopperValue(item)]))
+}
+
+function copperSignatureGroups(copper: RoutingCopper) {
+  const groups: Record<CopperKind, Map<string, string[]>> = {
+    tracks: new Map(), vias: new Map(), zones: new Map(),
+  }
+  for (const kind of ["tracks", "vias", "zones"] as const) for (const item of copper[kind]) {
+    const id = copperIdentity(kind, item)
+    if (!id) continue
+    const values = groups[kind].get(id) ?? []
+    values.push(JSON.stringify(canonicalCopperValue(item)))
+    groups[kind].set(id, values)
+  }
+  for (const kind of ["tracks", "vias", "zones"] as const) {
+    for (const values of groups[kind].values()) values.sort()
+  }
+  return groups
+}
+
+function sameSignatureGroup(left: readonly string[] | undefined, right: readonly string[] | undefined) {
+  return Boolean(left && right && left.length === right.length
+    && left.every((value, index) => value === right[index]))
+}
+
+/**
+ * RoutingResult.copper is the complete editable replacement. Preserve native
+ * AST nodes that survived by id (including arcs and zone metadata), but remove
+ * transaction-owned nodes absent from the replacement before appending new
+ * backend geometry. Locked/fixed copper is never eligible.
+ */
+function removeSupersededNativeCopper(
+  root: SExpression[],
+  ownership: "fixed" | "editable",
+  original: RoutingCopper,
+  replacement: RoutingCopper,
+) {
+  if (ownership !== "editable") return
+  const originalGroups = copperSignatureGroups(original)
+  const replacementGroups = copperSignatureGroups(replacement)
+  for (let index = root.length - 1; index >= 0; index -= 1) {
+    const node = root[index]
+    if (!isSExpressionList(node) || locked(node) || findChild(node, "keepout")) continue
+    const head = listHead(node)
+    const kind = head === "segment" || head === "arc" ? "tracks"
+      : head === "via" ? "vias"
+        : head === "zone" ? "zones" : undefined
+    if (!kind) continue
+    const nativeId = childText(node, "uuid") ?? childText(node, "tstamp")
+    const originalGroup = nativeId ? originalGroups[kind].get(nativeId) : undefined
+    if (!nativeId || !originalGroup
+      || sameSignatureGroup(originalGroup, replacementGroups[kind].get(nativeId))) continue
+    root.splice(index, 1)
+  }
+}
+
 function newCopperOnly(copper: RoutingCopper, original: RoutingCopper): RoutingCopper {
-  const ids = {
-    tracks: new Set(original.tracks.flatMap((item) => item.id ? [item.id] : [])),
-    vias: new Set(original.vias.flatMap((item) => item.id ? [item.id] : [])),
-    zones: new Set(original.zones.flatMap((item) => item.id ? [item.id] : [])),
+  const originalGroups = copperSignatureGroups(original)
+  const replacementGroups = copperSignatureGroups(copper)
+  const unchanged = Object.fromEntries((["tracks", "vias", "zones"] as const).map((kind) => [
+    kind,
+    new Set([...replacementGroups[kind]].flatMap(([id, values]) => (
+      sameSignatureGroup(values, originalGroups[kind].get(id)) ? [id] : []
+    ))),
+  ])) as Record<CopperKind, Set<string>>
+  const isNew = (kind: CopperKind, item: IdentifiedCopper) => {
+    const id = copperIdentity(kind, item)
+    return !id || !unchanged[kind].has(id)
   }
   return {
-    tracks: copper.tracks.filter((item) => !item.id || !ids.tracks.has(item.id)),
-    vias: copper.vias.filter((item) => !item.id || !ids.vias.has(item.id)),
-    zones: copper.zones.filter((item) => !item.id || !ids.zones.has(item.id)),
+    tracks: copper.tracks.filter((item) => isNew("tracks", item)),
+    vias: copper.vias.filter((item) => isNew("vias", item)),
+    zones: copper.zones.filter((item) => isNew("zones", item)),
   }
 }
 
@@ -626,20 +880,24 @@ function replaceChild(parent: SExpression[], head: string, replacement: SExpress
 function applyPhysicalStackup(root: SExpression[], stackup: NonNullable<RoutingResult["stackup"]>["effective"]) {
   const copper = stackup.layers.filter((layer) => layer.kind === "copper")
   if (copper.length < 2) throw new TypeError("Applied stackup needs at least top and bottom copper layers")
+  const nativeLayerNames = copper.map((_, index) => (
+    index === 0 ? "F.Cu" : index === copper.length - 1 ? "B.Cu" : `In${index}.Cu`
+  ))
+  const nativeLayerByCanonical = new Map(copper.map((layer, index) => [layer.layer, nativeLayerNames[index]]))
   const currentLayers = findChild(root, "layers")
   const nonCopper = currentLayers?.slice(1).filter((item) => (
     !isSExpressionList(item) || !atom(item[1])?.endsWith(".Cu")
   )) ?? []
   const copperForms = copper.map((layer, index) => {
     const id = index === 0 ? 0 : index === copper.length - 1 ? 2 : 4 + (index - 1) * 2
-    return [token(String(id)), token(layer.layer, true), token("signal")] as SExpression[]
+    return [token(String(id)), token(nativeLayerNames[index], true), token("signal")] as SExpression[]
   })
   replaceChild(root, "layers", [token("layers"), ...copperForms, ...nonCopper])
 
   let dielectricIndex = 0
   const stackForms = stackup.layers.map((layer): SExpression[] => {
     if (layer.kind === "copper") return [
-      token("layer"), token(layer.layer, true),
+      token("layer"), token(nativeLayerByCanonical.get(layer.layer) ?? layer.layer, true),
       [token("type"), token("copper", true)],
       [token("thickness"), n(layer.thicknessMm)],
     ]
@@ -673,11 +931,13 @@ function appendCopper(root: SExpression[], version: number, copper: RoutingCoppe
   for (const track of copper.tracks) for (let index = 0; index < track.points.length - 1; index += 1) {
     const start = track.points[index]; const end = track.points[index + 1]
     if (samePoint(start, end)) continue
-    root.push([token("segment"), pointForm("start", start), pointForm("end", end), [token("width"), n(track.widthMm)], [token("layer"), token(track.layer, true)], netForm(root, version, track.net), [token("uuid"), token(randomUUID(), true)]])
+    root.push([token("segment"), pointForm("start", start), pointForm("end", end), [token("width"), n(track.widthMm)], [token("layer"), token(nativeCopperLayer(root, track.layer), true)], netForm(root, version, track.net), [token("uuid"), token(randomUUID(), true)]])
   }
   for (const via of copper.vias) root.push([
-    token("via"), ...(via.type === "micro" ? [[token("micro")] as SExpression[]] : []), pointForm("at", via.at),
-    [token("size"), n(via.diameterMm)], [token("drill"), n(via.drillMm)], [token("layers"), token(via.fromLayer, true), token(via.toLayer, true)],
+    token("via"), ...(via.type === "micro"
+      ? [token("micro")]
+      : via.type === "blind-buried" ? [token("blind")] : []), pointForm("at", via.at),
+    [token("size"), n(via.diameterMm)], [token("drill"), n(via.drillMm)], [token("layers"), token(nativeCopperLayer(root, via.fromLayer), true), token(nativeCopperLayer(root, via.toLayer), true)],
     netForm(root, version, via.net), [token("uuid"), token(randomUUID(), true)],
   ])
   for (const [sequence, zone] of copper.zones.entries()) for (const layer of zone.layers) {
@@ -685,7 +945,7 @@ function appendCopper(root: SExpression[], version: number, copper: RoutingCoppe
     const clearance = zone.clearanceMm ?? DEFAULT_CLEARANCE_MM
     root.push([
       token("zone"), ...(version >= 20250000 ? [[token("net"), token(zone.net, true)] as SExpression[]] : [netForm(root, version, zone.net), [token("net_name"), token(zone.net, true)] as SExpression[]]),
-      [token("layer"), token(layer, true)], [token("uuid"), token(randomUUID(), true)], [token("name"), token(`copilot-router:${zone.id ?? sequence}`, true)],
+      [token("layer"), token(nativeCopperLayer(root, layer), true)], [token("uuid"), token(randomUUID(), true)], [token("name"), token(`copilot-router:${zone.id ?? sequence}`, true)],
       [token("hatch"), token("edge"), token("0.5")], ...(zone.priority ? [[token("priority"), n(zone.priority)] as SExpression[]] : []),
       [token("connect_pads"), ...(zone.padConnection?.mode === "solid" ? [token("yes")] : []), [token("clearance"), n(clearance)]],
       [token("min_thickness"), n(zone.minThicknessMm ?? 0.1)],
@@ -760,6 +1020,7 @@ export async function applyKiCadRoutingResult(context: KiCadRoutingContext, resu
     }
     if (result.copper) {
       clearSelectedNativeCopper(root, context.existingCopper, result.clearRouting)
+      removeSupersededNativeCopper(root, context.existingCopper, context.editableCopper, result.copper)
       appendCopper(root, context.version, newCopperOnly(result.copper, context.editableCopper))
     }
     await atomicCreate(target, `${printSExpression(root)}\n`)

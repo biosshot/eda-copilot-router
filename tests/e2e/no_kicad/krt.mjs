@@ -10,7 +10,6 @@ const router = await import(pathToFileURL(resolve(routerDirectory, "package-dist
 const result = await router.run({
   board,
   dsl,
-  policy: { profile: "fast", maxCandidates: 1 },
 })
 assert.notEqual(result.status, "error", JSON.stringify(result.diagnostics))
 assert.ok((result.copper?.tracks.length ?? 0) > 0 || (result.copper?.vias.length ?? 0) > 0,

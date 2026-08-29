@@ -10,6 +10,12 @@ import type {
   RoutingPad,
 } from "../core/contracts.js"
 import {
+  canonicalizeCopper,
+  copperToKiCadLayers,
+  createLayerCatalog,
+  type LayerCatalog,
+} from "../core/layers.js"
+import {
   atom,
   findChild,
   listChildren,
@@ -82,10 +88,11 @@ function padShape(pad: RoutingPad) {
   }
 }
 
-function padLayers(pad: RoutingPad, through: boolean) {
+function padLayers(pad: RoutingPad, through: boolean, catalog: LayerCatalog) {
   if (through) return '"*.Cu" "*.Mask"'
-  const copper = pad.layers.map(quote)
-  const side = pad.layers.some((layer) => layer === "B.Cu") ? "B" : "F"
+  const nativeLayers = pad.layers.map((layer) => catalog.kiCadName(layer))
+  const copper = nativeLayers.map(quote)
+  const side = nativeLayers.some((layer) => layer === "B.Cu") ? "B" : "F"
   return [...copper, quote(`${side}.Mask`), quote(`${side}.Paste`)].join(" ")
 }
 
@@ -101,6 +108,7 @@ function localHoleOffset(pad: RoutingPad, component: BackendRouteRequest["board"
 function padSource(
   pad: RoutingPad,
   component: BackendRouteRequest["board"]["components"][number],
+  catalog: LayerCatalog,
 ) {
   const position = localPadPoint(pad, component)
   const through = Boolean(pad.hole)
@@ -129,14 +137,14 @@ function padSource(
     (at ${xy(position)} ${number(fileRotation)})
     (size ${number(size.width)} ${number(size.height)})
     ${hole}
-    (layers ${padLayers(pad, through)})
+    (layers ${padLayers(pad, through, catalog)})
     ${roundrect}
     ${pad.net ? `(net ${quote(pad.net)})` : ""}
     ${primitives}
     ${uuid()})`
 }
 
-function footprintSource(request: BackendRouteRequest) {
+function footprintSource(request: BackendRouteRequest, catalog: LayerCatalog) {
   const padsByComponent = new Map<string, RoutingPad[]>()
   for (const pad of request.board.pads) padsByComponent.set(
     pad.component,
@@ -154,22 +162,22 @@ function footprintSource(request: BackendRouteRequest) {
         ${uuid()} (effects (font (size 1 1) (thickness 0.15))))
       (property "Value" "generated" (at 0 0 0) (layer ${quote(component.side === "bottom" ? "B.Fab" : "F.Fab")}) (hide yes)
         ${uuid()} (effects (font (size 1 1) (thickness 0.15))))
-      ${pads.map((pad) => padSource(pad, component)).join("\n")}
+      ${pads.map((pad) => padSource(pad, component, catalog)).join("\n")}
       (embedded_fonts no))`
   }).join("\n")
 }
 
-function trackSource(track: RoutedTrack, locked: boolean) {
+function trackSource(track: RoutedTrack, locked: boolean, catalog: LayerCatalog) {
   return track.points.slice(1).map((end, index) => `(segment
     (start ${xy(track.points[index])}) (end ${xy(end)})
-    (width ${number(track.widthMm)}) (layer ${quote(track.layer)}) (net ${quote(track.net)})
+    (width ${number(track.widthMm)}) (layer ${quote(catalog.kiCadName(track.layer))}) (net ${quote(track.net)})
     ${locked ? "(locked yes)" : ""} ${uuid()})`).join("\n")
 }
 
-function viaSource(via: RoutedVia, locked: boolean) {
+function viaSource(via: RoutedVia, locked: boolean, catalog: LayerCatalog) {
   const kind = via.type === "micro" ? "micro" : via.type === "blind-buried" ? "blind" : ""
   return `(via ${kind} (at ${xy(via.at)}) (size ${number(via.diameterMm)}) (drill ${number(via.drillMm)})
-    (layers ${quote(via.fromLayer)} ${quote(via.toLayer)}) (net ${quote(via.net)})
+    (layers ${quote(catalog.kiCadName(via.fromLayer))} ${quote(catalog.kiCadName(via.toLayer))}) (net ${quote(via.net)})
     ${locked ? "(locked yes)" : ""} ${uuid()})`
 }
 
@@ -226,11 +234,11 @@ function keepoutSource(keepout: BackendRouteRequest["board"]["keepouts"][number]
     ${zonePolygons(keepout.polygon)})`
 }
 
-function layerSource(request: BackendRouteRequest) {
+function layerSource(request: BackendRouteRequest, catalog: LayerCatalog) {
   let innerIndex = 0
   const copper = request.board.layers.map((layer) => {
     const id = layer.side === "top" ? 0 : layer.side === "bottom" ? 2 : 4 + innerIndex++ * 2
-    return `(${id} ${quote(layer.name)} signal)`
+    return `(${id} ${quote(catalog.kiCadName(layer.name))} signal)`
   })
   return [...copper,
     '(9 "F.Adhes" user "F.Adhesive")', '(11 "B.Adhes" user "B.Adhesive")',
@@ -241,11 +249,11 @@ function layerSource(request: BackendRouteRequest) {
   ].join("\n")
 }
 
-function stackupSource(request: BackendRouteRequest) {
+function stackupSource(request: BackendRouteRequest, catalog: LayerCatalog) {
   if (!request.board.stackup) return ""
   let dielectricIndex = 0
   const layers = request.board.stackup.layers.map((layer) => {
-    if (layer.kind === "copper") return `(layer ${quote(layer.layer)} (type "copper") (thickness ${number(layer.thicknessMm)}))`
+    if (layer.kind === "copper") return `(layer ${quote(catalog.kiCadName(layer.layer))} (type "copper") (thickness ${number(layer.thicknessMm)}))`
     dielectricIndex += 1
     return `(layer ${quote(layer.name ?? `dielectric ${dielectricIndex}`)} (type "core") (thickness ${number(layer.thicknessMm)})${
       layer.material === undefined ? "" : ` (material ${quote(layer.material)})`
@@ -257,26 +265,39 @@ function stackupSource(request: BackendRouteRequest) {
 }
 
 function boardSource(request: BackendRouteRequest) {
+  const catalog = createLayerCatalog(request.board.layers)
+  // Fixed copper is an immutable obstacle. Editable copper belongs to this
+  // transaction and must remain available to KRT's custody-aware recovery.
+  const tracks = [
+    ...request.board.copper.fixed.tracks.map((track) => trackSource(track, true, catalog)),
+    ...request.board.copper.editable.tracks.map((track) => trackSource(track, false, catalog)),
+  ].join("\n")
+  const vias = [
+    ...request.board.copper.fixed.vias.map((via) => viaSource(via, true, catalog)),
+    ...request.board.copper.editable.vias.map((via) => viaSource(via, false, catalog)),
+  ].join("\n")
   const copper = [request.board.copper.fixed, request.board.copper.editable]
-  const tracks = copper.flatMap((scope) => scope.tracks.map((track) => trackSource(track, true))).join("\n")
-  const vias = copper.flatMap((scope) => scope.vias.map((via) => viaSource(via, true))).join("\n")
-  const zones = copper.flatMap((scope) => scope.zones.flatMap((zone) => zone.layers.map((layer) => zoneSource(zone, layer)))).join("\n")
   const outlines = [request.board.outline, ...request.board.cutouts].flatMap((ring) => ring.map((start, index) => {
     const end = ring[(index + 1) % ring.length]
     return `(gr_line (start ${xy(start)}) (end ${xy(end)}) (stroke (width 0.05) (type solid)) (layer "Edge.Cuts") ${uuid()})`
   })).join("\n")
-  const keepouts = request.board.keepouts.flatMap((keepout) => keepout.layers.map((layer) => keepoutSource(keepout, layer))).join("\n")
+  const nativeZones = copper.flatMap((scope) => scope.zones.flatMap((zone) => (
+    zone.layers.map((layer) => zoneSource(zone, catalog.kiCadName(layer)))
+  ))).join("\n")
+  const keepouts = request.board.keepouts.flatMap((keepout) => keepout.layers.map((layer) => (
+    keepoutSource(keepout, catalog.kiCadName(layer))
+  ))).join("\n")
   const thicknessMm = request.board.stackup?.boardThicknessMm
     ?? request.board.stackup?.layers.reduce((total, layer) => total + layer.thicknessMm, 0) ?? 1.6
   return `(kicad_pcb
     (version 20260206) (generator "copilot-router") (generator_version "0.1")
     (general (thickness ${number(thicknessMm)}) (legacy_teardrops no)) (paper "A4")
-    (layers ${layerSource(request)})
-    (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no) ${stackupSource(request)})
-    ${footprintSource(request)}
+    (layers ${layerSource(request, catalog)})
+    (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no) ${stackupSource(request, catalog)})
+    ${footprintSource(request, catalog)}
     ${tracks}
     ${vias}
-    ${zones}
+    ${nativeZones}
     ${keepouts}
     ${outlines})\n`
 }
@@ -359,8 +380,12 @@ function parseCopper(source: string): RoutingCopper {
     const diameterMm = childNumber(expression, "size")
     const drillMm = childNumber(expression, "drill")
     const layers = findChild(expression, "layers")?.slice(1).map(atom).filter((item): item is string => item !== undefined) ?? []
+    const marker = atom(expression[1])
+    const type: RoutedVia["type"] = marker === "micro"
+      ? "micro"
+      : marker === "blind" ? "blind-buried" : "through"
     if (net && at && diameterMm && drillMm && layers.length >= 2) vias.push({
-      net, at, diameterMm, drillMm, fromLayer: layers[0], toLayer: layers.at(-1)!, type: "through",
+      net, at, diameterMm, drillMm, fromLayer: layers[0], toLayer: layers.at(-1)!, type,
     })
   }
   return { tracks, vias, zones: [] }
@@ -371,20 +396,33 @@ function rounded(value: number) {
 }
 
 function trackKey(track: RoutedTrack) {
-  return JSON.stringify([track.net, track.layer, rounded(track.widthMm), track.points.map((point) => [rounded(point.x), rounded(point.y)])])
+  const points = track.points.map((point) => [rounded(point.x), rounded(point.y)])
+  const reversed = [...points].reverse()
+  const normalized = JSON.stringify(points) <= JSON.stringify(reversed) ? points : reversed
+  return JSON.stringify([track.net, track.layer, rounded(track.widthMm), normalized])
 }
 
 function viaKey(via: RoutedVia) {
-  return JSON.stringify([via.net, rounded(via.at.x), rounded(via.at.y), rounded(via.diameterMm), rounded(via.drillMm), via.fromLayer, via.toLayer])
+  return JSON.stringify([
+    via.net, rounded(via.at.x), rounded(via.at.y), rounded(via.diameterMm), rounded(via.drillMm),
+    via.fromLayer, via.toLayer, via.type ?? "through",
+  ])
 }
 
-function subtractCopper(before: RoutingCopper, after: RoutingCopper): RoutingCopper {
+/** @internal Multiset subtraction used by replacement decoding and stage safety gates. */
+export function subtractKrtCopper(before: RoutingCopper, after: RoutingCopper): RoutingCopper {
+  const primitiveTracks = (copper: RoutingCopper) => copper.tracks.flatMap((track) => (
+    track.points.slice(1).map((point, index) => ({
+      ...track,
+      points: [track.points[index], point],
+    }))
+  ))
   const tracks = new Map<string, number>()
   const vias = new Map<string, number>()
-  for (const track of before.tracks) tracks.set(trackKey(track), (tracks.get(trackKey(track)) ?? 0) + 1)
+  for (const track of primitiveTracks(before)) tracks.set(trackKey(track), (tracks.get(trackKey(track)) ?? 0) + 1)
   for (const via of before.vias) vias.set(viaKey(via), (vias.get(viaKey(via)) ?? 0) + 1)
   return {
-    tracks: after.tracks.filter((track) => {
+    tracks: primitiveTracks(after).filter((track) => {
       const key = trackKey(track)
       const count = tracks.get(key) ?? 0
       if (count <= 0) return true
@@ -402,8 +440,7 @@ function subtractCopper(before: RoutingCopper, after: RoutingCopper): RoutingCop
   }
 }
 
-function projectSource(rules: BackendRouteRequest["rules"]) {
-  const values = [rules.default, ...rules.nets.map((entry) => entry.values)]
+function projectRuleGroups(rules: BackendRouteRequest["rules"]) {
   const groups = new Map<string, { values: typeof rules.default; nets: string[] }>()
   const defaultKey = JSON.stringify(rules.default)
   groups.set(defaultKey, { values: rules.default, nets: [] })
@@ -413,8 +450,35 @@ function projectSource(rules: BackendRouteRequest["rules"]) {
     group.nets.push(entry.net)
     groups.set(key, group)
   }
-  const grouped = [...groups.values()]
+  return [...groups.values()]
+}
+
+function projectNetclassAssignments(groups: ReturnType<typeof projectRuleGroups>) {
   const className = (index: number) => index === 0 ? "Default" : `Router_${index}`
+  return Object.fromEntries(groups.flatMap((group, index) => (
+    group.nets.map((net) => [net, className(index)])
+  )))
+}
+
+/**
+ * Net order written to KiCad's netclass_assignments object.
+ *
+ * KRT's `ordering=original` preserves selector order.  A caller that wants to
+ * reproduce the native full-board route must therefore use the same grouped
+ * order as the generated project sidecar, rather than the board model's
+ * canonical (lexicographic) net order.
+ */
+export function krtProjectNetOrder(rules: BackendRouteRequest["rules"]): string[] {
+  // Object.keys intentionally mirrors JSON.stringify's property order,
+  // including ECMAScript's special ordering for integer-index net names.
+  return Object.keys(projectNetclassAssignments(projectRuleGroups(rules)))
+}
+
+function projectSource(rules: BackendRouteRequest["rules"]) {
+  const values = [rules.default, ...rules.nets.map((entry) => entry.values)]
+  const grouped = projectRuleGroups(rules)
+  const className = (index: number) => index === 0 ? "Default" : `Router_${index}`
+  const netclassAssignments = projectNetclassAssignments(grouped)
   const holeToHoleClearances = values.flatMap((value) => (
     value.holeToHoleClearanceMm === undefined ? [] : [value.holeToHoleClearanceMm]
   ))
@@ -443,9 +507,7 @@ function projectSource(rules: BackendRouteRequest["rules"]) {
         diff_pair_width: group.values.differential?.trackWidthMm ?? group.values.preferredTrackWidthMm,
         diff_pair_gap: group.values.differential?.gapMm ?? group.values.clearanceMm,
       })),
-      netclass_assignments: Object.fromEntries(grouped.flatMap((group, index) => (
-        group.nets.map((net) => [net, className(index)])
-      ))),
+      netclass_assignments: netclassAssignments,
       netclass_patterns: [],
     },
   }, null, 2)}\n`
@@ -461,11 +523,32 @@ export async function writeKrtBoard(request: BackendRouteRequest, directory: str
   return { inputBoard, inputProject }
 }
 
-export async function readKrtBoard(preparedBoard: string, routedBoard: string) {
-  if (preparedBoard === routedBoard) return { copper: EMPTY_COPPER }
+export async function readKrtBoard(
+  preparedBoard: string,
+  routedBoard: string,
+  board?: BackendRouteRequest["board"],
+) {
+  if (preparedBoard === routedBoard) return {
+    copper: board ? canonicalizeCopper(board.copper.editable, createLayerCatalog(board.layers)) : EMPTY_COPPER,
+  }
   const [before, after] = await Promise.all([
     readFile(preparedBoard, "utf8").then(parseCopper),
     readFile(routedBoard, "utf8").then(parseCopper),
   ])
-  return { copper: subtractCopper(before, after) }
+  if (!board) return { copper: subtractKrtCopper(before, after) }
+  const catalog = createLayerCatalog(board.layers)
+  // BackendRouteResult owns the complete editable transaction, not an
+  // additions-only delta. Otherwise KRT can rip/recover an editable route on
+  // disk but the core would silently merge the removed route back in.
+  const editable = subtractKrtCopper(copperToKiCadLayers(board.copper.fixed, catalog), after)
+  const canonical = canonicalizeCopper(editable, catalog)
+  return {
+    copper: {
+      ...canonical,
+      // route.py does not own zones and parseCopper intentionally ignores
+      // KiCad fill caches. Keep the transaction-owned zone records verbatim
+      // so replacement semantics do not accidentally delete them.
+      zones: board.copper.editable.zones,
+    },
+  }
 }

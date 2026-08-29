@@ -34,22 +34,14 @@ const requireUnroutedFixture = process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED =
   : process.env.COPILOT_ROUTER_E2E_REQUIRE_UNROUTED === "1"
 
 function parseArguments(argv) {
-  const options = { profile: "balanced", maxCandidates: 1 }
+  const options = {}
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index]
     const value = argv[index + 1]
     if (argument === "--run-id" && value) options.runId = value, index += 1
     else if (argument === "--dsl" && value) options.dsl = resolve(value), index += 1
-    else if (argument === "--profile" && value) options.profile = value, index += 1
-    else if (argument === "--max-candidates" && value) options.maxCandidates = Number(value), index += 1
     else if (argument === "--help") options.help = true
     else throw new TypeError(`Unknown or incomplete argument: ${argument}`)
-  }
-  if (!Number.isInteger(options.maxCandidates) || options.maxCandidates < 1 || options.maxCandidates > 32) {
-    throw new TypeError("--max-candidates must be an integer from 1 to 32")
-  }
-  if (!["fast", "balanced", "quality-first", "completion-first"].includes(options.profile)) {
-    throw new TypeError(`Unknown profile: ${options.profile}`)
   }
   return options
 }
@@ -58,9 +50,9 @@ function usage() {
   return [
     `${caseName} copilot-router E2E`,
     "",
-    "Usage: node run.mjs [--run-id NAME] [--dsl FILE] [--profile balanced] [--max-candidates 1]",
+    "Usage: node run.mjs [--run-id NAME] [--dsl FILE]",
     "",
-    "The default is exactly one balanced candidate. Ctrl+C aborts through AbortSignal.",
+    "Routing uses the single native-auto KRT policy. Ctrl+C aborts through AbortSignal.",
   ].join("\n")
 }
 
@@ -201,8 +193,8 @@ async function main() {
 
   const inputBase = safeSuiteName === "powerbank" ? "Powerbank-input" : `${artifactStem}-input`
   const outputBase = safeSuiteName === "powerbank"
-    ? `Powerbank-krt-${options.profile}`
-    : `${artifactStem}-krt-${options.profile}`
+    ? "Powerbank-krt-native-auto"
+    : `${artifactStem}-krt-native-auto`
   const inputPcb = join(runDirectory, `${inputBase}.kicad_pcb`)
   const inputProject = join(runDirectory, `${inputBase}.kicad_pro`)
   const outputPcb = join(runDirectory, `${outputBase}.kicad_pcb`)
@@ -238,7 +230,7 @@ async function main() {
     const kicadCli = await resolveKiCadCli()
     console.log(`[e2e] fixture: ${fixturePcb}`)
     console.log(`[e2e] result:  ${runDirectory}`)
-    console.log(`[e2e] backend: krt, profile: ${options.profile}, candidates: ${options.maxCandidates}`)
+    console.log("[e2e] backend: krt, policy: native-auto")
     console.log("[e2e] native baseline DRC")
     const baselineDrc = await nativeDrc(kicadCli, inputPcb, baselineReportPath, abortController.signal)
 
@@ -252,7 +244,6 @@ async function main() {
       board: imported.board,
       dsl,
       backend,
-      policy: { profile: options.profile, maxCandidates: options.maxCandidates },
       signal: abortController.signal,
     })
     await writeFile(join(runDirectory, "routing-result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8")
@@ -261,7 +252,7 @@ async function main() {
     const applied = await adapter.applyKiCadRoutingResult(imported.context, result, outputPcb)
     await writeFile(join(runDirectory, "apply-result.json"), `${JSON.stringify(applied, null, 2)}\n`, "utf8")
     if (!applied.outputPath) throw new Error(`KiCad apply failed: ${JSON.stringify(applied.diagnostics)}`)
-    if (result.copper?.zones.length) {
+    if (fixtureCopper.zones.length || result.copper?.zones.length) {
       console.log("[e2e] native zone refill")
       const refill = await runCaptured(await resolveKiCadPython(), [
         join(routerDirectory, "scripts", "native-refill.py"), applied.outputPath,
@@ -282,8 +273,7 @@ async function main() {
       case: caseName,
       runId,
       backend: "krt",
-      profile: options.profile,
-      maxCandidates: options.maxCandidates,
+      policy: "native-auto",
       fixture: {
         pcb: fixturePcb,
         project: fixtureProject ?? null,

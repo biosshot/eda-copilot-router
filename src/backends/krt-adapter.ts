@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { constants } from "node:fs"
+import { constants, createWriteStream } from "node:fs"
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 import {
@@ -57,7 +58,8 @@ export type KrtSpecialCandidate = Readonly<{
   id: string
   ordering: KrtOrdering
   mpsReverseRounds: boolean
-  maxRipup: number
+  /** Undefined keeps the upstream script default. */
+  maxRipup?: number
 }>
 
 /** Parse check_drc.py's stable human summary without assuming OK starts a line. */
@@ -125,13 +127,45 @@ export function buildKrtSpecialCandidates(
   return variants.slice(0, limit)
 }
 
+/**
+ * Keep the configured/measured candidate first, then add bounded alternatives
+ * without silently replacing KRT's native rip-up default with zero.
+ */
+export function buildKrtSpecialCandidatePortfolio(
+  configured: KrtSpecialCandidate,
+  maxCandidates = 1,
+): KrtSpecialCandidate[] {
+  const limit = Number.isFinite(maxCandidates)
+    ? Math.max(1, Math.min(16, Math.trunc(maxCandidates)))
+    : 1
+  const candidateKey = (candidate: KrtSpecialCandidate) => (
+    `${candidate.ordering}:${candidate.mpsReverseRounds ? 1 : 0}:${candidate.maxRipup ?? "native"}`
+  )
+  const alternatives = buildKrtSpecialCandidates(16, configured.maxRipup)
+    .map<KrtSpecialCandidate>((candidate) => configured.maxRipup === undefined
+      ? {
+          id: candidate.id.replace(/-rip0$/, "-native-ripup"),
+          ordering: candidate.ordering,
+          mpsReverseRounds: candidate.mpsReverseRounds,
+        }
+      : candidate)
+  return [
+    configured,
+    ...alternatives.filter((candidate) => candidateKey(candidate) !== candidateKey(configured)),
+  ].slice(0, limit)
+}
+
 export type KrtNumericRules = {
   /** Nominal CLI width. KRT may neck down only to hardTrackWidth. */
   trackWidth: number
   hardTrackWidth?: number
   clearance: number
+  /** Nominal CLI via geometry. The hard fabrication floor is independent. */
   viaSize: number
   viaDrill: number
+  hardViaSize?: number
+  hardViaDrill?: number
+  hardViaAnnular?: number
   diffPairGap?: number
   gridStep?: number
   holeToHoleClearance?: number
@@ -154,8 +188,17 @@ export type KrtStageSpec = {
   layers: readonly string[]
   rules: KrtNumericRules
   fabOverridesPath: string
+  /**
+   * Immutable project rules used to re-materialize the .kicad_pro sidecar
+   * before every native invocation. When omitted, the input board's sibling
+   * project is authoritative. KRT-written project files are never promoted to
+   * the next stage's rule source.
+   */
+  authoritativeProjectPath?: string
   /** Geometry/fabrication floor for the route.py equal-length subcall. */
   ordinaryMatchedRules?: KrtNumericRules
+  /** Bounded fine-grid/tolerance rules used only by an alternative ordinary matched candidate. */
+  ordinaryMatchedFallbackRules?: KrtNumericRules
   ordinaryMatchedFabOverridesPath?: string
   diffPairs: readonly KrtDiffPair[]
   matchedGroups: readonly KrtMatchedGroup[]
@@ -166,6 +209,8 @@ export type KrtStageSpec = {
   suppressGroundReturnVias?: boolean
   /** Exact pre-existing nets KRT may rip only when they block remainingNets. */
   ripExistingNets?: readonly string[]
+  /** Re-route the explicitly scoped nets even when their current copper is connected. */
+  forceReroute?: boolean
   powerNets?: readonly { net: string; width: number }[]
   /** Ordinary routing normally uses MPS; special candidates may vary ordering. */
   ordering?: KrtOrdering
@@ -187,6 +232,14 @@ export type KrtStageSpec = {
   heuristicWeight?: number
   /** KRT full-search tranche extension. Undefined preserves the upstream default. */
   dynamicIterations?: boolean
+  /** Restore upstream custody-backed pre-existing-copper recovery. */
+  ripPreexisting?: boolean
+  /** Core owns plane generation; opt in only when native plane finalization is desired. */
+  planeFinalize?: boolean
+  /** Allow blocker rip-up in native plane finalization when that stage is enabled. */
+  finalizeRip?: boolean
+  /** Nets whose verified copper must remain protected during later native recovery. */
+  protectedNets?: readonly string[]
   ripupBlockerSelect?: KrtRipupBlockerSelect
   /** route.py only; route_diff.py has no abandon-metric phase. */
   ripupAbandonMetric?: KrtRipupAbandonMetric
@@ -246,11 +299,15 @@ export type KrtProcessResult = {
   stdoutPath?: string
   stderrPath?: string
   invocationPath?: string
+  /** Hash manifest for the exact board/rule bundle consumed by this invocation. */
+  manifestPath?: string
   resultPath?: string
   inputArtifactPath?: string
   outputArtifactPath?: string
   protectedNetsPath?: string
   protectedNets?: string[]
+  /** Independent board-semantic length audit for the selected matched groups. */
+  matchedGroupsAuditPath?: string
   /** KRT 0.21.3 route.py --json-out artifact with merged reconciliation state. */
   mergedSummaryPath?: string
   jsonSummary?: Record<string, unknown>
@@ -273,6 +330,34 @@ type NormalizedSpecial = {
   ordinaryGroups: NormalizedGroup[]
 }
 
+type KrtMatchedGroupAuditReason =
+  | "capability-mismatch"
+  | "connectivity-audit-failed"
+  | "open-members"
+  | "drc-audit-failed"
+  | "drc-regression"
+  | "invalid-tolerance"
+  | "measurement-failed"
+  | "outside-tolerance"
+
+type KrtMatchedGroupAudit = Readonly<{
+  index: number
+  nets: readonly string[]
+  coupled: boolean
+  protectionGate: "differential" | "matched-group"
+  toleranceMm: number
+  lengthsMm: Readonly<Record<string, number>>
+  measurementErrors: Readonly<Record<string, readonly string[]>>
+  minLengthMm?: number
+  maxLengthMm?: number
+  spreadMm?: number
+  excessMm?: number
+  openNets: readonly string[]
+  drcRegressedNets: readonly string[]
+  reasons: readonly KrtMatchedGroupAuditReason[]
+  verified: boolean
+}>
+
 type CapturedProcess = {
   exitCode: number | null
   signal: string | null
@@ -281,6 +366,7 @@ type CapturedProcess = {
   stdout: string
   stderr: string
   error?: string
+  logError?: string
 }
 
 const BOARD_SUFFIX = ".kicad_pcb"
@@ -315,25 +401,266 @@ function pythonScriptArgs(
   scriptPath: string,
   args: readonly string[],
   pythonPathEntries: readonly string[] | undefined,
+  toolArgsPath?: string,
 ) {
-  if (!pythonPathEntries?.length) return [scriptPath, ...args]
+  if (!pythonPathEntries?.length && !toolArgsPath) return [scriptPath, ...args]
   // KiCad's bundled Python uses a ._pth file on Windows and intentionally
   // ignores PYTHONPATH. Insert managed packages in-process, then execute the
   // real KRT CLI as __main__ without modifying the host interpreter.
   const bootstrap = [
-    "import importlib,importlib.util,os,runpy,sys",
+    "import importlib,importlib.util,json,os,runpy,sys",
     "sys.dont_write_bytecode=True",
     "script=sys.argv[1]",
-    `sys.path[:0]=[os.path.dirname(script),*${JSON.stringify([...pythonPathEntries])}]`,
+    `sys.path[:0]=[os.path.dirname(script),*${JSON.stringify([...(pythonPathEntries ?? [])])}]`,
     "importlib.import_module('copilot_router_krt_patch') if importlib.util.find_spec('copilot_router_krt_patch') else None",
-    "sys.argv=sys.argv[1:]",
+    ...(toolArgsPath
+      ? [
+          "tool_args=json.load(open(sys.argv[2],encoding='utf-8'))",
+          "isinstance(tool_args,list) or (_ for _ in ()).throw(RuntimeError('KRT args sidecar must contain a JSON array'))",
+          "sys.argv=[script,*[str(value) for value in tool_args]]",
+        ]
+      : ["sys.argv=sys.argv[1:]"]),
     "runpy.run_path(script,run_name='__main__')",
   ].join(";")
-  return ["-c", bootstrap, scriptPath, ...args]
+  return ["-c", bootstrap, scriptPath, ...(toolArgsPath ? [resolve(toolArgsPath)] : args)]
+}
+
+export const KRT_EXACT_NET_SENTINEL = "__COPILOT_ROUTER_EXACT_NET_SCOPE_V1__"
+export const KRT_EXACT_RIP_SENTINEL = "__COPILOT_ROUTER_EXACT_RIP_SCOPE_V1__"
+export const KRT_DRC_SCOPE_SENTINEL = "__COPILOT_ROUTER_EXACT_DRC_SCOPE_V1__"
+
+export type KrtExactSelectorSidecar = Readonly<{
+  schemaVersion: 1
+  netSelection: readonly string[]
+  ripSelection: readonly string[]
+  ripAuthorization: readonly string[]
+  diffPairs: readonly (readonly [string, string])[]
+  selectorTokens: readonly (readonly [string, string])[]
+  netSentinel: string
+  ripSentinel: string
+}>
+
+/**
+ * @internal Keep Windows CreateProcess argv/environment size independent of
+ * the number and spelling length of exact host-owned net selectors.
+ */
+export function compactKrtExactSelectorArgs(
+  sourceArgs: readonly string[],
+  scope: Readonly<{
+    netSelection: readonly string[]
+    ripSelection?: readonly string[]
+    ripAuthorization?: readonly string[]
+    diffPairs?: readonly (readonly [string, string])[]
+  }>,
+) {
+  const args = [...sourceArgs]
+  const selectorNames = unique([
+    ...scope.netSelection,
+    ...(scope.ripSelection ?? []),
+  ])
+  const occupiedNames = new Set(selectorNames)
+  const uniqueScopeSentinel = (base: string, additionallyOccupied: ReadonlySet<string> = new Set()) => {
+    let candidate = base
+    let suffix = 0
+    while (occupiedNames.has(candidate) || additionallyOccupied.has(candidate)) {
+      suffix += 1
+      candidate = `${base}_${suffix}`
+    }
+    return candidate
+  }
+  const netSentinel = uniqueScopeSentinel(KRT_EXACT_NET_SENTINEL)
+  const ripSentinel = uniqueScopeSentinel(KRT_EXACT_RIP_SENTINEL, new Set([netSentinel]))
+  let tokenNamespace = 0
+  let selectorTokens: Array<readonly [string, string]>
+  do {
+    selectorTokens = selectorNames.map((name, index) => [
+      `__COPILOT_ROUTER_EXACT_NAME_V1_${tokenNamespace}_${index}__`,
+      name,
+    ] as const)
+    tokenNamespace += 1
+  } while (selectorTokens.some(([token]) => occupiedNames.has(token)))
+  const opaqueTokenByName = new Map(selectorTokens.map(([token, name]) => [name, token]))
+  const selectorTokenMap = (
+    candidates: readonly string[],
+    encode: (name: string) => string,
+  ) => {
+    const byToken = new Map<string, string>()
+    for (const name of unique(candidates)) {
+      const token = encode(name)
+      const previous = byToken.get(token)
+      if (previous !== undefined && previous !== name) {
+        throw new Error(`Exact KRT selector encoding collision between ${JSON.stringify(previous)} and ${JSON.stringify(name)}.`)
+      }
+      byToken.set(token, name)
+    }
+    return byToken
+  }
+  const compactFlag = (
+    flag: "--nets" | "--rip-existing-nets",
+    candidates: readonly string[],
+    sentinel: string,
+  ) => {
+    const byToken = selectorTokenMap(candidates, krtLiteralNetFilterPattern)
+    const selected: string[] = []
+    let searchFrom = 0
+    while (true) {
+      const flagIndex = args.indexOf(flag, searchFrom)
+      if (flagIndex < 0) break
+      let end = flagIndex + 1
+      const current: string[] = []
+      while (end < args.length && !args[end].startsWith("--")) {
+        const name = byToken.get(args[end])
+        if (name === undefined) {
+          throw new Error(`KRT ${flag} contains a selector not owned by the exact host scope: ${JSON.stringify(args[end])}.`)
+        }
+        current.push(name)
+        end += 1
+      }
+      if (!current.length) throw new Error(`KRT ${flag} requires at least one exact host selector.`)
+      selected.push(...current)
+      args.splice(flagIndex + 1, end - flagIndex - 1, sentinel)
+      searchFrom = flagIndex + 2
+    }
+    return unique(selected)
+  }
+
+  const netSelection = compactFlag("--nets", scope.netSelection, netSentinel)
+  const ripSelection = compactFlag(
+    "--rip-existing-nets",
+    scope.ripSelection ?? [],
+    ripSentinel,
+  )
+  const globTokens = selectorTokenMap(selectorNames, krtLiteralGlobPattern)
+  const compactExactListFlag = (flag: "--length-match-group" | "--power-nets") => {
+    let searchFrom = 0
+    while (true) {
+      const flagIndex = args.indexOf(flag, searchFrom)
+      if (flagIndex < 0) break
+      let end = flagIndex + 1
+      while (end < args.length && !args[end].startsWith("--")) {
+        const name = globTokens.get(args[end])
+        const token = name === undefined ? undefined : opaqueTokenByName.get(name)
+        if (name === undefined || token === undefined) {
+          throw new Error(`KRT ${flag} contains a selector not owned by the exact host scope: ${JSON.stringify(args[end])}.`)
+        }
+        args[end] = token
+        end += 1
+      }
+      if (end === flagIndex + 1) throw new Error(`KRT ${flag} requires at least one exact host selector.`)
+      searchFrom = end
+    }
+  }
+  compactExactListFlag("--length-match-group")
+  compactExactListFlag("--power-nets")
+  const sidecar: KrtExactSelectorSidecar = {
+    schemaVersion: 1,
+    netSelection,
+    ripSelection,
+    ripAuthorization: unique(scope.ripAuthorization ?? []),
+    diffPairs: (scope.diffPairs ?? []).map(([positive, negative]) => [positive, negative] as const),
+    selectorTokens,
+    netSentinel,
+    ripSentinel,
+  }
+  return { args, sidecar }
+}
+
+type KrtAuditScopeSidecar = Readonly<{
+  schemaVersion: 1
+  scopeId: string
+  expected: readonly string[]
+  patterns: readonly string[]
+  resultPath: string
+}>
+
+/** @internal Exact audit data lives on disk; process argv stays constant-size. */
+export function buildKrtAuditScopeTransport(
+  netNames: readonly string[],
+  scopePath: string,
+  resultPath: string,
+) {
+  const expected = unique(netNames)
+  const patterns = expected.map(krtLiteralGlobPattern)
+  const scopeId = createHash("sha256")
+    .update(JSON.stringify({ expected, patterns }))
+    .digest("hex")
+  const sidecar: KrtAuditScopeSidecar = {
+    schemaVersion: 1,
+    scopeId,
+    expected,
+    patterns,
+    resultPath: resolve(resultPath),
+  }
+  return {
+    sidecar,
+    connectivityBootstrapArgs: [resolve(scopePath)],
+    drcBootstrapArgs: [resolve(scopePath)],
+    drcNetArgs: ["--nets", KRT_DRC_SCOPE_SENTINEL],
+  }
+}
+
+function pythonScopedDrcArgs(
+  scriptPath: string,
+  args: readonly string[],
+  pythonPathEntries: readonly string[] | undefined,
+  scopePath: string,
+) {
+  // check_drc.py reports an empty fnmatch scope as a clean board. Resolve the
+  // scope with the same parser/fnmatch implementation in the same process and
+  // stop before grading unless it selects exactly the host-owned raw names.
+  const bootstrap = [
+    "import fnmatch,importlib,importlib.util,json,os,runpy,sys",
+    "sys.dont_write_bytecode=True",
+    "script=sys.argv[1]",
+    "scope=json.load(open(sys.argv[2],encoding='utf-8'))",
+    "expected=scope['expected']",
+    "expected_set=set(expected)",
+    "sentinel=" + JSON.stringify(KRT_DRC_SCOPE_SENTINEL),
+    "tool_args=sys.argv[3:]",
+    `sys.path[:0]=[os.path.dirname(script),*${JSON.stringify([...(pythonPathEntries ?? [])])}]`,
+    "importlib.import_module('copilot_router_krt_patch') if importlib.util.find_spec('copilot_router_krt_patch') else None",
+    "from kicad_parser import parse_kicad_pcb",
+    "pcb=parse_kicad_pcb(tool_args[0])",
+    "names=sorted(set(str(net.name) for net in pcb.nets.values() if getattr(net,'name',None)))",
+    "selected=sorted(name for name in names if name in expected_set)",
+    "scope_ok=set(selected)==set(expected)",
+    "scope_result={'scopeId':scope.get('scopeId'),'scopeOk':scope_ok,'expectedCount':len(expected_set),'selectedCount':len(selected)}",
+    "json.dump(scope_result,open(scope['resultPath'],'w',encoding='utf-8'),sort_keys=True)",
+    "scope_ok or sys.exit(3)",
+    "original_fnmatch=fnmatch.fnmatch",
+    "fnmatch.fnmatch=lambda name,pattern: (name in expected_set) if pattern==sentinel else original_fnmatch(name,pattern)",
+    "sys.argv=[script,*tool_args]",
+    "runpy.run_path(script,run_name='__main__')",
+  ].join(";")
+  return [
+    "-c",
+    bootstrap,
+    scriptPath,
+    resolve(scopePath),
+    ...args,
+  ]
 }
 
 function unique(values: readonly string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+/** Escape one exact KiCad net name for a plain Python fnmatch consumer. */
+export function krtLiteralGlobPattern(net: string) {
+  const pattern = net
+    .replaceAll("[", "[[]")
+    .replaceAll("*", "[*]")
+    .replaceAll("?", "[?]")
+  // argparse treats a value beginning with "--" as another option even when
+  // it follows a nargs selector. A one-character class is the exact fnmatch
+  // spelling of a leading dash and keeps every legal KiCad name data-like.
+  return pattern.startsWith("-") ? `[-]${pattern.slice(1)}` : pattern
+}
+
+/** Escape one exact name for KRT filters, which additionally use leading ! as exclusion. */
+export function krtLiteralNetFilterPattern(net: string) {
+  const pattern = krtLiteralGlobPattern(net)
+  return net.startsWith("!") ? `\\${pattern}` : pattern
 }
 
 const GND_NET_NAMES = new Set(["GND", "/GND"])
@@ -353,6 +680,222 @@ function nodeNetName(root: SExpression[], node: SExpression[]) {
   const number = atom(net[1]) ?? ""
   if (!/^\d+$/.test(number)) return number
   return atom(listChildren(root, "net").find((entry) => atom(entry[1]) === number)?.[2]) ?? ""
+}
+
+type KrtCopperLengthMeasurement = Readonly<{
+  lengthsMm: Readonly<Record<string, number>>
+  planarLengthsMm: Readonly<Record<string, number>>
+  viaBarrelLengthsMm: Readonly<Record<string, number>>
+  measurementErrorsByNet: Readonly<Record<string, readonly string[]>>
+  vias: number
+  routes: number
+}>
+
+function numericAtom(value: SExpression | undefined) {
+  const parsed = Number(atom(value))
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function nodePoint(node: SExpression[], head: string): readonly [number, number] | undefined {
+  const point = findChild(node, head)
+  if (!point) return undefined
+  const x = numericAtom(point[1])
+  const y = numericAtom(point[2])
+  return x === undefined || y === undefined ? undefined : [x, y]
+}
+
+function pointDistance(left: readonly [number, number], right: readonly [number, number]) {
+  return Math.hypot(right[0] - left[0], right[1] - left[1])
+}
+
+/**
+ * Match KRT 0.21.3's `_arc_to_segments(..., chord_eps=0.005)` measurement.
+ * Native output is linear, but inherited KiCad arcs must contribute exactly as
+ * they do to KRT's own `net_copper_length()` semantic.
+ */
+function krtArcPolylineLength(
+  start: readonly [number, number],
+  mid: readonly [number, number],
+  end: readonly [number, number],
+) {
+  const [ax, ay] = start
+  const [bx, by] = mid
+  const [cx, cy] = end
+  const denominator = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+  if (Math.abs(denominator) < 1e-10) return pointDistance(start, end)
+  const ux = ((ax * ax + ay * ay) * (by - cy)
+    + (bx * bx + by * by) * (cy - ay)
+    + (cx * cx + cy * cy) * (ay - by)) / denominator
+  const uy = ((ax * ax + ay * ay) * (cx - bx)
+    + (bx * bx + by * by) * (ax - cx)
+    + (cx * cx + cy * cy) * (bx - ax)) / denominator
+  const radius = Math.hypot(ax - ux, ay - uy)
+  if (!(radius > 0)) return pointDistance(start, end)
+  const startAngle = Math.atan2(ay - uy, ax - ux)
+  const normalize = (angle: number) => {
+    const circle = 2 * Math.PI
+    return ((angle - startAngle) % circle + circle) % circle
+  }
+  const midCcw = normalize(Math.atan2(by - uy, bx - ux))
+  const endCcw = normalize(Math.atan2(cy - uy, cx - ux))
+  const sweep = midCcw <= endCcw ? endCcw : endCcw - 2 * Math.PI
+  const maxStep = 2 * Math.acos(Math.max(-1, Math.min(1, 1 - 0.005 / radius)))
+  const segments = maxStep > 0
+    ? Math.max(16, Math.min(512, Math.ceil(Math.abs(sweep) / maxStep)))
+    : 16
+  return segments * 2 * radius * Math.sin(Math.abs(sweep) / (2 * segments))
+}
+
+function requiredNodePoint(node: SExpression[], head: string, net: string) {
+  const point = nodePoint(node, head)
+  if (!point) throw new Error(`Malformed ${atom(node[0]) ?? "copper"} ${head} point on net ${net}`)
+  return point
+}
+
+function lineNodeLength(node: SExpression[], net: string) {
+  return pointDistance(requiredNodePoint(node, "start", net), requiredNodePoint(node, "end", net))
+}
+
+function arcNodeLength(node: SExpression[], net: string) {
+  return krtArcPolylineLength(
+    requiredNodePoint(node, "start", net),
+    requiredNodePoint(node, "mid", net),
+    requiredNodePoint(node, "end", net),
+  )
+}
+
+function graphicStrokeWidth(node: SExpression[]) {
+  const stroke = findChild(node, "stroke")
+  return numericAtom(findChild(node, "width")?.[1])
+    ?? numericAtom(stroke && findChild(stroke, "width")?.[1])
+    ?? 0
+}
+
+function stackupLayers(root: SExpression[]) {
+  const setup = findChild(root, "setup")
+  const stackup = setup && findChild(setup, "stackup")
+  if (!stackup) return []
+  return listChildren(stackup, "layer").flatMap((layer) => {
+    const name = atom(layer[1]) ?? ""
+    const type = atom(findChild(layer, "type")?.[1]) ?? ""
+    const thickness = numericAtom(findChild(layer, "thickness")?.[1]) ?? 0
+    return name && ["copper", "core", "prepreg"].includes(type)
+      ? [{ name, thickness }]
+      : []
+  })
+}
+
+function viaBarrelLength(node: SExpression[], layers: readonly { name: string; thickness: number }[]) {
+  const endpoints = findChild(node, "layers")
+  const first = atom(endpoints?.[1])
+  const second = atom(endpoints?.[2])
+  if (!first || !second || !layers.length) return 0
+  const firstIndex = layers.findIndex((layer) => layer.name === first)
+  const secondIndex = layers.findIndex((layer) => layer.name === second)
+  if (firstIndex < 0 || secondIndex < 0) return 0
+  const start = Math.min(firstIndex, secondIndex)
+  const end = Math.max(firstIndex, secondIndex)
+  return layers.slice(start, end + 1).reduce((sum, layer) => sum + layer.thickness, 0)
+}
+
+/**
+ * Independently measure the intended KRT length metric (planar copper plus
+ * via barrels) from the final board. The S-expression stackup reader is
+ * deliberately stricter than KRT 0.21.3's line-oriented parser, so compact
+ * host-generated stackups still receive their physically real barrel length.
+ */
+async function measureKrtNetCopperLengths(
+  boardPath: string,
+  netNames: readonly string[],
+): Promise<KrtCopperLengthMeasurement> {
+  const root = parsePcbSource(await readFile(boardPath, "utf8"))
+  const wanted = new Set(unique(netNames))
+  const planar = Object.fromEntries([...wanted].map((net) => [net, 0])) as Record<string, number>
+  const barrels = Object.fromEntries([...wanted].map((net) => [net, 0])) as Record<string, number>
+  const measurementErrorsByNet: Record<string, string[]> = {}
+  const addPlanar = (net: string, length: number) => {
+    if (wanted.has(net)) planar[net] += length
+  }
+  const measurePlanar = (node: SExpression[], measure: (net: string) => number) => {
+    const net = nodeNetName(root, node)
+    if (!wanted.has(net)) return
+    try {
+      addPlanar(net, measure(net))
+    } catch (error) {
+      const errors = measurementErrorsByNet[net] ?? []
+      errors.push(errorText(error))
+      measurementErrorsByNet[net] = errors
+    }
+  }
+  for (const node of listChildren(root, "segment")) {
+    measurePlanar(node, (net) => lineNodeLength(node, net))
+  }
+  for (const node of listChildren(root, "arc")) {
+    measurePlanar(node, (net) => arcNodeLength(node, net))
+  }
+
+  // KRT treats net-tagged copper graphics as routed copper too (#337).
+  for (const node of listChildren(root, "gr_line")) {
+    const net = nodeNetName(root, node)
+    const layer = atom(findChild(node, "layer")?.[1]) ?? ""
+    const width = graphicStrokeWidth(node)
+    if (wanted.has(net) && layer.endsWith(".Cu") && width > 0) {
+      measurePlanar(node, (name) => lineNodeLength(node, name))
+    }
+  }
+  for (const node of listChildren(root, "gr_arc")) {
+    const net = nodeNetName(root, node)
+    const layer = atom(findChild(node, "layer")?.[1]) ?? ""
+    const width = graphicStrokeWidth(node)
+    if (wanted.has(net) && layer.endsWith(".Cu") && width > 0) {
+      measurePlanar(node, (name) => arcNodeLength(node, name))
+    }
+  }
+  for (const node of listChildren(root, "gr_poly")) {
+    const net = nodeNetName(root, node)
+    const layer = atom(findChild(node, "layer")?.[1]) ?? ""
+    if (!wanted.has(net) || !layer.endsWith(".Cu")) continue
+    const points = listChildren(findChild(node, "pts") ?? [], "xy")
+      .map((point) => nodePoint([token("point"), point], "xy"))
+      .filter((point): point is readonly [number, number] => Boolean(point))
+    if (points.length >= 2) addPlanar(net, points.reduce((sum, point, index) => (
+      sum + pointDistance(point, points[(index + 1) % points.length])
+    ), 0))
+  }
+  for (const node of listChildren(root, "gr_rect")) {
+    const net = nodeNetName(root, node)
+    const layer = atom(findChild(node, "layer")?.[1]) ?? ""
+    if (!wanted.has(net) || !layer.endsWith(".Cu")) continue
+    measurePlanar(node, (name) => {
+      const start = requiredNodePoint(node, "start", name)
+      const end = requiredNodePoint(node, "end", name)
+      return 2 * (Math.abs(end[0] - start[0]) + Math.abs(end[1] - start[1]))
+    })
+  }
+  for (const node of listChildren(root, "gr_circle")) {
+    const net = nodeNetName(root, node)
+    const layer = atom(findChild(node, "layer")?.[1]) ?? ""
+    if (!wanted.has(net) || !layer.endsWith(".Cu")) continue
+    measurePlanar(node, (name) => {
+      const center = requiredNodePoint(node, "center", name)
+      const end = requiredNodePoint(node, "end", name)
+      return 32 * pointDistance(center, end) * Math.sin(Math.PI / 16)
+    })
+  }
+
+  const layers = stackupLayers(root)
+  for (const node of listChildren(root, "via")) {
+    const net = nodeNetName(root, node)
+    if (wanted.has(net)) barrels[net] += viaBarrelLength(node, layers)
+  }
+  return {
+    planarLengthsMm: planar,
+    viaBarrelLengthsMm: barrels,
+    measurementErrorsByNet,
+    lengthsMm: Object.fromEntries([...wanted].map((net) => [net, planar[net] + barrels[net]])),
+    vias: listChildren(root, "via").length,
+    routes: listChildren(root, "segment").length + listChildren(root, "arc").length,
+  }
 }
 
 function canonicalCopperNode(value: SExpression): unknown {
@@ -464,13 +1007,13 @@ export async function persistKrtProtectedNets(
   const projectPath = `${boardStem(resolve(boardPath))}.kicad_pro`
   if (!nets.length) return { path: projectPath, nets, changed: false }
 
-  let project: Record<string, unknown> = {}
-  if (await exists(projectPath)) {
-    const parsed = JSON.parse(await readFile(projectPath, "utf8"))
-    const object = jsonObject(parsed)
-    if (!object) throw new Error(`${projectPath} does not contain a JSON object`)
-    project = object
+  if (!(await exists(projectPath))) {
+    throw new Error(`Authoritative KRT project sidecar is missing: ${projectPath}`)
   }
+  const parsed = JSON.parse(await readFile(projectPath, "utf8"))
+  const object = jsonObject(parsed)
+  if (!object) throw new Error(`${projectPath} does not contain a JSON object`)
+  const project = object
 
   const namespace = jsonObject(project.kicad_routing_tools) ?? {}
   const existing = jsonObject(namespace.protected_nets) ?? {}
@@ -544,6 +1087,16 @@ async function copyBoardAndSidecars(
 
   const sourceStem = boardStem(sourceBoard)
   const targetStem = boardStem(targetBoard)
+  const sourceProject = `${sourceStem}.kicad_pro`
+  if (!(await exists(sourceProject))) {
+    diagnostics.push(diagnostic(
+      "KRT_PROJECT_SIDECAR_REQUIRED",
+      "error",
+      `KRT cannot route without an authoritative .kicad_pro sidecar: ${sourceProject}`,
+      { sourceBoard, sourceProject },
+    ))
+    return false
+  }
   for (const suffix of SIDECAR_SUFFIXES) {
     const source = `${sourceStem}${suffix}`
     if (!(await exists(source))) continue
@@ -552,13 +1105,84 @@ async function copyBoardAndSidecars(
     } catch (error) {
       diagnostics.push(diagnostic(
         "KRT_SIDECAR_COPY_FAILED",
-        "warning",
+        "error",
         `Could not copy ${suffix} sidecar: ${errorText(error)}`,
         { source, target: `${targetStem}${suffix}` },
       ))
     }
   }
-  return true
+  return !diagnostics.some((item) => item.severity === "error")
+}
+
+function projectSidecarPath(boardPath: string) {
+  return `${boardStem(resolve(boardPath))}.kicad_pro`
+}
+
+async function readProjectObject(path: string) {
+  const parsed: unknown = JSON.parse(await readFile(path, "utf8"))
+  const project = jsonObject(parsed)
+  if (!project) throw new Error(`${path} does not contain a JSON object`)
+  return project
+}
+
+function projectProtectedNets(project: Record<string, unknown>) {
+  const namespace = jsonObject(project.kicad_routing_tools)
+  return { ...(jsonObject(namespace?.protected_nets) ?? {}) }
+}
+
+/**
+ * Restore the immutable rule sidecar before every subprocess while carrying
+ * forward only the verified protected-net ledger. This deliberately discards
+ * any netclass rewrite performed by an earlier KRT output stage.
+ */
+async function materializeAuthoritativeSidecars(
+  inputBoard: string,
+  spec: KrtStageSpec,
+  diagnostics: KrtDiagnostic[],
+) {
+  const targetProject = projectSidecarPath(inputBoard)
+  const authoritativeProject = resolve(spec.authoritativeProjectPath ?? targetProject)
+  if (!(await exists(authoritativeProject))) {
+    diagnostics.push(diagnostic(
+      "KRT_PROJECT_SIDECAR_REQUIRED",
+      "error",
+      `The authoritative KRT project sidecar does not exist: ${authoritativeProject}`,
+      { inputBoard, authoritativeProject },
+    ))
+    return false
+  }
+
+  try {
+    const project = await readProjectObject(authoritativeProject)
+    const namespace = jsonObject(project.kicad_routing_tools) ?? {}
+    const authoritativeProtection = projectProtectedNets(project)
+    const protectedNets = {
+      ...authoritativeProtection,
+      ...Object.fromEntries(unique(spec.protectedNets ?? []).map((net) => [net, "workflow-verified"])),
+    }
+    if (Object.keys(protectedNets).length) namespace.protected_nets = protectedNets
+    else delete namespace.protected_nets
+    if (Object.keys(namespace).length) project.kicad_routing_tools = namespace
+    else delete project.kicad_routing_tools
+    await writeFile(targetProject, `${JSON.stringify(project, null, 2)}\n`, "utf8")
+
+    const authoritativeStem = boardStem(authoritativeProject)
+    const targetStem = boardStem(targetProject)
+    for (const suffix of [".kicad_dru", ".kicad_prl"] as const) {
+      const source = `${authoritativeStem}${suffix}`
+      if (!(await exists(source))) continue
+      await copyIfDifferent(source, `${targetStem}${suffix}`)
+    }
+    return true
+  } catch (error) {
+    diagnostics.push(diagnostic(
+      "KRT_PROJECT_MATERIALIZATION_FAILED",
+      "error",
+      `Could not materialize the authoritative KRT sidecars: ${errorText(error)}`,
+      { inputBoard, authoritativeProject, targetProject },
+    ))
+    return false
+  }
 }
 
 async function removeBoardAndSidecars(board: string) {
@@ -682,6 +1306,61 @@ async function alreadyConnectedNoOpSummary(
   }
 }
 
+async function sha256File(path: string) {
+  const content = await readFile(path)
+  return {
+    path: resolve(path),
+    bytes: content.byteLength,
+    sha256: createHash("sha256").update(content).digest("hex"),
+  }
+}
+
+async function writeStageManifest(
+  result: KrtProcessResult,
+  spec: KrtStageSpec,
+  artifactsDir: string,
+  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
+) {
+  const inputProject = projectSidecarPath(result.inputBoard)
+  const authoritativeProject = resolve(spec.authoritativeProjectPath ?? inputProject)
+  const inputStem = boardStem(result.inputBoard)
+  const materializedProtectedNets = Object.keys(projectProtectedNets(
+    await readProjectObject(inputProject),
+  ))
+  const candidates = unique([
+    result.inputBoard,
+    inputProject,
+    authoritativeProject,
+    resolve(spec.fabOverridesPath),
+    ...[".kicad_dru", ".kicad_prl"].map((suffix) => `${inputStem}${suffix}`),
+  ])
+  const files = []
+  for (const path of candidates) if (await exists(path)) files.push(await sha256File(path))
+  result.manifestPath = join(artifactsDir, `krt-${result.stage}-manifest.json`)
+  await writeFile(result.manifestPath, `${JSON.stringify({
+    schema: "copilot-router-krt-stage-manifest",
+    version: 1,
+    stage: result.stage,
+    script: scriptName,
+    inputBoard: result.inputBoard,
+    outputBoard: result.outputBoard,
+    authoritativeProject,
+    layers: unique(spec.layers),
+    rules: spec.rules,
+    protectedNets: unique([...(spec.protectedNets ?? []), ...materializedProtectedNets]),
+    recovery: {
+      ripPreexisting: spec.ripPreexisting !== false,
+      netRescue: spec.enableNetRescue !== false,
+      terminalEscalation: spec.enableTerminalEscalation !== false,
+      dynamicIterations: spec.dynamicIterations !== false,
+      planeFinalize: Boolean(spec.planeFinalize),
+      finalizeRip: spec.finalizeRip !== false,
+      forceReroute: Boolean(spec.forceReroute),
+    },
+    files,
+  }, null, 2)}\n`, "utf8")
+}
+
 function stringArray(value: unknown) {
   return Array.isArray(value) ? value.map(String) : []
 }
@@ -759,6 +1438,7 @@ function addRemainingSummaryDiagnostics(
   rules: KrtNumericRules,
   diagnostics: KrtDiagnostic[],
   authorizedRipNets: readonly string[] = [],
+  protectedNetNames: readonly string[] = [],
   terminalEscalationAllowed = false,
 ) {
   const failed = stringArray(summary.failed_single)
@@ -798,20 +1478,21 @@ function addRemainingSummaryDiagnostics(
   if (summary.preexisting_rips && Object.keys(summary.preexisting_rips as object).length) {
     const outcomes = summary.preexisting_rips as Record<string, unknown>
     const authorized = new Set(authorizedRipNets)
-    const unauthorized = Object.fromEntries(Object.entries(outcomes)
-      .filter(([net]) => !authorized.has(net)))
+    const protectedNets = new Set(protectedNetNames)
+    const protectedRips = Object.fromEntries(Object.entries(outcomes)
+      .filter(([net]) => protectedNets.has(net)))
     const casualties = Object.fromEntries(Object.entries(outcomes)
       .filter(([, outcome]) => /NOT RECOVERED|PARTIAL|still open/i.test(String(outcome))))
-    if (Object.keys(unauthorized).length) diagnostics.push(diagnostic(
-      "KRT_PREEXISTING_COPPER_RIPPED",
+    if (Object.keys(protectedRips).length) diagnostics.push(diagnostic(
+      "KRT_PROTECTED_COPPER_RIPPED",
       "error",
-      "KRT ripped pre-existing copper outside the explicit blocker-repair allowlist.",
-      unauthorized,
+      "KRT reported rip-up activity on verified protected copper.",
+      protectedRips,
     ))
     if (Object.keys(casualties).length) diagnostics.push(diagnostic(
       "KRT_RIP_VICTIM_INCOMPLETE",
       "error",
-      "KRT did not fully recover every explicitly authorized blocker net.",
+      "KRT did not fully recover every pre-existing blocker net taken into native custody.",
       casualties,
     ))
     const safe = Object.fromEntries(Object.entries(outcomes)
@@ -821,6 +1502,14 @@ function addRemainingSummaryDiagnostics(
       "info",
       "KRT rerouted or restored explicitly authorized blocker copper.",
       safe,
+    ))
+    const automatic = Object.fromEntries(Object.entries(outcomes)
+      .filter(([net]) => !authorized.has(net) && !protectedNets.has(net) && !(net in casualties)))
+    if (Object.keys(automatic).length) diagnostics.push(diagnostic(
+      "KRT_NATIVE_BLOCKER_RECOVERY",
+      "info",
+      "KRT used custody-backed native blocker recovery and restored the affected pre-existing nets.",
+      automatic,
     ))
   }
   if (summary.terminal_escalations && Object.keys(summary.terminal_escalations as object).length) {
@@ -852,6 +1541,17 @@ function addGeometryFloorDiagnostic(
   }
 }
 
+/** Bound resident process logs; full stage streams are spooled to artifacts. */
+export const KRT_CAPTURED_LOG_TAIL_CHARS = 512 * 1024
+
+/** @internal Pure tail limiter used by the streaming process capture. */
+export function krtBoundedLogTail(value: string, limit = KRT_CAPTURED_LOG_TAIL_CHARS) {
+  const safeLimit = Math.max(0, Math.trunc(limit))
+  return value.length <= safeLimit
+    ? { text: value, omitted: 0 }
+    : { text: value.slice(value.length - safeLimit), omitted: value.length - safeLimit }
+}
+
 async function runCaptured(
   executable: string,
   args: string[],
@@ -859,14 +1559,22 @@ async function runCaptured(
   timeoutMs: number | undefined,
   environment: Record<string, string> = {},
   abortSignal?: AbortSignal,
+  logPaths?: Readonly<{ stdout: string; stderr: string }>,
 ): Promise<CapturedProcess> {
   const started = performance.now()
   return await new Promise((resolvePromise) => {
     let stdout = ""
     let stderr = ""
+    let stdoutOmitted = 0
+    let stderrOmitted = 0
     let timedOut = false
     let spawnError: string | undefined
+    let logError: string | undefined
     let settled = false
+    const stdoutLog = logPaths?.stdout ? createWriteStream(logPaths.stdout, { encoding: "utf8" }) : undefined
+    const stderrLog = logPaths?.stderr ? createWriteStream(logPaths.stderr, { encoding: "utf8" }) : undefined
+    stdoutLog?.on("error", (error) => { logError ??= errorText(error) })
+    stderrLog?.on("error", (error) => { logError ??= errorText(error) })
 
     const child = spawn(executable, args, {
       cwd,
@@ -876,11 +1584,9 @@ async function runCaptured(
         ...process.env,
         PYTHONUTF8: "1",
         PYTHONIOENCODING: "utf-8",
-        KICAD_RIP_PREEXISTING: "0",
+        // Plane creation remains a core-owned post-route operation unless an
+        // actual routing stage explicitly opts into native finalization.
         KICAD_PLANE_FINALIZE: "0",
-        KICAD_FINALIZE_RIP: "0",
-        KICAD_NET_RESCUE: "0",
-        KICAD_TERMINAL_ESCALATION: "0",
         ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
         PYTHONDONTWRITEBYTECODE: "1",
         ...environment,
@@ -890,8 +1596,18 @@ async function runCaptured(
 
     child.stdout?.setEncoding("utf8")
     child.stderr?.setEncoding("utf8")
-    child.stdout?.on("data", (chunk: string) => { stdout += chunk })
-    child.stderr?.on("data", (chunk: string) => { stderr += chunk })
+    child.stdout?.on("data", (chunk: string) => {
+      stdoutLog?.write(chunk)
+      const bounded = krtBoundedLogTail(stdout + chunk)
+      stdout = bounded.text
+      stdoutOmitted += bounded.omitted
+    })
+    child.stderr?.on("data", (chunk: string) => {
+      stderrLog?.write(chunk)
+      const bounded = krtBoundedLogTail(stderr + chunk)
+      stderr = bounded.text
+      stderrOmitted += bounded.omitted
+    })
     child.on("error", (error) => { spawnError = errorText(error) })
 
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -901,14 +1617,36 @@ async function runCaptured(
       settled = true
       if (timer) clearTimeout(timer)
       abortSignal?.removeEventListener("abort", abort)
-      resolvePromise({
-        exitCode,
-        signal,
-        timedOut,
-        elapsedMs: performance.now() - started,
-        stdout,
-        stderr,
-        ...(spawnError ? { error: spawnError } : {}),
+      const closeLog = (stream: typeof stdoutLog) => new Promise<void>((resolveClose) => {
+        if (!stream) return resolveClose()
+        if (stream.destroyed || stream.closed) return resolveClose()
+        let closed = false
+        const done = () => {
+          if (closed) return
+          closed = true
+          resolveClose()
+        }
+        stream.once("finish", done)
+        stream.once("error", done)
+        stream.end()
+      })
+      void Promise.all([closeLog(stdoutLog), closeLog(stderrLog)]).then(() => {
+        const residentStdout = stdoutOmitted
+          ? `[${stdoutOmitted} earlier character(s) spooled only to ${logPaths?.stdout}]\n${stdout}`
+          : stdout
+        const residentStderr = stderrOmitted
+          ? `[${stderrOmitted} earlier character(s) spooled only to ${logPaths?.stderr}]\n${stderr}`
+          : stderr
+        resolvePromise({
+          exitCode,
+          signal,
+          timedOut,
+          elapsedMs: performance.now() - started,
+          stdout: residentStdout,
+          stderr: residentStderr,
+          ...(spawnError ? { error: spawnError } : {}),
+          ...(logError ? { logError } : {}),
+        })
       })
     }
     child.on("close", (code, signal) => finish(code, signal))
@@ -1030,6 +1768,33 @@ async function commonPreflight(
   if (!(await exists(inputBoard))) diagnostics.push(diagnostic(
     "KRT_INPUT_NOT_FOUND", "error", `KRT input board does not exist: ${inputBoard}`,
   ))
+  const authoritativeProject = resolve(spec.authoritativeProjectPath ?? projectSidecarPath(inputBoard))
+  if (!(await exists(authoritativeProject))) diagnostics.push(diagnostic(
+    "KRT_PROJECT_SIDECAR_REQUIRED",
+    "error",
+    `KRT requires an authoritative .kicad_pro sidecar: ${authoritativeProject}`,
+    { inputBoard, authoritativeProject },
+  ))
+  else {
+    try {
+      const project = await readProjectObject(authoritativeProject)
+      const netSettings = jsonObject(project.net_settings)
+      if (!netSettings || !Array.isArray(netSettings.classes) || !netSettings.classes.length
+        || !jsonObject(netSettings.netclass_assignments)) diagnostics.push(diagnostic(
+        "KRT_PROJECT_RULES_INVALID",
+        "error",
+        "The authoritative .kicad_pro must contain net classes and netclass assignments; native fallback rules are not allowed.",
+        { authoritativeProject },
+      ))
+    } catch (error) {
+      diagnostics.push(diagnostic(
+        "KRT_PROJECT_RULES_INVALID",
+        "error",
+        `Could not parse the authoritative .kicad_pro: ${errorText(error)}`,
+        { authoritativeProject },
+      ))
+    }
+  }
   if (!(await exists(join(spec.krtDirectory, "py_router", scriptName)))) diagnostics.push(diagnostic(
     "KRT_SCRIPT_NOT_FOUND",
     "error",
@@ -1051,6 +1816,9 @@ async function commonPreflight(
   validatePositiveNumber(spec.rules.clearance, "rules.clearance", diagnostics, true)
   validatePositiveNumber(spec.rules.viaSize, "rules.viaSize", diagnostics, true)
   validatePositiveNumber(spec.rules.viaDrill, "rules.viaDrill", diagnostics, true)
+  validatePositiveNumber(spec.rules.hardViaSize, "rules.hardViaSize", diagnostics)
+  validatePositiveNumber(spec.rules.hardViaDrill, "rules.hardViaDrill", diagnostics)
+  validatePositiveNumber(spec.rules.hardViaAnnular, "rules.hardViaAnnular", diagnostics)
   validatePositiveNumber(spec.rules.diffPairGap, "rules.diffPairGap", diagnostics)
   validatePositiveNumber(spec.rules.gridStep, "rules.gridStep", diagnostics)
   validatePositiveNumber(spec.rules.holeToHoleClearance, "rules.holeToHoleClearance", diagnostics)
@@ -1088,6 +1856,10 @@ async function commonPreflight(
     "KRT_INVALID_SPEC", "error", "dynamicIterations must be a boolean.",
     { field: "dynamicIterations", value: spec.dynamicIterations },
   ))
+  if (spec.forceReroute !== undefined && typeof spec.forceReroute !== "boolean") diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC", "error", "forceReroute must be a boolean.",
+    { field: "forceReroute", value: spec.forceReroute },
+  ))
 
   const hardTrackWidth = spec.rules.hardTrackWidth ?? spec.rules.trackWidth
   if (hardTrackWidth > spec.rules.trackWidth + EPSILON) diagnostics.push(diagnostic(
@@ -1103,11 +1875,41 @@ async function commonPreflight(
     "rules.viaDrill must be smaller than rules.viaSize.",
   ))
 
+  const hardViaSize = spec.rules.hardViaSize ?? spec.rules.viaSize
+  const hardViaDrill = spec.rules.hardViaDrill ?? spec.rules.viaDrill
+  const hardViaAnnular = spec.rules.hardViaAnnular ?? Math.max((hardViaSize - hardViaDrill) / 2, 0.001)
+  if (hardViaSize > spec.rules.viaSize + EPSILON || hardViaDrill > spec.rules.viaDrill + EPSILON) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    "Hard via fabrication minima must not exceed the nominal CLI via geometry.",
+    {
+      hardViaSize,
+      hardViaDrill,
+      nominalViaSize: spec.rules.viaSize,
+      nominalViaDrill: spec.rules.viaDrill,
+    },
+  ))
+  if (hardViaDrill >= hardViaSize) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    "rules.hardViaDrill must be smaller than rules.hardViaSize.",
+    { hardViaSize, hardViaDrill },
+  ))
+  if ((spec.rules.viaSize - spec.rules.viaDrill) / 2 + EPSILON < hardViaAnnular) diagnostics.push(diagnostic(
+    "KRT_INVALID_SPEC",
+    "error",
+    "Nominal CLI via geometry must preserve the compiled hard annular-ring floor.",
+    {
+      nominalAnnular: (spec.rules.viaSize - spec.rules.viaDrill) / 2,
+      hardViaAnnular,
+    },
+  ))
+
   if (!(await exists(spec.fabOverridesPath))) {
     diagnostics.push(diagnostic(
       "KRT_HARD_FAB_REQUIRED",
       "error",
-      `A readable fabOverridesPath is required to disable KRT geometry escalation: ${spec.fabOverridesPath}`,
+      `A readable fabOverridesPath is required to enforce the compiled fabrication floor: ${spec.fabOverridesPath}`,
     ))
   } else {
     try {
@@ -1116,8 +1918,9 @@ async function commonPreflight(
       const required: Array<[string, number]> = [
         ["track_width", hardTrackWidth],
         ["clearance", spec.rules.clearance],
-        ["via_diameter", spec.rules.viaSize],
-        ["via_drill", spec.rules.viaDrill],
+        ["via_diameter", hardViaSize],
+        ["via_drill", hardViaDrill],
+        ["annular", hardViaAnnular],
         ["hole_to_hole", holeToHoleClearance],
         ["pad_hole_to_hole", holeToHoleClearance],
       ]
@@ -1334,11 +2137,11 @@ function specialArgs(
   const args = commonArgs(inputBoard, outputBoard, spec)
   args.push("--track-width", numberArg(spec.rules.trackWidth))
   const nets = unique(pairs.flatMap((pair) => [pair.positive, pair.negative]))
-  args.push("--nets", ...nets)
+  args.push("--nets", ...nets.map(krtLiteralNetFilterPattern))
   args.push("--diff-pair-gap", numberArg(spec.rules.diffPairGap!))
   if (spec.matchDifferentialPairLengths) args.push("--diff-pair-intra-match")
   if (spec.suppressGroundReturnVias) args.push("--no-gnd-vias")
-  for (const group of groups) args.push("--length-match-group", ...group.nets)
+  for (const group of groups) args.push("--length-match-group", ...group.nets.map(krtLiteralGlobPattern))
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
   pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
@@ -1353,10 +2156,10 @@ function matchedOrdinaryArgs(
 ) {
   const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
   const nets = unique(groups.flatMap((group) => group.nets))
-  args.push("--nets", ...nets)
+  args.push("--nets", ...nets.map(krtLiteralNetFilterPattern))
   // route.py performs matching only over results produced by this invocation,
   // so every ordinary member is deliberately submitted together.
-  for (const group of groups) args.push("--length-match-group", ...group.nets)
+  for (const group of groups) args.push("--length-match-group", ...group.nets.map(krtLiteralGlobPattern))
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
   pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
@@ -1374,7 +2177,7 @@ function remainingArgs(
   // KRT treats --clearance as a global ceiling, so passing it here would
   // silently flatten stricter classes.
   const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
-  args.push("--nets", ...nets)
+  args.push("--nets", ...unique(nets).map(krtLiteralNetFilterPattern))
   if (spec.busDetect) {
     args.push("--bus")
     if (spec.busDetect !== true) {
@@ -1384,11 +2187,12 @@ function remainingArgs(
     }
   }
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
-  if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets)
+  if (ripExistingNets.length) args.push("--rip-existing-nets", ...ripExistingNets.map(krtLiteralNetFilterPattern))
+  if (spec.forceReroute) args.push("--force-reroute")
   if (spec.collectStats) args.push("--stats")
   appendRoutePyQualityArgs(args, spec)
   if (spec.powerNets?.length) {
-    args.push("--power-nets", ...spec.powerNets.map((item) => item.net))
+    args.push("--power-nets", ...spec.powerNets.map((item) => krtLiteralGlobPattern(item.net)))
     args.push("--power-nets-widths", ...spec.powerNets.map((item) => numberArg(item.width)))
   }
 
@@ -1439,7 +2243,7 @@ function qfnFanoutArgs(
   args.push("--width", numberArg(spec.rules.trackWidth))
   args.push("--extension", numberArg(spec.extension ?? 0.1))
   args.push("--clearance", numberArg(spec.rules.clearance))
-  args.push("--nets", ...nets)
+  args.push("--nets", ...nets.map(krtLiteralNetFilterPattern))
   pushNumericArg(args, "--grid-step", spec.rules.gridStep)
   args.push("--escape-method", spec.method)
   args.push("--via-size", numberArg(spec.rules.viaSize))
@@ -1453,22 +2257,33 @@ function qfnFanoutArgs(
   return args
 }
 
-function dynamicIterationsEnvironment(spec: KrtStageSpec): Record<string, string> {
-  return spec.dynamicIterations === undefined
-    ? {}
-    : { KICAD_DYNAMIC_ITERATIONS: spec.dynamicIterations ? "1" : "0" }
+/** Exact default-on recovery environment passed to native KRT subprocesses. */
+export function buildKrtNativeRecoveryEnvironment(spec: KrtStageSpec): Record<string, string> {
+  return {
+    // These are upstream default-on capabilities. Emit the values explicitly
+    // so a stale parent-process A/B environment cannot silently suppress them.
+    KICAD_RIP_PREEXISTING: spec.ripPreexisting === false ? "0" : "1",
+    KICAD_NET_RESCUE: spec.enableNetRescue === false ? "0" : "1",
+    KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation === false ? "0" : "1",
+    KICAD_DYNAMIC_ITERATIONS: spec.dynamicIterations === false ? "0" : "1",
+    KICAD_PLANE_FINALIZE: spec.planeFinalize ? "1" : "0",
+    KICAD_FINALIZE_RIP: spec.finalizeRip === false ? "0" : "1",
+  }
 }
 
-function explicitDiffPairEnvironment(
-  pairs: readonly NormalizedPair[],
-): Record<string, string> {
-  return pairs.length
-    ? {
-        COPILOT_ROUTER_DIFF_PAIRS: JSON.stringify(
-          pairs.map((pair) => [pair.positive, pair.negative]),
-        ),
-      }
-    : {}
+function exactNetSelectionNets(spec: KrtStageSpec): string[] {
+  const fanoutNets = "nets" in spec && Array.isArray(spec.nets)
+    ? spec.nets.map(String)
+    : []
+  return unique([
+    ...spec.remainingNets,
+    ...spec.diffPairs.flatMap((pair) => {
+      const normalized = normalizePair(pair)
+      return [normalized.positive, normalized.negative]
+    }),
+    ...spec.matchedGroups.flatMap((group) => normalizeGroup(group).nets),
+    ...fanoutNets,
+  ])
 }
 
 async function executeStage(
@@ -1525,6 +2340,7 @@ async function executeStage(
       scriptName,
       diagnostics,
     )
+    await materializeAuthoritativeSidecars(normalizedInput, spec, diagnostics)
     if (resolve(normalizedInput).toLowerCase() !== resolve(normalizedOutput).toLowerCase()) {
       await removeBoardAndSidecars(normalizedOutput)
     }
@@ -1542,13 +2358,13 @@ async function executeStage(
       ))
     }
 
-    const args = buildArgs(diagnostics)
-    if (!args || diagnostics.some((item) => item.severity === "error")) {
+    const builtArgs = buildArgs(diagnostics)
+    if (!builtArgs || diagnostics.some((item) => item.severity === "error")) {
       await saveOutputArtifact(result, normalizedArtifacts)
       await persistResultArtifacts(result, normalizedArtifacts)
       return result
     }
-    if (!args.length) {
+    if (!builtArgs.length) {
       result.status = "skipped"
       diagnostics.push(diagnostic(
         "KRT_STAGE_EMPTY", "info", `The ${stage} stage has no nets to route.`,
@@ -1556,6 +2372,32 @@ async function executeStage(
       await saveOutputArtifact(result, normalizedArtifacts)
       await persistResultArtifacts(result, normalizedArtifacts)
       return result
+    }
+
+    const netSelectionCandidates = exactNetSelectionNets(spec)
+    const ripSelectionCandidates = unique(spec.ripExistingNets ?? [])
+    const compact = compactKrtExactSelectorArgs(builtArgs, {
+      netSelection: netSelectionCandidates,
+      ripSelection: ripSelectionCandidates,
+      ripAuthorization: unique([
+        ...ripSelectionCandidates,
+        ...(spec.forceReroute ? netSelectionCandidates : []),
+      ]),
+      diffPairs: spec.diffPairs.map((pair) => {
+        const normalized = normalizePair(pair)
+        return [normalized.positive, normalized.negative] as const
+      }),
+    })
+    const args = compact.args
+    const hasExactSelectorScope = compact.sidecar.netSelection.length > 0
+      || compact.sidecar.ripSelection.length > 0
+      || compact.sidecar.ripAuthorization.length > 0
+      || compact.sidecar.diffPairs.length > 0
+    const selectorEnvironment: Record<string, string> = {}
+    if (hasExactSelectorScope) {
+      const selectorPath = join(normalizedArtifacts, `krt-${stage}-exact-selectors.json`)
+      await writeFile(selectorPath, `${JSON.stringify(compact.sidecar, null, 2)}\n`, "utf8")
+      selectorEnvironment.COPILOT_ROUTER_EXACT_SELECTORS_FILE = selectorPath
     }
 
     // route.py may emit a run-scope summary followed by a reconciliation
@@ -1569,37 +2411,52 @@ async function executeStage(
       args.push("--json-out", result.mergedSummaryPath)
     }
 
+    // Keep the complete native argv on disk. Only the fixed bootstrap, script
+    // path and args-file path cross Windows CreateProcess; large matched groups
+    // and power-net lists therefore cannot overflow its command-line limit.
+    const toolArgsPath = join(normalizedArtifacts, `krt-${stage}-args.json`)
+    await writeFile(toolArgsPath, `${JSON.stringify(args, null, 2)}\n`, "utf8")
     const scriptPath = join(normalizedKrt, "py_router", scriptName)
-    const processArgs = pythonScriptArgs(scriptPath, args, spec.pythonPathEntries)
+    const processArgs = pythonScriptArgs(scriptPath, args, spec.pythonPathEntries, toolArgsPath)
     result.command = [executable, ...processArgs]
+    try {
+      await writeStageManifest(result, spec, normalizedArtifacts, scriptName)
+    } catch (error) {
+      diagnostics.push(diagnostic(
+        "KRT_MANIFEST_WRITE_FAILED",
+        "error",
+        `Could not persist the authoritative KRT stage manifest: ${errorText(error)}`,
+        { artifactsDir: normalizedArtifacts },
+      ))
+      await saveOutputArtifact(result, normalizedArtifacts)
+      await persistResultArtifacts(result, normalizedArtifacts)
+      return result
+    }
     result.invocationPath = join(normalizedArtifacts, `krt-${stage}-invocation.json`)
     // console.log(result.command)
     await writeArtifact(result.invocationPath, `${JSON.stringify({
       stage,
       executable,
-      args: processArgs,
+       args: processArgs,
+       toolArgs: args,
+       toolArgsPath,
       cwd: normalizedKrt,
       timeoutMs: spec.timeoutMs,
       environment: {
         ...(spec.pythonPathEntries?.length
           ? { PYTHONPATH: [...spec.pythonPathEntries, ...(process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [])].join(delimiter) }
           : {}),
-        KICAD_RIP_PREEXISTING: "0",
-        KICAD_PLANE_FINALIZE: "0",
-        KICAD_FINALIZE_RIP: "0",
-        KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
-        KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
-        ...dynamicIterationsEnvironment(spec),
+        ...buildKrtNativeRecoveryEnvironment(spec),
         PYTHONDONTWRITEBYTECODE: "1",
         ...KRT_REQUIRED_NECKDOWN_ENVIRONMENT,
-        // KRT otherwise performs a second bare-BGA "direct first" partition
-        // after MPS. Disable it so MPS remains the actual final order.
-        KICAD_DIRECT_FIRST: "0",
+        ...selectorEnvironment,
         ...extraEnvironment,
       },
     }, null, 2)}\n`, diagnostics)
 
     result.attempted = true
+    result.stdoutPath = join(normalizedArtifacts, `krt-${stage}.stdout.log`)
+    result.stderrPath = join(normalizedArtifacts, `krt-${stage}.stderr.log`)
     const captured = await runCaptured(
       executable,
       processArgs,
@@ -1609,13 +2466,12 @@ async function executeStage(
         ...(spec.pythonPathEntries?.length
           ? { PYTHONPATH: [...spec.pythonPathEntries, ...(process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [])].join(delimiter) }
           : {}),
-        KICAD_DIRECT_FIRST: "0",
-        KICAD_NET_RESCUE: spec.enableNetRescue ? "1" : "0",
-        KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation ? "1" : "0",
-        ...dynamicIterationsEnvironment(spec),
+        ...buildKrtNativeRecoveryEnvironment(spec),
+        ...selectorEnvironment,
         ...extraEnvironment,
       },
       spec.signal,
+      { stdout: result.stdoutPath, stderr: result.stderrPath },
     )
     result.exitCode = captured.exitCode
     result.signal = captured.signal
@@ -1624,10 +2480,12 @@ async function executeStage(
     result.stdout = captured.stdout
     result.stderr = captured.stderr
 
-    result.stdoutPath = join(normalizedArtifacts, `krt-${stage}.stdout.log`)
-    result.stderrPath = join(normalizedArtifacts, `krt-${stage}.stderr.log`)
-    await writeArtifact(result.stdoutPath, result.stdout, diagnostics)
-    await writeArtifact(result.stderrPath, result.stderr, diagnostics)
+    if (captured.logError) diagnostics.push(diagnostic(
+      "KRT_LOG_SPOOL_FAILED",
+      "warning",
+      `Could not persist the complete KRT process stream: ${captured.logError}`,
+      { stdoutPath: result.stdoutPath, stderrPath: result.stderrPath },
+    ))
 
     if (captured.error) diagnostics.push(diagnostic(
       "KRT_PROCESS_START_FAILED", "error", `Could not start KRT: ${captured.error}`,
@@ -1701,7 +2559,8 @@ async function executeStage(
       spec.rules,
       diagnostics,
       spec.ripExistingNets,
-      spec.enableTerminalEscalation,
+      spec.protectedNets,
+      spec.enableTerminalEscalation !== false,
     )
     else {
       const unescaped = stringArray(result.jsonSummary.unescaped_nets)
@@ -1725,7 +2584,10 @@ async function executeStage(
       "KRT did not leave an output board artifact.",
       { outputBoard: normalizedOutput },
     ))
-    if (stage === "special" && spec.protectSpecialOutput !== false && await exists(normalizedOutput)) {
+    if (stage === "special"
+      && spec.protectSpecialOutput !== false
+      && !diagnostics.some((item) => item.severity === "error")
+      && await exists(normalizedOutput)) {
       const specialNets = unique([
         ...spec.diffPairs.flatMap((pair) => {
           const normalized = normalizePair(pair)
@@ -1799,6 +2661,9 @@ async function persistResultArtifacts(result: KrtProcessResult, artifactsDir: st
 
 type KrtConnectivityAudit = Readonly<{
   openNets: string[]
+  issueFingerprints: readonly string[]
+  issueFingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  componentCountByNet: Readonly<Record<string, number>>
   elapsedMs: number
   stdout: string
   stderr: string
@@ -1807,11 +2672,374 @@ type KrtConnectivityAudit = Readonly<{
 
 type KrtDrcAudit = Readonly<{
   violationCount: number
+  fingerprints: readonly string[]
+  shortFingerprints: readonly string[]
+  fingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  shortFingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  unattributedFingerprints: readonly string[]
+  unattributedShortFingerprints: readonly string[]
+  fingerprintsAvailable: boolean
+  byType: Readonly<Record<string, number>>
+  contactsByType: Readonly<Record<string, number>>
   elapsedMs: number
   stdout: string
   stderr: string
   failed: boolean
 }>
+
+function unavailableKrtConnectivityAudit(openNets: readonly string[]): KrtConnectivityAudit {
+  return {
+    openNets: unique(openNets),
+    issueFingerprints: [],
+    issueFingerprintsByNet: {},
+    componentCountByNet: {},
+    elapsedMs: 0,
+    stdout: "",
+    stderr: "",
+    failed: true,
+  }
+}
+
+function canonicalDrcFingerprint(item: Record<string, unknown>) {
+  const keys = [
+    "type", "short", "net", "net_name", "layer", "hole_ref", "edge",
+    "via_loc", "seg_loc", "cross_point",
+    "width", "size", "drill", "min_width", "min_size", "min_drill",
+  ]
+  const normalize = (value: unknown, directionless = false): unknown => {
+    if (typeof value === "number") return Number(value.toFixed(4))
+    if (Array.isArray(value)) {
+      const normalized = value.map((entry) => normalize(entry))
+      // A point is [x,y] and remains ordered. A segment/path endpoint pair is
+      // either [[x1,y1],[x2,y2]] or KRT's flat [x1,y1,x2,y2], and has no
+      // direction in a physical DRC identity.
+      if (directionless && normalized.length === 4
+        && normalized.every((entry) => typeof entry === "number")) {
+        const reversed = [normalized[2], normalized[3], normalized[0], normalized[1]]
+        return JSON.stringify(normalized).localeCompare(JSON.stringify(reversed)) <= 0
+          ? normalized
+          : reversed
+      }
+      return directionless && normalized.length === 2
+        && normalized.every((entry) => Array.isArray(entry) || (entry !== null && typeof entry === "object"))
+        ? normalized.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+        : normalized
+    }
+    if (value !== null && typeof value === "object") return Object.fromEntries(
+      Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalize(entry)]),
+    )
+    return value
+  }
+  const directionlessKeys = new Set(["edge", "seg_loc"])
+  const fingerprint: Record<string, unknown> = Object.fromEntries(keys.flatMap((key) => (
+    item[key] === undefined ? [] : [[key, normalize(item[key], directionlessKeys.has(key))]]
+  )))
+  const participantKeys = [
+    ["net1", "pad_ref", "loc1", "pad_loc"],
+    ["net2", "pad_ref2", "loc2", "pad_loc2"],
+  ] as const
+  const participants = participantKeys.map((participant) => Object.fromEntries(
+    participant.flatMap((key) => (
+      item[key] === undefined ? [] : [[key.replace(/2$/, "").replace(/1$/, ""), normalize(
+        item[key],
+        key === "loc1" || key === "loc2",
+      )]]
+    )),
+  )).filter((participant) => Object.keys(participant).length)
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+  if (participants.length) fingerprint.participants = participants
+  return JSON.stringify(fingerprint)
+}
+
+/** @internal Accepted KRT contacts are audit evidence, not DRC violations. */
+export function krtDrcViolationItem(value: unknown) {
+  const item = jsonObject(value)
+  return item && !item.accepted ? item : undefined
+}
+
+export type KrtDrcFingerprintIndex = Readonly<{
+  fingerprints: readonly string[]
+  shortFingerprints: readonly string[]
+  fingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  shortFingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  unattributedFingerprints: readonly string[]
+  unattributedShortFingerprints: readonly string[]
+}>
+
+/**
+ * Attribute native DRC identities to every named participant. This lets a
+ * partially successful critical batch protect clean connected members instead
+ * of making one bad member veto the entire group. Items without any net name
+ * stay global and therefore conservatively gate every member.
+ */
+export function indexKrtDrcFingerprints(values: readonly unknown[]): KrtDrcFingerprintIndex {
+  const fingerprints: string[] = []
+  const shortFingerprints: string[] = []
+  const fingerprintsByNet: Record<string, string[]> = {}
+  const shortFingerprintsByNet: Record<string, string[]> = {}
+  const unattributedFingerprints: string[] = []
+  const unattributedShortFingerprints: string[] = []
+  for (const value of values) {
+    const item = krtDrcViolationItem(value)
+    if (!item) continue
+    const fingerprint = canonicalDrcFingerprint(item)
+    const isShort = item.short === true
+    fingerprints.push(fingerprint)
+    if (isShort) shortFingerprints.push(fingerprint)
+    const nets = unique(["net", "net_name", "net1", "net2"].flatMap((key) => {
+      const net = item[key]
+      return typeof net === "string" && net.trim() ? [net] : []
+    }))
+    if (!nets.length) {
+      unattributedFingerprints.push(fingerprint)
+      if (isShort) unattributedShortFingerprints.push(fingerprint)
+      continue
+    }
+    for (const net of nets) {
+      const netFingerprints = fingerprintsByNet[net] ?? []
+      netFingerprints.push(fingerprint)
+      fingerprintsByNet[net] = netFingerprints
+      if (isShort) {
+        const netShortFingerprints = shortFingerprintsByNet[net] ?? []
+        netShortFingerprints.push(fingerprint)
+        shortFingerprintsByNet[net] = netShortFingerprints
+      }
+    }
+  }
+  fingerprints.sort()
+  shortFingerprints.sort()
+  unattributedFingerprints.sort()
+  unattributedShortFingerprints.sort()
+  for (const values of Object.values(fingerprintsByNet)) values.sort()
+  for (const values of Object.values(shortFingerprintsByNet)) values.sort()
+  return {
+    fingerprints,
+    shortFingerprints,
+    fingerprintsByNet,
+    shortFingerprintsByNet,
+    unattributedFingerprints,
+    unattributedShortFingerprints,
+  }
+}
+
+function fingerprintMultisetIsSubset(candidate: readonly string[], baseline: readonly string[]) {
+  const remaining = new Map<string, number>()
+  for (const fingerprint of baseline) remaining.set(fingerprint, (remaining.get(fingerprint) ?? 0) + 1)
+  for (const fingerprint of candidate) {
+    const count = remaining.get(fingerprint) ?? 0
+    if (!count) return false
+    remaining.set(fingerprint, count - 1)
+  }
+  return true
+}
+
+export function krtCriticalNetDrcNonRegressing(
+  net: string,
+  baseline: Pick<KrtDrcAudit,
+    "fingerprintsAvailable" | "fingerprintsByNet" | "shortFingerprintsByNet"
+    | "unattributedFingerprints" | "unattributedShortFingerprints">,
+  candidate: Pick<KrtDrcAudit,
+    "fingerprintsAvailable" | "fingerprintsByNet" | "shortFingerprintsByNet"
+    | "unattributedFingerprints" | "unattributedShortFingerprints">,
+) {
+  return baseline.fingerprintsAvailable
+    && candidate.fingerprintsAvailable
+    && fingerprintMultisetIsSubset(
+      candidate.fingerprintsByNet[net] ?? [],
+      baseline.fingerprintsByNet[net] ?? [],
+    )
+    && fingerprintMultisetIsSubset(
+      candidate.shortFingerprintsByNet[net] ?? [],
+      baseline.shortFingerprintsByNet[net] ?? [],
+    )
+    && fingerprintMultisetIsSubset(
+      candidate.unattributedFingerprints,
+      baseline.unattributedFingerprints,
+    )
+    && fingerprintMultisetIsSubset(
+      candidate.unattributedShortFingerprints,
+      baseline.unattributedShortFingerprints,
+    )
+}
+
+function addedDrcFingerprints(baseline: KrtDrcAudit, candidate: KrtDrcAudit) {
+  if (!baseline.fingerprintsAvailable || !candidate.fingerprintsAvailable) return []
+  const remaining = new Map<string, number>()
+  for (const fingerprint of baseline.fingerprints) remaining.set(fingerprint, (remaining.get(fingerprint) ?? 0) + 1)
+  return candidate.fingerprints.filter((fingerprint) => {
+    const count = remaining.get(fingerprint) ?? 0
+    if (!count) return true
+    remaining.set(fingerprint, count - 1)
+    return false
+  })
+}
+
+async function auditKrtMatchedGroups(
+  boardPath: string,
+  groups: readonly NormalizedGroup[],
+  diffNets: readonly string[],
+  toleranceMm: number,
+  connectivity: KrtConnectivityAudit,
+  baselineDrc: KrtDrcAudit,
+  candidateDrc: KrtDrcAudit,
+  artifactsDir: string,
+) {
+  const diagnostics: KrtDiagnostic[] = []
+  const coupled = new Set(diffNets)
+  let measurement: KrtCopperLengthMeasurement | undefined
+  let measurementError: string | undefined
+  try {
+    measurement = await measureKrtNetCopperLengths(boardPath, groups.flatMap((group) => group.nets))
+  } catch (error) {
+    measurementError = errorText(error)
+  }
+  const open = new Set(connectivity.openNets)
+  const audits: KrtMatchedGroupAudit[] = groups.map((group, index) => {
+    const lengthsMm = Object.fromEntries(group.nets.flatMap((net) => (
+      measurement ? [[net, measurement.lengthsMm[net] ?? 0]] : []
+    )))
+    const measurementErrors = Object.fromEntries(group.nets.flatMap((net) => {
+      const errors = measurement?.measurementErrorsByNet[net] ?? []
+      return errors.length ? [[net, errors]] : []
+    }))
+    const values = Object.values(lengthsMm)
+    const minLengthMm = values.length === group.nets.length ? Math.min(...values) : undefined
+    const maxLengthMm = values.length === group.nets.length ? Math.max(...values) : undefined
+    const spreadMm = minLengthMm === undefined || maxLengthMm === undefined
+      ? undefined
+      : maxLengthMm - minLengthMm
+    const diffMembers = group.nets.filter((net) => coupled.has(net))
+    // Stock KRT has no one-shot primitive for a group that is partly coupled
+    // differential copper and partly ordinary single-ended copper. Keep this
+    // explicit in the semantic verdict even if a future pipeline happens to
+    // leave equal-length geometry behind: that geometry was never routed or
+    // audited under one representable matched-group constraint.
+    const capabilityMismatch = diffMembers.length > 0 && diffMembers.length < group.nets.length
+    const openNets = connectivity.failed ? [...group.nets] : group.nets.filter((net) => open.has(net))
+    const drcRegressedNets = baselineDrc.failed || candidateDrc.failed
+      ? [...group.nets]
+      : group.nets.filter((net) => !krtCriticalNetDrcNonRegressing(net, baselineDrc, candidateDrc))
+    const reasons: KrtMatchedGroupAuditReason[] = []
+    if (capabilityMismatch) reasons.push("capability-mismatch")
+    if (connectivity.failed) reasons.push("connectivity-audit-failed")
+    else if (openNets.length) reasons.push("open-members")
+    if (baselineDrc.failed || candidateDrc.failed) reasons.push("drc-audit-failed")
+    else if (drcRegressedNets.length) reasons.push("drc-regression")
+    if (!Number.isFinite(toleranceMm) || toleranceMm < 0) reasons.push("invalid-tolerance")
+    if (!measurement || Object.keys(measurementErrors).length) reasons.push("measurement-failed")
+    else if (spreadMm !== undefined && spreadMm > toleranceMm + EPSILON) reasons.push("outside-tolerance")
+    const isCoupled = group.nets.every((net) => coupled.has(net))
+    return {
+      index,
+      nets: [...group.nets],
+      coupled: isCoupled,
+      protectionGate: isCoupled ? "differential" : "matched-group",
+      toleranceMm,
+      lengthsMm,
+      measurementErrors,
+      ...(minLengthMm === undefined ? {} : { minLengthMm }),
+      ...(maxLengthMm === undefined ? {} : { maxLengthMm }),
+      ...(spreadMm === undefined ? {} : {
+        spreadMm,
+        excessMm: Math.max(0, spreadMm - toleranceMm),
+      }),
+      openNets,
+      drcRegressedNets,
+      reasons,
+      verified: reasons.length === 0,
+    }
+  })
+  const normalizedArtifacts = resolve(artifactsDir)
+  const auditPath = join(normalizedArtifacts, "krt-special-matched-groups.json")
+  let auditPersisted = false
+  try {
+    await mkdir(normalizedArtifacts, { recursive: true })
+    await writeFile(auditPath, `${JSON.stringify({
+      schemaVersion: 1,
+      boardPath: resolve(boardPath),
+      toleranceMm,
+      ...(measurementError ? { measurementError } : {}),
+      ...(measurement ? {
+        planarLengthsMm: measurement.planarLengthsMm,
+        viaBarrelLengthsMm: measurement.viaBarrelLengthsMm,
+        measurementErrorsByNet: measurement.measurementErrorsByNet,
+        copperCounts: { vias: measurement.vias, routes: measurement.routes },
+      } : {}),
+      groups: audits,
+    }, null, 2)}\n`, "utf8")
+    auditPersisted = true
+  } catch (error) {
+    diagnostics.push(diagnostic(
+      "KRT_MATCHED_GROUP_AUDIT_ARTIFACT_FAILED",
+      "warning",
+      `Could not persist the matched-group semantic audit: ${errorText(error)}`,
+      { path: auditPath },
+    ))
+  }
+  for (const audit of audits) {
+    const number = audit.index + 1
+    const details = { ...audit, auditPath, ...(measurementError ? { measurementError } : {}) }
+    if (audit.verified) diagnostics.push(diagnostic(
+      "KRT_MATCHED_GROUP_VERIFIED",
+      "info",
+      `Matched group ${number} is connected and within ${audit.toleranceMm} mm `
+        + `(measured spread ${(audit.spreadMm ?? 0).toFixed(6)} mm).`
+        + (audit.coupled ? " Its protection remains governed by the differential-pair gate." : ""),
+      details,
+    ))
+    else if (audit.reasons.includes("capability-mismatch")) diagnostics.push(diagnostic(
+      "CAPABILITY_MISMATCH",
+      "error",
+      `Matched group ${number} mixes differential-pair and ordinary members; its copper remains unprotected.`,
+      details,
+    ))
+    else if (audit.reasons.includes("measurement-failed") || audit.reasons.includes("invalid-tolerance")) diagnostics.push(diagnostic(
+      "KRT_MATCHED_GROUP_AUDIT_FAILED",
+      "error",
+      `Could not measure final copper lengths for matched group ${number}; its nets remain unprotected.`,
+      details,
+    ))
+    else if (audit.reasons.includes("outside-tolerance")) diagnostics.push(diagnostic(
+      "KRT_LENGTH_MATCH_INCOMPLETE",
+      "error",
+      `Matched group ${number} has ${(audit.spreadMm ?? 0).toFixed(6)} mm final copper spread, `
+        + `exceeding its ${audit.toleranceMm} mm tolerance; useful connected copper is retained but remains editable.`,
+      details,
+    ))
+    else diagnostics.push(diagnostic(
+      "KRT_MATCHED_GROUP_NOT_VERIFIED",
+      "warning",
+      `Matched group ${number} could not be protected after its independent semantic audit.`,
+      details,
+    ))
+  }
+  return {
+    audits,
+    diagnostics,
+    auditPath: auditPersisted ? auditPath : undefined,
+    copperCounts: measurement ? { vias: measurement.vias, routes: measurement.routes } : undefined,
+  }
+}
+
+function unavailableKrtDrcAudit(violationCount = Number.MAX_SAFE_INTEGER): KrtDrcAudit {
+  return {
+    violationCount,
+    fingerprints: [],
+    shortFingerprints: [],
+    fingerprintsByNet: {},
+    shortFingerprintsByNet: {},
+    unattributedFingerprints: [],
+    unattributedShortFingerprints: [],
+    fingerprintsAvailable: false,
+    byType: {},
+    contactsByType: {},
+    elapsedMs: 0,
+    stdout: "",
+    stderr: "",
+    failed: true,
+  }
+}
 
 async function auditKrtConnectivity(
   boardPath: string,
@@ -1819,22 +3047,50 @@ async function auditKrtConnectivity(
   spec: KrtStageSpec,
   artifactsDir: string,
 ): Promise<KrtConnectivityAudit> {
-  const marker = "COPILOT_ROUTER_CONNECTIVITY:"
+  const normalizedArtifacts = resolve(artifactsDir)
+  const scopePath = join(normalizedArtifacts, "krt-special-connectivity-scope.json")
+  const resultPath = join(normalizedArtifacts, "krt-special-connectivity-result.json")
+  const transport = buildKrtAuditScopeTransport(netNames, scopePath, resultPath)
+  try {
+    await mkdir(normalizedArtifacts, { recursive: true })
+    await rm(resultPath, { force: true })
+    await writeFile(scopePath, `${JSON.stringify(transport.sidecar, null, 2)}\n`, "utf8")
+  } catch (error) {
+    return {
+      ...unavailableKrtConnectivityAudit(netNames),
+      stderr: `Could not persist the exact connectivity-audit scope: ${errorText(error)}`,
+    }
+  }
   const modulePaths = [
     join(resolve(spec.krtDirectory), "py_router"),
     ...unique(spec.pythonPathEntries ?? []),
   ]
   const bootstrap = [
-    "import json,sys",
+    "import fnmatch,json,sys",
     "sys.dont_write_bytecode=True",
     `sys.path[:0]=${JSON.stringify(modulePaths)}`,
     "from check_connected import run_connectivity_check",
-    "issues=run_connectivity_check(sys.argv[1],json.loads(sys.argv[2]),0.02,True,False,None,False)",
-    `print(${JSON.stringify(marker)}+json.dumps(sorted(set(str(item.get('net_name','')) for item in issues if item.get('net_name')))))`,
+    "from kicad_parser import parse_kicad_pcb",
+    "scope=json.load(open(sys.argv[2],encoding='utf-8'))",
+    "expected=scope['expected']",
+    "patterns=scope['patterns']",
+    "pcb=parse_kicad_pcb(sys.argv[1])",
+    "names=sorted(set(str(net.name) for net in pcb.nets.values() if getattr(net,'name',None)))",
+    "selected=sorted(name for name in names if any(fnmatch.fnmatch(name,pattern) for pattern in patterns))",
+    "scope_error=set(selected)!=set(expected)",
+    "issues=[] if scope_error else run_connectivity_check(sys.argv[1],patterns,0.02,True,False,None,False)",
+    "scope_error=scope_error or any(bool(item.get('scope_error')) for item in issues)",
+    "payload={'scopeId':scope.get('scopeId'),'scopeError':scope_error,'expectedCount':len(set(expected)),'selectedCount':len(selected),'openNets':sorted(set(str(item.get('net_name','')) for item in issues if item.get('net_name') and not item.get('scope_error'))),'issues':[{'net':str(item.get('net_name','')),'num_components':int(item.get('num_components') or 0),'num_pads':int(item.get('num_pads') or 0),'disconnected_pads':item.get('disconnected_pads') or [],'unrouted':bool(item.get('unrouted')),'kicad_only':bool(item.get('kicad_only'))} for item in issues if not item.get('scope_error')]}",
+    "json.dump(payload,open(scope['resultPath'],'w',encoding='utf-8'),sort_keys=True)",
   ].join(";")
   const captured = await runCaptured(
     pythonCommand(spec.pythonPath),
-    ["-c", bootstrap, resolve(boardPath), JSON.stringify(unique(netNames))],
+    [
+      "-c",
+      bootstrap,
+      resolve(boardPath),
+      ...transport.connectivityBootstrapArgs,
+    ],
     resolve(spec.krtDirectory),
     spec.timeoutMs,
     {
@@ -1847,32 +3103,82 @@ async function auditKrtConnectivity(
     },
     spec.signal,
   )
-  const line = captured.stdout.split(/\r?\n/).findLast((item) => item.startsWith(marker))
   let openNets: string[] = []
+  let issueFingerprints: string[] = []
+  let issueFingerprintsByNet: Record<string, string[]> = {}
+  let componentCountByNet: Record<string, number> = {}
+  let scopeError = false
   let parsed = false
-  if (line) {
-    try {
-      const value: unknown = JSON.parse(line.slice(marker.length))
-      if (Array.isArray(value)) {
-        openNets = unique(value.map(String))
-        parsed = true
+  try {
+    const value: unknown = JSON.parse(await readFile(resultPath, "utf8"))
+    const object = jsonObject(value)
+    if (object && object.scopeId === transport.sidecar.scopeId
+      && typeof object.scopeError === "boolean"
+      && typeof object.expectedCount === "number" && typeof object.selectedCount === "number"
+      && Array.isArray(object.openNets) && Array.isArray(object.issues)) {
+      scopeError = object.scopeError
+        || object.expectedCount !== transport.sidecar.expected.length
+        || object.selectedCount !== transport.sidecar.expected.length
+      openNets = unique(object.openNets.map(String))
+      issueFingerprints = object.issues.map((item) => JSON.stringify(item)).sort()
+      for (const raw of object.issues) {
+        const issue = jsonObject(raw)
+        const net = typeof issue?.net === "string" ? issue.net : ""
+        const count = Number(issue?.num_components)
+        if (net) {
+          const fingerprint = JSON.stringify(raw)
+          const fingerprints = issueFingerprintsByNet[net] ?? []
+          fingerprints.push(fingerprint)
+          issueFingerprintsByNet[net] = fingerprints
+        }
+        if (net && Number.isFinite(count)) componentCountByNet[net] = Math.max(componentCountByNet[net] ?? 0, count)
       }
-    } catch {
-      // The failed flag below retains the full stdout/stderr artifact.
+      for (const fingerprints of Object.values(issueFingerprintsByNet)) fingerprints.sort()
+      parsed = true
     }
+  } catch {
+    // The failed flag below retains the full stdout/stderr artifact.
   }
-  await mkdir(resolve(artifactsDir), { recursive: true }).catch(() => undefined)
   await writeFile(
-    join(resolve(artifactsDir), "krt-special-connectivity.log"),
+    join(normalizedArtifacts, "krt-special-connectivity.log"),
     `${captured.stdout}${captured.stderr ? `\n[stderr]\n${captured.stderr}` : ""}`,
     "utf8",
   ).catch(() => undefined)
   return {
     openNets,
+    issueFingerprints,
+    issueFingerprintsByNet,
+    componentCountByNet,
     elapsedMs: captured.elapsedMs,
     stdout: captured.stdout,
     stderr: captured.stderr,
-    failed: Boolean(captured.error || captured.timedOut || spec.signal?.aborted || !parsed),
+    failed: Boolean(captured.error || captured.timedOut || spec.signal?.aborted || !parsed || scopeError),
+  }
+}
+
+/** Full-board geometry-aware connectivity audit used instead of stage counters. */
+export async function auditKrtBoardConnectivity(
+  boardPath: string,
+  netNames: readonly string[],
+  spec: KrtStageSpec,
+  artifactsDir: string,
+) {
+  const audit = await auditKrtConnectivity(boardPath, netNames, spec, artifactsDir)
+  const diagnostics: KrtDiagnostic[] = audit.failed
+    ? [diagnostic(
+        "KRT_FINAL_CONNECTIVITY_AUDIT_FAILED",
+        "error",
+        "KRT could not determine final geometry-aware connectivity; stage counters are not used as a fallback.",
+        { stdout: audit.stdout, stderr: audit.stderr },
+      )]
+    : []
+  return {
+    openNets: audit.failed ? unique(netNames) : audit.openNets,
+    issueFingerprints: audit.issueFingerprints,
+    issueFingerprintsByNet: audit.issueFingerprintsByNet,
+    componentCountByNet: audit.componentCountByNet,
+    elapsedMs: audit.elapsedMs,
+    diagnostics,
   }
 }
 
@@ -1883,14 +3189,70 @@ async function auditKrtDrc(
   artifactsDir: string,
   artifactName: string,
 ): Promise<KrtDrcAudit> {
+  const materializationDiagnostics: KrtDiagnostic[] = []
+  const authoritativeReady = await materializeAuthoritativeSidecars(
+    resolve(boardPath),
+    spec,
+    materializationDiagnostics,
+  )
+  if (!authoritativeReady) return {
+    violationCount: 0,
+    fingerprints: [],
+    shortFingerprints: [],
+    fingerprintsByNet: {},
+    shortFingerprintsByNet: {},
+    unattributedFingerprints: [],
+    unattributedShortFingerprints: [],
+    fingerprintsAvailable: false,
+    byType: {},
+    contactsByType: {},
+    elapsedMs: 0,
+    stdout: "",
+    stderr: materializationDiagnostics.map((item) => `${item.code}: ${item.message}`).join("\n"),
+    failed: true,
+  }
   const scriptPath = join(resolve(spec.krtDirectory), "py_router", "check_drc.py")
-  const args = [resolve(boardPath), "--quiet", "--clearance", numberArg(spec.rules.clearance)]
+  const normalizedArtifacts = resolve(artifactsDir)
+  const artifactStem = artifactName.replace(/\.log$/i, "")
+  const jsonPath = join(normalizedArtifacts, `${artifactStem}.json`)
+  const scopePath = join(normalizedArtifacts, `${artifactStem}-scope.json`)
+  const scopeResultPath = join(normalizedArtifacts, `${artifactStem}-scope-result.json`)
+  const transport = buildKrtAuditScopeTransport(netNames, scopePath, scopeResultPath)
+  try {
+    await mkdir(normalizedArtifacts, { recursive: true })
+    await Promise.all([
+      rm(jsonPath, { force: true }),
+      rm(scopeResultPath, { force: true }),
+    ])
+    await writeFile(scopePath, `${JSON.stringify(transport.sidecar, null, 2)}\n`, "utf8")
+  } catch (error) {
+    return {
+      ...unavailableKrtDrcAudit(0),
+      stderr: `Could not persist the exact DRC-audit scope: ${errorText(error)}`,
+    }
+  }
+  // check_drc.py treats --clearance as a global ceiling, just like route.py.
+  // Omitting it is required for the authoritative project netclasses and
+  // netclass_patterns to remain effective during a mixed-class board audit.
+  const args = [resolve(boardPath), "--quiet", "--json", jsonPath]
   pushNumericArg(args, "--hole-to-hole-clearance", spec.rules.holeToHoleClearance)
   pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
-  args.push("--nets", ...unique(netNames))
+  // Keep the native audit on the exact same fabrication contract as route.py.
+  // Without this, check_drc.py activates its default fab tier (including the
+  // 0.2 mm board-edge floor) and can reject copper the router legally created
+  // under a tighter explicit DSL/project rule. The explicit CLI values above
+  // remain authoritative inputs; check_drc applies the shared fab minima too.
+  args.push("--fab-overrides", resolve(spec.fabOverridesPath))
+  const expectedNets = unique(netNames)
+  args.push(...transport.drcNetArgs)
   const captured = await runCaptured(
     pythonCommand(spec.pythonPath),
-    pythonScriptArgs(scriptPath, args, spec.pythonPathEntries),
+    pythonScopedDrcArgs(
+      scriptPath,
+      args,
+      spec.pythonPathEntries,
+      transport.drcBootstrapArgs[0],
+    ),
     resolve(spec.krtDirectory),
     spec.timeoutMs,
     {
@@ -1902,21 +3264,119 @@ async function auditKrtDrc(
   )
   const violationCount = parseKrtDrcViolationCount(captured.stdout)
   const parsed = violationCount !== undefined
-  await mkdir(resolve(artifactsDir), { recursive: true }).catch(() => undefined)
+  let jsonResult: Record<string, unknown> | undefined
+  try {
+    jsonResult = jsonObject(JSON.parse(await readFile(jsonPath, "utf8")))
+  } catch {
+    jsonResult = undefined
+  }
+  const fingerprintIndex = indexKrtDrcFingerprints(
+    Array.isArray(jsonResult?.items) ? jsonResult.items : [],
+  )
+  let scopeVerified = false
+  try {
+    const payload = jsonObject(JSON.parse(await readFile(scopeResultPath, "utf8")))
+    scopeVerified = payload?.scopeId === transport.sidecar.scopeId
+      && payload.scopeOk === true
+      && payload.expectedCount === expectedNets.length
+      && payload.selectedCount === expectedNets.length
+  } catch {
+    scopeVerified = false
+  }
+  const numericRecord = (value: unknown) => Object.fromEntries(Object.entries(jsonObject(value) ?? {}).flatMap(([key, item]) => (
+    typeof item === "number" && Number.isFinite(item) ? [[key, item]] : []
+  )))
   await writeFile(
-    join(resolve(artifactsDir), artifactName),
+    join(normalizedArtifacts, artifactName),
     `${captured.stdout}${captured.stderr ? `\n[stderr]\n${captured.stderr}` : ""}`,
     "utf8",
   ).catch(() => undefined)
   return {
     violationCount: violationCount ?? 0,
+    ...fingerprintIndex,
+    fingerprintsAvailable: Boolean(jsonResult && Array.isArray(jsonResult.items)),
+    byType: numericRecord(jsonResult?.by_type),
+    contactsByType: numericRecord(jsonResult?.contacts_by_type),
     elapsedMs: captured.elapsedMs,
     stdout: captured.stdout,
     stderr: captured.stderr,
     // check_drc exits 1 when it successfully found violations.
     failed: Boolean(captured.error || captured.timedOut || spec.signal?.aborted
-      || !parsed || (captured.exitCode !== 0 && captured.exitCode !== 1)),
+      || !scopeVerified || !parsed || !jsonResult || !Array.isArray(jsonResult.items)
+      || (captured.exitCode !== 0 && captured.exitCode !== 1)),
   }
+}
+
+/** Scoped native DRC audit used to gate post-main repair candidates. */
+export async function auditKrtBoardDrc(
+  boardPath: string,
+  netNames: readonly string[],
+  spec: KrtStageSpec,
+  artifactsDir: string,
+) {
+  const audit = await auditKrtDrc(
+    boardPath,
+    netNames,
+    spec,
+    artifactsDir,
+    "krt-board-drc.log",
+  )
+  const diagnostics: KrtDiagnostic[] = audit.failed
+    ? [diagnostic(
+        "KRT_BOARD_DRC_AUDIT_FAILED",
+        "error",
+        "KRT could not determine the scoped native DRC count.",
+        { stdout: audit.stdout, stderr: audit.stderr },
+      )]
+    : []
+  return {
+    violationCount: audit.violationCount,
+    fingerprints: audit.fingerprints,
+    shortFingerprints: audit.shortFingerprints,
+    fingerprintsByNet: audit.fingerprintsByNet,
+    shortFingerprintsByNet: audit.shortFingerprintsByNet,
+    unattributedFingerprints: audit.unattributedFingerprints,
+    unattributedShortFingerprints: audit.unattributedShortFingerprints,
+    fingerprintsAvailable: audit.fingerprintsAvailable,
+    byType: audit.byType,
+    contactsByType: audit.contactsByType,
+    elapsedMs: audit.elapsedMs,
+    failed: audit.failed,
+    diagnostics,
+  }
+}
+
+function diffPairSemanticallyCoupled(
+  summary: Record<string, unknown> | undefined,
+  pair: NormalizedPair,
+  completedFollowups: readonly string[],
+) {
+  if (!summary) return false
+  const followups = new Set(completedFollowups)
+  const routedPairNames = new Set(stringArray(summary.routed_diff_pairs))
+  const reports = recordArray(summary.pair_reports)
+  const report = reports.find((item) => (
+    item.p_net === pair.positive && item.n_net === pair.negative
+  ) || (
+      item.p_net === pair.negative && item.n_net === pair.positive
+    ))
+  const incomplete = report ? stringArray(report.incomplete_members) : []
+  const pairName = typeof report?.pair === "string" ? report.pair : ""
+  const coupled = report?.outcome === "coupled"
+    && report.member_audit_mismatch !== true
+    && incomplete.length === 0
+  // Multipoint pairs may have a coupled trunk plus short duplicate-pad
+  // branches. Accept that shape only when KRT recorded the pair as routed,
+  // the pair has no failure reason, and every incomplete member was closed
+  // by the explicit follow-up pass. A deferred/failed whole pair never
+  // becomes a valid differential route merely because route.py connected it.
+  const coupledWithFollowup = report?.outcome === "partial"
+    && report.failure_reason == null
+    && report.member_audit_mismatch !== true
+    && Boolean(pairName && routedPairNames.has(pairName))
+    && incomplete.length > 0
+    && incomplete.every((net) => followups.has(net))
+  return coupled || coupledWithFollowup
 }
 
 function specialSemanticOpenNets(
@@ -1924,43 +3384,136 @@ function specialSemanticOpenNets(
   pairs: readonly NormalizedPair[],
   completedFollowups: readonly string[],
 ) {
-  if (!pairs.length) return []
-  if (!summary) return unique(pairs.flatMap((pair) => [pair.positive, pair.negative]))
-  const followups = new Set(completedFollowups)
-  const routedPairNames = new Set(stringArray(summary.routed_diff_pairs))
-  const reports = recordArray(summary.pair_reports)
-  const open: string[] = []
-  for (const pair of pairs) {
-    const report = reports.find((item) => (
-      item.p_net === pair.positive && item.n_net === pair.negative
-    ) || (
-        item.p_net === pair.negative && item.n_net === pair.positive
-      ))
-    const incomplete = report ? stringArray(report.incomplete_members) : []
-    const pairName = typeof report?.pair === "string" ? report.pair : ""
-    const coupled = report?.outcome === "coupled"
-      && report.member_audit_mismatch !== true
-      && incomplete.length === 0
-    // Multipoint pairs may have a coupled trunk plus short duplicate-pad
-    // branches. Accept that shape only when KRT recorded the pair as routed,
-    // the pair has no failure reason, and every incomplete member was closed
-    // by the explicit follow-up pass. A deferred/failed whole pair never
-    // becomes a valid differential route merely because route.py connected it.
-    const coupledWithFollowup = report?.outcome === "partial"
-      && report.failure_reason == null
-      && report.member_audit_mismatch !== true
-      && Boolean(pairName && routedPairNames.has(pairName))
-      && incomplete.length > 0
-      && incomplete.every((net) => followups.has(net))
-    if (!coupled && !coupledWithFollowup) open.push(pair.positive, pair.negative)
+  return unique(pairs.flatMap((pair) => diffPairSemanticallyCoupled(summary, pair, completedFollowups)
+    ? []
+    : [pair.positive, pair.negative]))
+}
+
+type KrtDiffPairDrcEvidence = Readonly<{
+  failed: boolean
+  fingerprintsAvailable: boolean
+  fingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  shortFingerprintsByNet: Readonly<Record<string, readonly string[]>>
+  unattributedFingerprints: readonly string[]
+  unattributedShortFingerprints: readonly string[]
+}>
+
+export type KrtDiffPairCustodyEvidence = Readonly<{
+  pairs: readonly KrtDiffPair[]
+  summary?: Record<string, unknown>
+  completedFollowups?: readonly string[]
+  connectivity: Readonly<{ failed: boolean; openNets: readonly string[] }>
+  baselineDrc: KrtDiffPairDrcEvidence
+  candidateDrc: KrtDiffPairDrcEvidence
+  matchedGroups?: readonly KrtMatchedGroup[]
+  matchedGroupAudits?: readonly Readonly<{ nets: readonly string[]; verified: boolean }>[]
+}>
+
+function sameNetMembership(left: readonly string[], right: readonly string[]) {
+  if (left.length !== right.length) return false
+  const rightSet = new Set(right)
+  return left.every((net) => rightSet.has(net))
+}
+
+/**
+ * Return only independently verified differential members. A failed sibling
+ * pair does not revoke good copper, while connectivity, per-net DRC, and every
+ * declared matched-group constraint remain fail-closed custody gates.
+ */
+export function krtVerifiedDiffPairNets(evidence: KrtDiffPairCustodyEvidence) {
+  if (evidence.connectivity.failed || evidence.baselineDrc.failed || evidence.candidateDrc.failed) return []
+  const completedFollowups = evidence.completedFollowups ?? []
+  const open = new Set(evidence.connectivity.openNets)
+  const groups = (evidence.matchedGroups ?? []).map(normalizeGroup)
+  const groupAudits = evidence.matchedGroupAudits ?? []
+  const verified: string[] = []
+  for (const pair of evidence.pairs.map(normalizePair)) {
+    const members = [pair.positive, pair.negative]
+    if (!pair.positive || !pair.negative || pair.positive === pair.negative) continue
+    if (!diffPairSemanticallyCoupled(evidence.summary, pair, completedFollowups)) continue
+    if (members.some((net) => open.has(net))) continue
+    if (members.some((net) => !krtCriticalNetDrcNonRegressing(
+      net,
+      evidence.baselineDrc,
+      evidence.candidateDrc,
+    ))) continue
+    const memberGroups = groups.filter((group) => group.nets.some((net) => members.includes(net)))
+    if (memberGroups.some((group) => !groupAudits.some((audit) => (
+      audit.verified && sameNetMembership(group.nets, audit.nets)
+    )))) continue
+    verified.push(...members)
   }
-  return unique(open)
+  return unique(verified)
+}
+
+const KRT_MATCHED_RETRY_INFRASTRUCTURE_REASONS = new Set([
+  "capability-mismatch",
+  "connectivity-audit-failed",
+  "drc-audit-failed",
+  "invalid-tolerance",
+  "measurement-failed",
+])
+
+const KRT_MATCHED_RETRY_ROUTE_REASONS = new Set([
+  "open-members",
+  "drc-regression",
+  "outside-tolerance",
+])
+
+export type KrtOrdinaryMatchedRetryEvidence = Readonly<{
+  aborted: boolean
+  attempted: boolean
+  preflightFailed: boolean
+  connectivityAuditFailed: boolean
+  drcAuditFailed: boolean
+  openNets: readonly string[]
+  matchedGroupReasons: readonly (readonly string[])[]
+}>
+
+/** A second ordinary matched candidate is useful only for route/order failures. */
+export function krtOrdinaryMatchedCandidateRetryable(evidence: KrtOrdinaryMatchedRetryEvidence) {
+  if (evidence.aborted
+    || !evidence.attempted
+    || evidence.preflightFailed
+    || evidence.connectivityAuditFailed
+    || evidence.drcAuditFailed) return false
+  const reasons = evidence.matchedGroupReasons.flat()
+  if (reasons.some((reason) => KRT_MATCHED_RETRY_INFRASTRUCTURE_REASONS.has(reason))) return false
+  return evidence.openNets.length > 0
+    || reasons.some((reason) => KRT_MATCHED_RETRY_ROUTE_REASONS.has(reason))
 }
 
 const RESOLVED_FOLLOWUP_DIAGNOSTICS = new Set([
   "KRT_DIFF_PARTIAL",
   "KRT_DIFF_NOT_FULLY_COUPLED",
   "KRT_DIFF_PAIR_AUDIT_FAILED",
+])
+
+// Process/protocol state remains visible in status and diagnostics, but it is
+// not board-semantic damage once independent output connectivity and DRC
+// audits prove the checkpoint. Keep this aligned with candidate grading.
+const KRT_TRANSPORT_DIAGNOSTICS = new Set([
+  "KRT_PROCESS_START_FAILED",
+  "KRT_TIMEOUT",
+  "KRT_ABORTED",
+  "KRT_NONZERO_EXIT",
+  "KRT_SUMMARY_MISSING",
+  "KRT_SUMMARY_MIN_MISSING",
+  "KRT_INVALID_JSON_SUMMARY",
+  "KRT_MERGED_SUMMARY_INVALID",
+])
+
+/** @internal Transport diagnostics do not describe physical board damage. */
+export function krtTransportDiagnostic(code: string) {
+  return KRT_TRANSPORT_DIAGNOSTICS.has(code)
+}
+
+const KRT_SPECIAL_TRANSPORT_DIAGNOSTICS = new Set([
+  "KRT_PROCESS_START_FAILED",
+  "KRT_TIMEOUT",
+  "KRT_ABORTED",
+  "KRT_NONZERO_EXIT",
+  "KRT_SUMMARY_MIN_MISSING",
 ])
 
 async function boardCopperCounts(boardPath: string) {
@@ -2081,7 +3634,6 @@ async function runKrtSpecialPipeline(
         return specialArgs(inputBoard, diffOutput, diffSpec, current.pairs, current.coupledGroups)
       },
       "special",
-      explicitDiffPairEnvironment(normalized.pairs),
     )
     subcalls.push(diff)
     if (diff.attempted && await exists(diffOutput)) {
@@ -2100,9 +3652,10 @@ async function runKrtSpecialPipeline(
         powerNets: [],
         ordering: "mps",
         mpsReverseRounds: false,
-        maxRipup: 0,
+        maxRipup: spec.maxRipup,
         specialMaxCandidates: 1,
         protectSpecialOutput: false,
+        protectedNets: unique([...(spec.protectedNets ?? []), ...diffNets]),
       }
       const followup = await executeStage(
         "remaining",
@@ -2215,9 +3768,9 @@ async function runKrtSpecialPipeline(
   }
   if (ordinary && /\bWARNING:.*(?:NOT fully matched|SHORT of the group target)/i.test(ordinary.stdout)) {
     diagnostics.push(diagnostic(
-      "KRT_LENGTH_MATCH_INCOMPLETE",
-      "error",
-      "KRT reported that an ordinary equal-length group did not meet its requested tolerance.",
+      "KRT_LENGTH_MATCH_NATIVE_WARNING",
+      "warning",
+      "KRT reported a possibly incomplete equal-length group; the final output copper audit is authoritative.",
     ))
   }
 
@@ -2267,21 +3820,34 @@ export async function runKrtSpecial(
     id: "configured",
     ordering: spec.ordering ?? "mps",
     mpsReverseRounds: Boolean(spec.ordering === "mps" && spec.mpsReverseRounds),
-    maxRipup: Math.max(0, Math.trunc(spec.maxRipup ?? 0)),
+    ...(spec.maxRipup === undefined
+      ? {}
+      : { maxRipup: Math.max(0, Math.trunc(spec.maxRipup)) }),
   }
-  const variants = spec.specialMaxCandidates === undefined || !normalized.pairs.length
+  const variants = spec.specialMaxCandidates === undefined
+    || spec.specialMaxCandidates <= 1
+    || (!normalized.pairs.length && !normalized.ordinaryGroups.length)
     ? [configured]
-    : buildKrtSpecialCandidates(spec.specialMaxCandidates, spec.maxRipup)
+    : buildKrtSpecialCandidatePortfolio(configured, spec.specialMaxCandidates)
+  const matchedGroups = spec.matchedGroups.map(normalizeGroup)
   const specialNets = unique([
     ...normalized.pairs.flatMap((pair) => [pair.positive, pair.negative]),
-    ...normalized.coupledGroups.flatMap((group) => group.nets),
-    ...normalized.ordinaryGroups.flatMap((group) => group.nets),
+    // Audit the exact requested groups, including a mixed diff/ordinary group
+    // rejected by native preflight. An omitted member must never look closed
+    // merely because it was absent from the connectivity/DRC audit scope.
+    ...matchedGroups.flatMap((group) => group.nets),
   ])
+  const diffNets = unique(normalized.pairs.flatMap((pair) => [pair.positive, pair.negative]))
   const attempts: Array<{
     variant: KrtSpecialCandidate
     result: KrtProcessResult
     audit: KrtConnectivityAudit
     drc: KrtDrcAudit
+    matchedGroupAudits: KrtMatchedGroupAudit[]
+    verifiedDiffNets: string[]
+    verifiedMatchedNets: string[]
+    matchedViolationCount: number
+    matchedExcessMm: number
     openNets: string[]
     addedDrcViolations: number
     hardErrors: number
@@ -2300,11 +3866,16 @@ export async function runKrtSpecial(
   for (const [index, variant] of variants.entries()) {
     const candidateDir = join(resolve(artifactsDir), `candidate-${String(index + 1).padStart(2, "0")}-${variant.id}`)
     const candidateOutput = join(candidateDir, "special-candidate.kicad_pcb")
+    const matchedFallbackRules = index > 0 && !normalized.pairs.length
+      ? spec.ordinaryMatchedFallbackRules
+      : undefined
     const candidateSpec: KrtStageSpec = {
       ...spec,
+      rules: matchedFallbackRules ?? spec.rules,
+      ordinaryMatchedRules: matchedFallbackRules ?? spec.ordinaryMatchedRules,
       ordering: variant.ordering,
       mpsReverseRounds: variant.mpsReverseRounds,
-      maxRipup: variant.maxRipup,
+      ...(variant.maxRipup === undefined ? {} : { maxRipup: variant.maxRipup }),
       specialMaxCandidates: 1,
       // Return-via generation is deliberately outside differential search.
       // It created real pair-via DRC errors on PowerBank; core-owned return
@@ -2321,13 +3892,62 @@ export async function runKrtSpecial(
     const completedFollowups = stringArray(result.jsonSummary?.copilot_router_completed_followups)
     const audit = await exists(candidateOutput)
       ? await auditKrtConnectivity(candidateOutput, specialNets, candidateSpec, candidateDir)
-      : { openNets: [...specialNets], elapsedMs: 0, stdout: "", stderr: "", failed: true }
+      : unavailableKrtConnectivityAudit(specialNets)
     const drc = await exists(candidateOutput)
       ? await auditKrtDrc(candidateOutput, specialNets, candidateSpec, candidateDir, "krt-special-drc.log")
-      : { violationCount: Number.MAX_SAFE_INTEGER, elapsedMs: 0, stdout: "", stderr: "", failed: true }
+      : unavailableKrtDrcAudit()
+    const addedFingerprints = addedDrcFingerprints(baselineDrc, drc)
     const addedDrcViolations = baselineDrc.failed || drc.failed
       ? Number.MAX_SAFE_INTEGER
-      : Math.max(0, drc.violationCount - baselineDrc.violationCount)
+      : Math.max(0, drc.violationCount - baselineDrc.violationCount, addedFingerprints.length)
+    const matchedAudit = matchedGroups.length
+      ? await auditKrtMatchedGroups(
+          candidateOutput,
+          matchedGroups,
+          diffNets,
+          spec.rules.lengthMatchTolerance ?? Number.NaN,
+          audit,
+          baselineDrc,
+          drc,
+          candidateDir,
+        )
+      : {
+          audits: [] as KrtMatchedGroupAudit[],
+          diagnostics: [] as KrtDiagnostic[],
+          auditPath: undefined,
+          copperCounts: undefined,
+        }
+    result.diagnostics.push(...matchedAudit.diagnostics)
+    const matchedGroupAudits = [...matchedAudit.audits]
+    const verifiedDiffNets = krtVerifiedDiffPairNets({
+      pairs: normalized.pairs,
+      summary: result.jsonSummary,
+      completedFollowups,
+      connectivity: audit,
+      baselineDrc,
+      candidateDrc: drc,
+      matchedGroups,
+      matchedGroupAudits,
+    })
+    const verifiedMatchedNets = unique(matchedGroupAudits
+      // A group made exclusively from pair members remains under the existing
+      // differential semantic/protection gate. Ordinary matched groups are
+      // independently protectable, so one bad sibling group cannot veto them.
+      .filter((group) => group.verified && !group.coupled)
+      .flatMap((group) => group.nets))
+    const unmatchedGroups = matchedGroupAudits.filter((group) => !group.verified)
+    const matchedViolationCount = unmatchedGroups.length
+    const matchedExcessMm = unmatchedGroups.reduce((sum, group) => sum + (group.excessMm ?? 0), 0)
+    result.jsonSummary = {
+      ...(result.jsonSummary ?? {}),
+      matched_group_audits: matchedGroupAudits,
+      diff_verified_nets: verifiedDiffNets,
+      diff_unverified_nets: diffNets.filter((net) => !verifiedDiffNets.includes(net)),
+      matched_verified_nets: verifiedMatchedNets,
+      unmatched_groups: unmatchedGroups,
+    }
+    if (matchedAudit.auditPath) result.matchedGroupsAuditPath = matchedAudit.auditPath
+    await persistResultArtifacts(result, candidateDir).catch(() => undefined)
     const semanticOpen = specialSemanticOpenNets(result.jsonSummary, normalized.pairs, completedFollowups)
     const openNets = unique([
       ...semanticOpen,
@@ -2336,25 +3956,72 @@ export async function runKrtSpecial(
     const resolvedFollowup = openNets.length === 0 && completedFollowups.length > 0
     const hardErrors = result.diagnostics.filter((item) => (
       item.severity === "error"
+      // A matched/differential stage still needs a parseable semantic summary;
+      // independent connectivity+DRC can neutralize process termination, not
+      // prove coupling or length tolerance on its own.
+      && !KRT_SPECIAL_TRANSPORT_DIAGNOSTICS.has(item.code)
       && !(resolvedFollowup && RESOLVED_FOLLOWUP_DIAGNOSTICS.has(item.code))
     )).length
-    const counts = await exists(candidateOutput)
+    const counts = matchedAudit.copperCounts ?? (await exists(candidateOutput)
       ? await boardCopperCounts(candidateOutput).catch(() => ({ vias: Number.MAX_SAFE_INTEGER, routes: Number.MAX_SAFE_INTEGER }))
-      : { vias: Number.MAX_SAFE_INTEGER, routes: Number.MAX_SAFE_INTEGER }
-    const complete = result.status === "completed"
-      && !audit.failed
+      : { vias: Number.MAX_SAFE_INTEGER, routes: Number.MAX_SAFE_INTEGER })
+    const complete = !audit.failed
       && !drc.failed
       && openNets.length === 0
       && addedDrcViolations === 0
+      && matchedViolationCount === 0
       && hardErrors === 0
-    attempts.push({ variant, result, audit, drc, openNets, addedDrcViolations, hardErrors, ...counts, complete })
+    attempts.push({
+      variant,
+      result,
+      audit,
+      drc,
+      matchedGroupAudits,
+      verifiedDiffNets,
+      verifiedMatchedNets,
+      matchedViolationCount,
+      matchedExcessMm,
+      openNets,
+      addedDrcViolations,
+      hardErrors,
+      ...counts,
+      complete,
+    })
     if (complete) break
     if (spec.signal?.aborted) break
+    if (!normalized.pairs.length && normalized.ordinaryGroups.length
+      && !krtOrdinaryMatchedCandidateRetryable({
+        aborted: Boolean(spec.signal?.aborted),
+        attempted: result.attempted,
+        preflightFailed: result.status === "preflight_failed",
+        connectivityAuditFailed: audit.failed,
+        drcAuditFailed: baselineDrc.failed || drc.failed,
+        openNets,
+        matchedGroupReasons: matchedGroupAudits.map((group) => group.reasons),
+      })) break
   }
 
   const selected = [...attempts].sort((left, right) => {
-    const a = [left.complete ? 0 : 1, left.openNets.length, left.addedDrcViolations, left.hardErrors, left.vias, left.routes]
-    const b = [right.complete ? 0 : 1, right.openNets.length, right.addedDrcViolations, right.hardErrors, right.vias, right.routes]
+    const a = [
+      left.complete ? 0 : 1,
+      left.openNets.length,
+      left.addedDrcViolations,
+      left.hardErrors,
+      left.matchedViolationCount,
+      left.matchedExcessMm,
+      left.vias,
+      left.routes,
+    ]
+    const b = [
+      right.complete ? 0 : 1,
+      right.openNets.length,
+      right.addedDrcViolations,
+      right.hardErrors,
+      right.matchedViolationCount,
+      right.matchedExcessMm,
+      right.vias,
+      right.routes,
+    ]
     for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return a[index] - b[index]
     return attempts.indexOf(left) - attempts.indexOf(right)
   })[0]
@@ -2380,11 +4047,24 @@ export async function runKrtSpecial(
         ordering: attempt.variant.ordering,
         mpsReverseRounds: attempt.variant.mpsReverseRounds,
         maxRipup: attempt.variant.maxRipup,
+        gridStep: attempt.result.subcalls?.find((subcall) => subcall.attempted)
+          ? (attempt.variant.id === configured.id
+              ? spec.rules.gridStep
+              : spec.ordinaryMatchedFallbackRules?.gridStep ?? spec.rules.gridStep)
+          : undefined,
+        nativeLengthMatchTolerance: attempt.variant.id === configured.id
+          ? spec.rules.lengthMatchTolerance
+          : spec.ordinaryMatchedFallbackRules?.lengthMatchTolerance ?? spec.rules.lengthMatchTolerance,
         complete: attempt.complete,
         openNets: attempt.openNets,
         drcViolations: attempt.drc.violationCount,
         addedDrcViolations: attempt.addedDrcViolations,
         hardErrors: attempt.hardErrors,
+        matchedViolationCount: attempt.matchedViolationCount,
+        matchedExcessMm: attempt.matchedExcessMm,
+        matchedGroups: attempt.matchedGroupAudits,
+        verifiedDiffNets: attempt.verifiedDiffNets,
+        verifiedMatchedNets: attempt.verifiedMatchedNets,
         vias: attempt.vias,
         routes: attempt.routes,
         elapsedMs: attempt.result.elapsedMs + attempt.audit.elapsedMs + attempt.drc.elapsedMs,
@@ -2415,19 +4095,50 @@ export async function runKrtSpecial(
   if (!selected.complete) diagnostics.push(diagnostic(
     "KRT_SPECIAL_PORTFOLIO_INCOMPLETE",
     "error",
-    `No special candidate passed every connectivity and DRC gate; ${selected.openNets.length} net(s) remain unresolved in the selected candidate.`,
-    { openNets: selected.openNets, addedDrcViolations: selected.addedDrcViolations },
+    `No special candidate passed every semantic, connectivity, and DRC gate; `
+      + `${selected.openNets.length} net(s) and ${selected.matchedViolationCount} matched group(s) remain unresolved.`,
+    {
+      openNets: selected.openNets,
+      addedDrcViolations: selected.addedDrcViolations,
+      unmatchedGroups: selected.matchedGroupAudits.filter((group) => !group.verified),
+    },
   ))
 
   await removeBoardAndSidecars(resolve(outputBoard))
   await copyBoardAndSidecars(selected.result.outputBoard, resolve(outputBoard), diagnostics)
+  const sidecarsMaterialized = await materializeAuthoritativeSidecars(
+    resolve(outputBoard),
+    spec,
+    diagnostics,
+  )
   let protectedNetsPath: string | undefined
   let protectedNets: string[] | undefined
-  if (await exists(resolve(outputBoard))) {
+  const verifiedSpecialNets = unique([
+    ...selected.verifiedDiffNets,
+    ...selected.verifiedMatchedNets,
+  ])
+  if (verifiedSpecialNets.length
+    && spec.protectSpecialOutput !== false
+    && await exists(resolve(outputBoard))) {
+    // Keep the verified set in memory even when sibling-project persistence
+    // fails. The caller rematerializes this set before every later KRT stage,
+    // preventing ordinary routing from silently rewriting verified copper.
+    protectedNets = [...verifiedSpecialNets]
     try {
-      const persisted = await persistKrtProtectedNets(resolve(outputBoard), specialNets)
+      if (!sidecarsMaterialized) throw new Error("authoritative sidecar materialization failed")
+      const persisted = await persistKrtProtectedNets(resolve(outputBoard), verifiedSpecialNets)
       protectedNetsPath = persisted.path
       protectedNets = persisted.nets
+      diagnostics.push(diagnostic(
+        "KRT_SPECIAL_NETS_PROTECTED",
+        "info",
+        `Protected ${protectedNets.length} independently verified special net(s) for later native stages.`,
+        {
+          nets: protectedNets,
+          differentialNets: selected.verifiedDiffNets,
+          matchedNets: selected.verifiedMatchedNets,
+        },
+      ))
     } catch (error) {
       diagnostics.push(diagnostic(
         "KRT_SPECIAL_PROTECTION_FAILED",
@@ -2454,6 +4165,14 @@ export async function runKrtSpecial(
       special_open_nets: selected.openNets,
       special_candidate: selected.variant,
       special_candidate_count: attempts.length,
+      matched_group_audits: selected.matchedGroupAudits,
+      diff_verified_nets: selected.verifiedDiffNets,
+      diff_unverified_nets: diffNets.filter((net) => !selected.verifiedDiffNets.includes(net)),
+      matched_verified_nets: selected.verifiedMatchedNets,
+      matched_unverified_nets: unique(selected.matchedGroupAudits
+        .filter((group) => !group.verified)
+        .flatMap((group) => group.nets)),
+      special_verified_nets: verifiedSpecialNets,
     },
     subcalls: attempts.map((attempt) => attempt.result),
     ...(protectedNetsPath ? { protectedNetsPath } : {}),
@@ -2484,5 +4203,153 @@ export async function runKrtRemaining(
       if (diagnostics.some((item) => item.severity === "error")) return undefined
       return remainingArgs(inputBoard, outputBoard, spec, nets)
     },
+    "remaining",
   )
+}
+
+/**
+ * Route a critical ordinary-net group and protect only the members that the
+ * native geometry audit proves connected without adding a scoped DRC
+ * regression. A partial group remains useful: completed members are protected
+ * while open members stay available to the later full-board pass.
+ */
+export async function runKrtVerifiedCritical(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtStageSpec,
+  artifactsDir: string,
+): Promise<KrtProcessResult> {
+  const nets = unique(spec.remainingNets)
+  const normalizedArtifacts = resolve(artifactsDir)
+  const baselineDrc = await auditKrtDrc(
+    inputBoard,
+    nets,
+    spec,
+    normalizedArtifacts,
+    "krt-critical-baseline-drc.log",
+  )
+  const result = await runKrtRemaining(inputBoard, outputBoard, spec, normalizedArtifacts)
+  const outputExists = await exists(resolve(outputBoard))
+  const connectivity = outputExists
+    ? await auditKrtConnectivity(outputBoard, nets, spec, normalizedArtifacts)
+    : unavailableKrtConnectivityAudit(nets)
+  const candidateDrc = outputExists
+    ? await auditKrtDrc(
+        outputBoard,
+        nets,
+        spec,
+        normalizedArtifacts,
+        "krt-critical-candidate-drc.log",
+      )
+    : unavailableKrtDrcAudit()
+  const addedFingerprints = addedDrcFingerprints(baselineDrc, candidateDrc)
+  const addedDrcViolations = baselineDrc.failed || candidateDrc.failed
+    ? Number.MAX_SAFE_INTEGER
+    : Math.max(0, candidateDrc.violationCount - baselineDrc.violationCount, addedFingerprints.length)
+  const perNetIncompleteDiagnostics = new Set([
+    "KRT_NETS_UNROUTED",
+    "KRT_NETS_OPEN",
+    "KRT_MULTIPOINT_INCOMPLETE",
+    "KRT_CLEANUP_DISCONNECTED",
+    "KRT_PAD_PAIRS_OPEN",
+  ])
+  const blockingResultError = result.diagnostics.some((item) => (
+    item.severity === "error"
+    && !perNetIncompleteDiagnostics.has(item.code)
+    && !krtTransportDiagnostic(item.code)
+  ))
+  const connectedNets = outputExists
+    && !connectivity.failed
+    && !baselineDrc.failed
+    && !candidateDrc.failed
+    // Incomplete members are intentionally not a batch-wide veto: geometry
+    // connectivity below verifies and protects each completed critical net.
+    && !blockingResultError
+    ? nets.filter((net) => !connectivity.openNets.includes(net))
+    : []
+  const verifiedNets = connectedNets.filter((net) => (
+    krtCriticalNetDrcNonRegressing(net, baselineDrc, candidateDrc)
+  ))
+  const drcRegressedNets = connectedNets.filter((net) => !verifiedNets.includes(net))
+
+  if (connectivity.failed) result.diagnostics.push(diagnostic(
+    "KRT_CRITICAL_CONNECTIVITY_AUDIT_FAILED",
+    "error",
+    "KRT could not verify critical-net connectivity; no new protection was granted.",
+    { stdout: connectivity.stdout, stderr: connectivity.stderr },
+  ))
+  if (baselineDrc.failed || candidateDrc.failed) result.diagnostics.push(diagnostic(
+    "KRT_CRITICAL_DRC_AUDIT_FAILED",
+    "error",
+    "KRT could not compare the critical candidate against its input DRC baseline; no new protection was granted.",
+    {
+      baseline: { stdout: baselineDrc.stdout, stderr: baselineDrc.stderr },
+      candidate: { stdout: candidateDrc.stdout, stderr: candidateDrc.stderr },
+    },
+  ))
+  if (addedDrcViolations > 0 && addedDrcViolations !== Number.MAX_SAFE_INTEGER) result.diagnostics.push(diagnostic(
+    "KRT_CRITICAL_DRC_REGRESSION",
+    "warning",
+    `The critical candidate adds ${addedDrcViolations} scoped KRT DRC violation(s); only clean connected members can be protected.`,
+    {
+      baseline: baselineDrc.violationCount,
+      candidate: candidateDrc.violationCount,
+      addedFingerprints: addedFingerprints.slice(0, 16),
+      regressedNets: drcRegressedNets,
+      verifiedNets,
+    },
+  ))
+
+  let protectedNetsPath: string | undefined
+  if (verifiedNets.length) {
+    // executeStage already produced a sidecar from the authoritative rule
+    // source. Re-materialize it here so only the explicit verified ledger is
+    // carried into protection, never a KRT-written project mutation.
+    const materialized = await materializeAuthoritativeSidecars(
+      resolve(outputBoard),
+      spec,
+      result.diagnostics,
+    )
+    try {
+      if (!materialized) throw new Error("authoritative sidecar materialization failed")
+      const persisted = await persistKrtProtectedNets(
+        resolve(outputBoard),
+        verifiedNets,
+        "workflow-critical",
+      )
+      protectedNetsPath = persisted.path
+      result.diagnostics.push(diagnostic(
+        "KRT_CRITICAL_NETS_PROTECTED",
+        "info",
+        `Protected ${verifiedNets.length} geometry-verified critical net(s) for later native recovery.`,
+        { nets: verifiedNets },
+      ))
+    } catch (error) {
+      result.diagnostics.push(diagnostic(
+        "KRT_CRITICAL_PROTECTION_FAILED",
+        "error",
+        `Could not protect verified critical-net copper: ${errorText(error)}`,
+        { board: resolve(outputBoard), nets: verifiedNets },
+      ))
+    }
+  }
+
+  result.elapsedMs += baselineDrc.elapsedMs + connectivity.elapsedMs + candidateDrc.elapsedMs
+  result.jsonSummary = {
+    ...(result.jsonSummary ?? {}),
+    // "open" here means unresolved for protection/retry, not merely the
+    // electrical connectivity subset. A connected candidate with a DRC or
+    // semantic error must still flow into the later editable main pass.
+    critical_open_nets: nets.filter((net) => !verifiedNets.includes(net)),
+    critical_connectivity_open_nets: connectivity.failed ? nets : connectivity.openNets,
+    critical_verified_nets: verifiedNets,
+    critical_drc_regressed_nets: drcRegressedNets,
+    critical_added_drc_violations: addedDrcViolations,
+    critical_blocking_result_error: blockingResultError,
+  }
+  result.protectedNets = unique([...(spec.protectedNets ?? []), ...verifiedNets])
+  if (protectedNetsPath) result.protectedNetsPath = protectedNetsPath
+  await saveOutputArtifact(result, normalizedArtifacts)
+  await persistResultArtifacts(result, normalizedArtifacts).catch(() => undefined)
+  return result
 }

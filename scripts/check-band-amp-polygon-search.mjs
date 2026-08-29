@@ -34,7 +34,6 @@ const result = await run({
   board: imported.board,
   dsl: { ...program, viaStitches: [] },
   backend,
-  policy: { profile: "balanced", maxCandidates: 1 },
 })
 const elapsedMs = performance.now() - started
 

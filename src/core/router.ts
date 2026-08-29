@@ -2,14 +2,18 @@ import type { BackendRouteRequest, BackendRouteResult, RouterBackendAdapter } fr
 import { createKrtBackend } from "../backends/krt.js"
 import { compileRoutingDsl } from "../intent/builder.js"
 import { compileRoutingRules } from "../intent/preflight.js"
-import type { ClearRoutingIntent, RoutingPolicy, RoutingProfile, RoutingProgram } from "../intent/types.js"
+import type { ClearRoutingIntent, RoutingProgram } from "../intent/types.js"
 import type {
   RoutingBoard,
   RoutingCopper,
   RoutingDiagnostic,
   RoutingResult,
 } from "./contracts.js"
+import { gradeRoutingCandidate, retainRoutingChampion, type RoutingCandidate } from "./candidate-grader.js"
+import { retainCopperCheckpoint } from "./copper-checkpoint.js"
 import { planRoutingCopper } from "./copper-planner.js"
+import { canonicalizeCopper, canonicalizeRoutingBoard, createLayerCatalog } from "./layers.js"
+import { resolveRoutePlan } from "./route-plan.js"
 import { materializeRoutingStackup } from "./stackup.js"
 import { validateRoutingBoard, validateRoutingCopper } from "./validation.js"
 import { planViaStitches } from "./via-stitch.js"
@@ -19,7 +23,6 @@ export type RunRequest = Readonly<{
   /** Local statement-oriented JavaScript DSL source or an already compiled program. */
   dsl: string | RoutingProgram
   backend?: RouterBackendAdapter
-  policy?: RoutingPolicy
   /** The only supported way to stop a running router. */
   signal?: AbortSignal
 }>
@@ -82,38 +85,20 @@ function backendProgram(program: RoutingProgram): RoutingProgram {
   }
 }
 
-type BackendCandidate = Readonly<{
-  index: number
-  profile: RoutingProfile
-  result: BackendRouteResult
-}>
-
-function profileCascade(policy: RoutingPolicy | undefined): RoutingProfile[] {
-  const selected = policy?.profile ?? "balanced"
-  const candidateLimit = Number(policy?.maxCandidates ?? 1)
-  const requested = Number.isFinite(candidateLimit)
-    ? Math.max(1, Math.min(16, Math.trunc(candidateLimit)))
-    : 1
-  if (requested === 1 || selected === "fast" || selected === "completion-first") return [selected]
-  // A portfolio is ordered from the best quality the caller requested toward
-  // progressively more permissive completion. Stop at the first zero-open
-  // candidate; never spend the first slot on a lower-quality route.
-  const profiles: RoutingProfile[] = selected === "quality-first"
-    ? ["quality-first", "balanced", "completion-first"]
-    : ["balanced", "completion-first"]
-  return profiles.slice(0, requested)
+function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined
 }
 
-function candidateTrackLength(copper: RoutingCopper) {
-  return copper.tracks.reduce((total, track) => total + track.points.slice(1).reduce((length, point, index) => {
-    const previous = track.points[index]
-    return length + Math.hypot(point.x - previous.x, point.y - previous.y)
-  }, 0), 0)
-}
-
-function finiteMetric(value: unknown, fallback: number) {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : fallback
+function initialConnectivityEvidence(result: BackendRouteResult) {
+  const value = record(record(result.metrics?.details)?.initialConnectivity)
+  if (!value || !Array.isArray(value.openNets)) return undefined
+  const openNets = value.openNets.filter((item): item is string => typeof item === "string")
+  const componentCount = Number(value.connectivityComponentCount)
+  return Number.isFinite(componentCount) && componentCount >= 0
+    ? { openNets, componentCount }
+    : undefined
 }
 
 function completedViaStitchSourceNets(
@@ -125,97 +110,9 @@ function completedViaStitchSourceNets(
     const open = new Set(result.metrics.openNets)
     return sourceNets.filter((net) => !open.has(net))
   }
-  return result.status === "complete" && finiteMetric(result.metrics?.openNetCount, 0) === 0
+  return result.metrics?.openNetCount === 0
     ? sourceNets
     : []
-}
-
-function candidateScore(candidate: BackendCandidate) {
-  const errors = candidate.result.diagnostics?.filter((item) => item.severity === "error").length ?? 0
-  const open = candidate.result.metrics?.openNetCount === undefined
-    ? candidate.result.status === "complete" ? 0 : Number.MAX_SAFE_INTEGER
-    : finiteMetric(candidate.result.metrics.openNetCount, Number.MAX_SAFE_INTEGER)
-  return [
-    candidate.result.status === "error" ? 1 : 0,
-    open,
-    errors,
-    finiteMetric(candidate.result.metrics?.viaCount, candidate.result.copper.vias.length),
-    finiteMetric(candidate.result.metrics?.trackLengthMm, candidateTrackLength(candidate.result.copper)),
-    candidate.index,
-  ]
-}
-
-function compareCandidates(left: BackendCandidate, right: BackendCandidate) {
-  const a = candidateScore(left)
-  const b = candidateScore(right)
-  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return a[index] - b[index]
-  return 0
-}
-
-async function routeCandidate(
-  backend: RouterBackendAdapter,
-  request: BackendRouteRequest,
-  policy: RoutingPolicy | undefined,
-  profile: RoutingProfile,
-) {
-  const scoped = {
-    ...request,
-    // The core owns the profile cascade; the backend may use the same bounded
-    // budget for cheap stage-local variants (for example KRT special routing).
-    policy: { ...policy, profile },
-  }
-  const alongStitches = request.program.viaStitches.filter((item) => item.mode === "along")
-  const needsSpecialStage = alongStitches.length > 0
-  if (!needsSpecialStage || !backend.routeSpecial || !backend.routeRemaining) {
-    return await backend.route(scoped)
-  }
-  const special = await backend.routeSpecial(scoped)
-  const fenceBoard: RoutingBoard = {
-    ...request.board,
-    copper: {
-      fixed: mergeCopper(request.board.copper.fixed, special.copper),
-      editable: request.board.copper.editable,
-    },
-  }
-  const fences = planViaStitches(
-    fenceBoard,
-    special.copper,
-    alongStitches,
-    request.rules,
-    { completedNets: completedViaStitchSourceNets(special, alongStitches), modes: ["along"] },
-  )
-  const fenceCopper: RoutingCopper = { tracks: [], vias: fences.vias, zones: [] }
-  const remaining = await backend.routeRemaining({
-    ...scoped,
-    board: {
-      ...fenceBoard,
-      copper: { ...fenceBoard.copper, fixed: mergeCopper(fenceBoard.copper.fixed, fenceCopper) },
-    },
-  })
-  const diagnostics = [...(special.diagnostics ?? []), ...fences.diagnostics, ...(remaining.diagnostics ?? [])]
-  const openNets = [...new Set([...(special.metrics?.openNets ?? []), ...(remaining.metrics?.openNets ?? [])])].sort()
-  const openNetCount = special.metrics?.openNetCount === undefined && remaining.metrics?.openNetCount === undefined
-    ? undefined
-    : Number(special.metrics?.openNetCount ?? 0) + Number(remaining.metrics?.openNetCount ?? 0)
-  const routedNetCount = special.metrics?.routedNetCount === undefined && remaining.metrics?.routedNetCount === undefined
-    ? undefined
-    : Number(special.metrics?.routedNetCount ?? 0) + Number(remaining.metrics?.routedNetCount ?? 0)
-  return {
-    status: special.status === "error" || remaining.status === "error"
-      ? "error" as const
-      : special.status === "partial" || remaining.status === "partial" ? "partial" as const : "complete" as const,
-    copper: mergeCopper(mergeCopper(special.copper, fenceCopper), remaining.copper),
-    diagnostics,
-    metrics: {
-      ...remaining.metrics,
-      elapsedMs: Number(special.metrics?.elapsedMs ?? 0) + Number(remaining.metrics?.elapsedMs ?? 0),
-      ...(openNetCount === undefined ? {} : { openNetCount }),
-      ...(routedNetCount === undefined ? {} : { routedNetCount }),
-      ...(!special.metrics?.openNets && !remaining.metrics?.openNets ? {} : { openNets }),
-      viaCount: special.copper.vias.length + fences.vias.length + remaining.copper.vias.length,
-      details: { ...remaining.metrics?.details, special: special.metrics?.details, viaStitchAlongCount: fences.vias.length },
-    },
-  }
 }
 
 /**
@@ -226,6 +123,8 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
   const startedAt = performance.now()
   const boardValidation = validateRoutingBoard(request.board)
   if (!boardValidation.ok) return failed("route", request.board, boardValidation.diagnostics, startedAt)
+  const canonicalized = canonicalizeRoutingBoard(request.board)
+  const canonicalInput = canonicalized.board
 
   let program: RoutingProgram
   try {
@@ -235,13 +134,13 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       "DSL_COMPILE_ERROR", "Routing DSL could not be compiled.", error instanceof Error ? error.message : String(error),
     )], startedAt)
   }
-  const board = materializeRoutingStackup(request.board, program.stack)
+  const board = materializeRoutingStackup(canonicalInput, program.stack)
+  const effectiveLayerCatalog = createLayerCatalog(board.layers)
   const effectiveBoardValidation = validateRoutingBoard(board)
   if (!effectiveBoardValidation.ok) return failed(program.operation, board, effectiveBoardValidation.diagnostics, startedAt)
   const needsBackend = program.operation === "route" || program.operation === "all"
   const backend = needsBackend ? request.backend ?? createKrtBackend() : undefined
   const compiled = compileRoutingRules(board, program, backend?.capabilities)
-  const policy: RoutingPolicy = { ...program.quality, ...request.policy }
   const errors = compiled.diagnostics.filter((item) => item.severity === "error")
   const stackup = program.stack && board.stackup
     ? { stackup: { effective: board.stackup, applyRequested: true as const } }
@@ -327,6 +226,10 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     },
   } : board
   if (program.operation === "copper") {
+    let copperCheckpoint = mergeCopper(transactionBoard.copper.editable, planned.copper)
+    let plannedCheckpoint = planned.copper
+    const copperDiagnostics: RoutingDiagnostic[] = []
+    let planePlanningMetrics: unknown
     try {
       const existingAlong = program.viaStitches.filter((item) => item.mode === "along")
       const along = planViaStitches(
@@ -336,73 +239,111 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
         compiled.effective,
         { completedNets: existingAlong.flatMap((item) => item.routes), modes: ["along"] },
       )
-      const plannedWithAlong = mergeCopper(planned.copper, { tracks: [], vias: along.vias, zones: [] })
+      copperDiagnostics.push(...along.diagnostics)
+      const alongCheckpoint = retainCopperCheckpoint(
+        board,
+        plannedCheckpoint,
+        mergeCopper(plannedCheckpoint, { tracks: [], vias: along.vias, zones: [] }),
+        "copper viaStitch(along)",
+      )
+      copperDiagnostics.push(...alongCheckpoint.diagnostics)
+      plannedCheckpoint = alongCheckpoint.copper
+      copperCheckpoint = mergeCopper(transactionBoard.copper.editable, plannedCheckpoint)
       const planeBoard: RoutingBoard = {
         ...transactionBoard,
         copper: {
-          fixed: mergeCopper(transactionBoard.copper.fixed, plannedWithAlong),
+          fixed: mergeCopper(transactionBoard.copper.fixed, plannedCheckpoint),
           editable: transactionBoard.copper.editable,
         },
       }
       const planes = planRoutingCopper(planeBoard, program, compiled.effective, { compact: false, planes: true })
-      const beforeStitches = mergeCopper(
-        transactionBoard.copper.editable,
-        mergeCopper(plannedWithAlong, planes.copper),
+      planePlanningMetrics = planes.metrics
+      copperDiagnostics.push(...planes.diagnostics)
+      const planeCheckpoint = retainCopperCheckpoint(
+        board,
+        plannedCheckpoint,
+        mergeCopper(plannedCheckpoint, planes.copper),
+        "copper plane planning",
       )
+      copperDiagnostics.push(...planeCheckpoint.diagnostics)
+      plannedCheckpoint = planeCheckpoint.copper
+      copperCheckpoint = mergeCopper(transactionBoard.copper.editable, plannedCheckpoint)
       const defaultReturnNets = [...new Set([
         ...backendProgram(program).signalNets.map((item) => item.net),
         ...backendProgram(program).differentialPairs.flatMap((item) => [item.positive, item.negative]),
       ])]
       const returns = planViaStitches(
-        { ...planeBoard, copper: { ...planeBoard.copper, editable: beforeStitches } },
-        beforeStitches,
+        {
+          ...planeBoard,
+          copper: { fixed: transactionBoard.copper.fixed, editable: { tracks: [], vias: [], zones: [] } },
+        },
+        copperCheckpoint,
         program.viaStitches,
         compiled.effective,
         { completedNets: [], modes: ["return"], defaultReturnNets },
       )
-      const beforeFinalStitches = mergeCopper(beforeStitches, { tracks: [], vias: returns.vias, zones: [] })
+      copperDiagnostics.push(...returns.diagnostics)
+      const returnCheckpoint = retainCopperCheckpoint(
+        board,
+        copperCheckpoint,
+        mergeCopper(copperCheckpoint, { tracks: [], vias: returns.vias, zones: [] }),
+        "copper viaStitch(return)",
+      )
+      copperDiagnostics.push(...returnCheckpoint.diagnostics)
+      copperCheckpoint = returnCheckpoint.copper
       const stitches = planViaStitches(
-        { ...planeBoard, copper: { ...planeBoard.copper, editable: beforeFinalStitches } },
-        beforeFinalStitches,
+        {
+          ...planeBoard,
+          copper: { fixed: transactionBoard.copper.fixed, editable: { tracks: [], vias: [], zones: [] } },
+        },
+        copperCheckpoint,
         program.viaStitches,
         compiled.effective,
         { completedNets: [], modes: ["grid", "around"] },
       )
-      const resultCopper = mergeCopper(beforeFinalStitches, { tracks: [], vias: stitches.vias, zones: [] })
-      const validation = validateRoutingCopper(resultCopper, board)
+      copperDiagnostics.push(...stitches.diagnostics)
+      const finalCheckpoint = retainCopperCheckpoint(
+        board,
+        copperCheckpoint,
+        mergeCopper(copperCheckpoint, { tracks: [], vias: stitches.vias, zones: [] }),
+        "copper viaStitch(grid/around)",
+      )
+      copperDiagnostics.push(...finalCheckpoint.diagnostics)
+      copperCheckpoint = finalCheckpoint.copper
       const diagnostics = [
         ...compiled.diagnostics,
         ...planned.diagnostics,
-        ...along.diagnostics,
-        ...planes.diagnostics,
-        ...returns.diagnostics,
-        ...stitches.diagnostics,
-        ...validation.diagnostics,
+        ...copperDiagnostics,
       ]
       return {
-        status: validation.ok && !diagnostics.some((item) => item.severity === "error") ? "complete" : "partial",
+        status: !diagnostics.some((item) => item.severity === "error") ? "complete" : "partial",
         operation: program.operation,
         rules: compiled.effective,
         ...stackup,
         ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
-        copper: resultCopper,
+        copper: copperCheckpoint,
         diagnostics,
         metrics: {
           elapsedMs: performance.now() - startedAt,
-          details: { copperPlanning: planned.metrics, planePlanning: planes.metrics },
+          details: { copperPlanning: planned.metrics, planePlanning: planePlanningMetrics },
         },
         requiresNativeVerification: true,
       }
     } catch (error) {
       return {
-        status: "error", operation: program.operation,
+        status: "partial", operation: program.operation,
         rules: compiled.effective,
         ...stackup,
-        diagnostics: [...compiled.diagnostics, ...planned.diagnostics, exception(
-          "COPPER_PLANNING_EXCEPTION", "Copper-only planning threw an exception.",
+        ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
+        copper: copperCheckpoint,
+        diagnostics: [...compiled.diagnostics, ...planned.diagnostics, ...copperDiagnostics, exception(
+          "COPPER_POSTPROCESS_EXCEPTION", "Copper postprocessing failed; the last applicable checkpoint was retained.",
           error instanceof Error ? error.message : String(error),
         )],
-        metrics: { elapsedMs: performance.now() - startedAt },
+        metrics: {
+          elapsedMs: performance.now() - startedAt,
+          details: { copperPlanning: planned.metrics, planePlanning: planePlanningMetrics },
+        },
         requiresNativeVerification: true,
       }
     }
@@ -415,14 +356,16 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
       editable: transactionBoard.copper.editable,
     },
   }
-  const backendRequest = {
+  const routeProgram = backendProgram(program)
+  const routePlan = resolveRoutePlan(backendBoard, routeProgram, compiled.effective)
+  const backendRequest: BackendRouteRequest = {
     board: backendBoard,
     // Polygon and plane statements are core-owned. External backends receive
     // only electrical/special intent plus the already planned fixed copper.
-    program: backendProgram(program),
+    program: routeProgram,
     rules: compiled.effective,
     connectivity: planned.connectivity,
-    policy,
+    plan: routePlan,
     ...(request.signal ? { signal: request.signal } : {}),
   }
   let backendPreflight: readonly RoutingDiagnostic[] = []
@@ -442,27 +385,32 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
     requiresNativeVerification: true,
   }
-  const candidates: BackendCandidate[] = []
-  const profiles = profileCascade(policy)
-  for (const profile of profiles) {
-    if (request.signal?.aborted) break
-    try {
-      const result = await routeCandidate(backend, backendRequest, policy, profile)
-      candidates.push({ index: candidates.length, profile, result })
-      if (result.status === "complete" && finiteMetric(result.metrics?.openNetCount, 0) === 0) break
-    } catch (error) {
-      candidates.push({
-        index: candidates.length,
-        profile,
-        result: {
-          status: "error",
-          copper: { tracks: [], vias: [], zones: [] },
-          diagnostics: [exception(
-            "BACKEND_ROUTE_EXCEPTION", `${backend.id} threw during ${profile} routing.`,
-            error instanceof Error ? error.message : String(error),
-          )],
-        },
-      })
+  let routedCandidate: BackendRouteResult
+  try {
+    routedCandidate = await backend.route(backendRequest)
+  } catch (error) {
+    // An engine exception does not erase the applicable pre-route snapshot.
+    // Empty backend copper is a valid partial candidate and still lets the
+    // caller apply core-planned copper and explicit clearRouting intent.
+    routedCandidate = {
+      status: "error",
+      copper: { tracks: [], vias: [], zones: [] },
+      diagnostics: [exception(
+        "BACKEND_ROUTE_EXCEPTION", `${backend.id} threw during routing.`,
+        error instanceof Error ? error.message : String(error),
+      )],
+    }
+  }
+  const candidateCopper = routedCandidate.copper as unknown
+  if (candidateCopper && typeof candidateCopper === "object"
+    && Array.isArray((candidateCopper as RoutingCopper).tracks)
+    && Array.isArray((candidateCopper as RoutingCopper).vias)
+    && Array.isArray((candidateCopper as RoutingCopper).zones)) {
+    // Transitional compatibility for backend adapters that still emit their
+    // imported/native layer aliases. The internal result is always canonical.
+    routedCandidate = {
+      ...routedCandidate,
+      copper: canonicalizeCopper(candidateCopper as RoutingCopper, effectiveLayerCatalog),
     }
   }
   if (request.signal?.aborted) return {
@@ -472,36 +420,137 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
       "ROUTING_ABORTED", "Routing was aborted by the caller.", request.signal.reason,
     )],
-    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: candidates.length },
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: 1 },
     requiresNativeVerification: true,
   }
-  if (!candidates.length) return {
+  const audited: RoutingCandidate = {
+    index: 0,
+    label: backend.id,
+    result: routedCandidate,
+    grade: gradeRoutingCandidate(board, routeProgram, compiled.effective, routedCandidate),
+  }
+  const backendInitialConnectivity = initialConnectivityEvidence(routedCandidate)
+  const baselineOpenNets = backendInitialConnectivity?.openNets ?? routePlan.scopeNets
+  const baselineComponentCount = backendInitialConnectivity?.componentCount
+    ?? routePlan.scopeNets.reduce((sum, net) => (
+      sum + Math.max(1, backendBoard.pads.filter((pad) => pad.net === net).length)
+    ), 0)
+  const baselineResult: BackendRouteResult = {
+    status: "partial",
+    // Backends return the complete transaction-owned editable replacement.
+    // This pre-route snapshot is the recovery candidate if a later result is
+    // structurally invalid or semantically worse.
+    copper: transactionBoard.copper.editable,
+    metrics: {
+      openNetCount: baselineOpenNets.length,
+      openNets: baselineOpenNets,
+      connectivityComponentCount: baselineComponentCount,
+      viaCount: transactionBoard.copper.editable.vias.length,
+    },
+  }
+  const baseline: RoutingCandidate = {
+    index: -1,
+    label: "pre-route-checkpoint",
+    result: baselineResult,
+    grade: gradeRoutingCandidate(board, routeProgram, compiled.effective, baselineResult, -1),
+  }
+  const selected = retainRoutingChampion(retainRoutingChampion(undefined, baseline), audited)
+  if (!selected) return {
     status: "error", operation: program.operation,
     rules: compiled.effective,
     ...stackup,
-    diagnostics: [...compiled.diagnostics, ...backendPreflight, exception(
-      "ROUTING_ABORTED",
-      "Routing was aborted before a candidate completed.",
-    )],
-    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: 0 },
+    diagnostics: [
+      ...compiled.diagnostics,
+      ...planned.diagnostics,
+      ...backendPreflight,
+      ...(routedCandidate.diagnostics ?? []),
+      exception(
+        "ROUTING_NO_USABLE_CANDIDATE",
+        "The backend returned no structurally applicable copper candidate.",
+        { validation: audited.grade.structuralDiagnostics },
+      ),
+    ],
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: 1 },
     requiresNativeVerification: true,
   }
-  candidates.sort(compareCandidates)
-  const selected = candidates[0]
+  const destructiveClear = Boolean(program.clearRouting && (
+    transactionBoard.copper.editable.tracks.length < board.copper.editable.tracks.length
+    || transactionBoard.copper.editable.vias.length < board.copper.editable.vias.length
+    || transactionBoard.copper.editable.zones.length < board.copper.editable.zones.length
+  ))
+  if (destructiveClear && selected === baseline) return {
+    // Applying the post-clear baseline would turn an engine failure into a
+    // destructive partial result. This is the hard rollback boundary: keep
+    // the host transaction unapplied instead of deleting source copper.
+    status: "error", operation: program.operation,
+    rules: compiled.effective,
+    ...stackup,
+    diagnostics: [
+      ...compiled.diagnostics,
+      ...planned.diagnostics,
+      ...backendPreflight,
+      ...(routedCandidate.diagnostics ?? []),
+      exception(
+        "ROUTING_CLEAR_ROLLBACK",
+        "The backend produced no candidate safer than the post-clear baseline; clearRouting was rolled back and no partial board should be applied.",
+        { validation: audited.grade.structuralDiagnostics },
+      ),
+    ],
+    metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id, candidateCount: 1 },
+    requiresNativeVerification: true,
+  }
   const backendResult = selected.result
-
+  const auditSummary = (candidate: RoutingCandidate) => ({
+    label: candidate.label,
+    status: candidate.result.status,
+    structurallyUsable: candidate.grade.structurallyUsable,
+    criticalRegressionCount: candidate.grade.criticalRegressionCount,
+    priorityOpenPenalty: candidate.grade.priorityOpenPenalty,
+    openNetCount: candidate.grade.openNetCount,
+    connectivityComponentCount: candidate.grade.connectivityComponentCount,
+    differentialViolationCount: candidate.grade.differentialViolationCount,
+    matchedViolationCount: candidate.grade.matchedViolationCount,
+    drcViolationCount: candidate.grade.drcViolationCount,
+    errorCount: candidate.grade.errorCount,
+    forbiddenViaCount: candidate.grade.forbiddenViaCount,
+    shortAvoidViaPenalty: candidate.grade.shortAvoidViaPenalty,
+    avoidViaPenalty: candidate.grade.avoidViaPenalty,
+    viaCount: candidate.grade.viaCount,
+    trackLengthMm: candidate.grade.trackLengthMm,
+    score: candidate.grade.score,
+    ...(candidate.grade.structurallyUsable
+      ? {}
+      : { structuralDiagnostics: candidate.grade.structuralDiagnostics }),
+  })
+  const candidateAudit = {
+    selected: auditSummary(selected),
+    attempted: auditSummary(audited),
+    baseline: auditSummary(baseline),
+  }
+  const rejectedAttemptDiagnostics = selected === audited ? [] : [
+    ...(routedCandidate.diagnostics ?? []),
+    ...(!audited.grade.structurallyUsable ? [exception(
+      "ROUTING_CANDIDATE_REJECTED",
+      "The backend candidate was structurally invalid; the pre-route checkpoint was retained.",
+      { validation: audited.grade.structuralDiagnostics },
+    )] : []),
+  ]
+  let checkpointCopper = mergeCopper(planned.copper, backendResult.copper)
+  let routedCheckpoint = backendResult.copper
+  const postDiagnostics: RoutingDiagnostic[] = []
+  let planePlanningMetrics: unknown
   try {
     const stitchBoard: RoutingBoard = {
       ...transactionBoard,
       copper: {
         fixed: mergeCopper(
-          mergeCopper(transactionBoard.copper.fixed, transactionBoard.copper.editable),
+          transactionBoard.copper.fixed,
           planned.copper,
         ),
-        editable: backendResult.copper,
+        editable: { tracks: [], vias: [], zones: [] },
       },
     }
-    const alongStitches = backendProgram(program).viaStitches.filter((item) => item.mode === "along")
+    const alongStitches = routeProgram.viaStitches.filter((item) => item.mode === "along")
     const alreadyFenced = backendResult.copper.vias.some((via) => String(via.id ?? "").startsWith("via-stitch:"))
     const fences = alreadyFenced
       ? { vias: [], diagnostics: [] as RoutingDiagnostic[] }
@@ -512,118 +561,147 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
         compiled.effective,
         { completedNets: completedViaStitchSourceNets(backendResult, alongStitches), modes: ["along"] },
       )
-    const routedWithFences = mergeCopper(backendResult.copper, { tracks: [], vias: fences.vias, zones: [] })
-    const postRouteStitches = backendProgram(program).viaStitches
+    postDiagnostics.push(...fences.diagnostics)
+    const fenceCheckpoint = retainCopperCheckpoint(
+      board,
+      routedCheckpoint,
+      mergeCopper(routedCheckpoint, { tracks: [], vias: fences.vias, zones: [] }),
+      "viaStitch(along)",
+    )
+    postDiagnostics.push(...fenceCheckpoint.diagnostics)
+    routedCheckpoint = fenceCheckpoint.copper
+    checkpointCopper = mergeCopper(planned.copper, routedCheckpoint)
+    const postRouteStitches = routeProgram.viaStitches
     const defaultReturnNets = [...new Set([
-      ...backendProgram(program).signalNets.map((item) => item.net),
-      ...backendProgram(program).differentialPairs.flatMap((item) => [item.positive, item.negative]),
+      ...routeProgram.signalNets.map((item) => item.net),
+      ...routeProgram.differentialPairs.flatMap((item) => [item.positive, item.negative]),
     ])]
     const planeBoard: RoutingBoard = {
       ...stitchBoard,
-      copper: { ...stitchBoard.copper, editable: routedWithFences },
+      copper: { ...stitchBoard.copper, editable: routedCheckpoint },
     }
     const planes = planRoutingCopper(planeBoard, program, compiled.effective, {
       compact: false,
       planes: true,
     })
-    const routedAndPlanes = mergeCopper(routedWithFences, planes.copper)
+    planePlanningMetrics = planes.metrics
+    postDiagnostics.push(...planes.diagnostics)
+    const planeCheckpoint = retainCopperCheckpoint(
+      board,
+      routedCheckpoint,
+      mergeCopper(routedCheckpoint, planes.copper),
+      "plane planning",
+    )
+    postDiagnostics.push(...planeCheckpoint.diagnostics)
+    routedCheckpoint = planeCheckpoint.copper
+    checkpointCopper = mergeCopper(planned.copper, routedCheckpoint)
     const returns = planViaStitches(
-      { ...planeBoard, copper: { ...planeBoard.copper, editable: routedAndPlanes } },
-      routedAndPlanes,
+      { ...planeBoard, copper: { ...planeBoard.copper, editable: { tracks: [], vias: [], zones: [] } } },
+      routedCheckpoint,
       postRouteStitches,
       compiled.effective,
       { completedNets: [], modes: ["return"], defaultReturnNets },
     )
-    const routedWithReturns = mergeCopper(routedAndPlanes, { tracks: [], vias: returns.vias, zones: [] })
+    postDiagnostics.push(...returns.diagnostics)
+    const returnCheckpoint = retainCopperCheckpoint(
+      board,
+      routedCheckpoint,
+      mergeCopper(routedCheckpoint, { tracks: [], vias: returns.vias, zones: [] }),
+      "viaStitch(return)",
+    )
+    postDiagnostics.push(...returnCheckpoint.diagnostics)
+    routedCheckpoint = returnCheckpoint.copper
+    checkpointCopper = mergeCopper(planned.copper, routedCheckpoint)
     const finalStitches = planViaStitches(
-      { ...planeBoard, copper: { ...planeBoard.copper, editable: routedWithReturns } },
-      routedWithReturns,
+      { ...planeBoard, copper: { ...planeBoard.copper, editable: { tracks: [], vias: [], zones: [] } } },
+      routedCheckpoint,
       postRouteStitches,
       compiled.effective,
       { completedNets: [], modes: ["grid", "around"] },
     )
-    const resultCopper = mergeCopper(
-      mergeCopper(transactionBoard.copper.editable, mergeCopper(planned.copper, routedAndPlanes)),
-      { tracks: [], vias: [...returns.vias, ...finalStitches.vias], zones: [] },
+    postDiagnostics.push(...finalStitches.diagnostics)
+    const finalCheckpoint = retainCopperCheckpoint(
+      board,
+      routedCheckpoint,
+      mergeCopper(routedCheckpoint, { tracks: [], vias: finalStitches.vias, zones: [] }),
+      "viaStitch(grid/around)",
     )
-    const copperValidation = validateRoutingCopper(resultCopper, board)
+    postDiagnostics.push(...finalCheckpoint.diagnostics)
+    routedCheckpoint = finalCheckpoint.copper
+    checkpointCopper = mergeCopper(planned.copper, routedCheckpoint)
     const diagnostics = [
       ...compiled.diagnostics,
       ...planned.diagnostics,
-      ...planes.diagnostics,
-      ...fences.diagnostics,
-      ...returns.diagnostics,
-      ...finalStitches.diagnostics,
+      ...postDiagnostics,
       ...backendPreflight,
       ...(backendResult.diagnostics ?? []),
-      ...copperValidation.diagnostics,
-      ...(candidates.length > 1 ? [{
-        code: "ROUTING_PORTFOLIO_SELECTED",
+      ...rejectedAttemptDiagnostics,
+      {
+        code: "ROUTING_CANDIDATE_AUDITED",
         severity: "info" as const,
-        message: `Selected ${selected.profile} from ${candidates.length} routing candidate(s).`,
-        details: {
-          selectedProfile: selected.profile,
-          candidates: candidates.map((candidate) => ({
-            profile: candidate.profile,
-            status: candidate.result.status,
-            openNetCount: candidate.result.metrics?.openNetCount,
-            viaCount: candidate.result.metrics?.viaCount ?? candidate.result.copper.vias.length,
-            elapsedMs: candidate.result.metrics?.elapsedMs,
-          })),
-        },
-      }] : []),
+        message: `Selected ${selected.label} after semantic candidate audit.`,
+        details: candidateAudit,
+      },
     ]
-    if (!copperValidation.ok) return {
-      status: "error", operation: program.operation,
-      rules: compiled.effective,
-      ...stackup,
-      ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
-      // Semantic/structural validation annotates a candidate; it must not
-      // silently erase backend geometry. The host/native verifier decides
-      // whether an explicitly invalid diagnostic artifact can be applied.
-      copper: resultCopper,
-      diagnostics,
-      metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
-      requiresNativeVerification: true,
-    }
     return {
-      status: backendResult.status === "error"
-        ? "error"
-        : diagnostics.some((item) => item.severity === "error") ? "partial" : backendResult.status,
+      status: backendResult.status === "complete"
+        && selected.grade.openNetCount === 0
+        && !diagnostics.some((item) => item.severity === "error") ? "complete" : "partial",
       operation: program.operation,
       rules: compiled.effective,
       ...stackup,
       ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
-      copper: resultCopper,
+      copper: checkpointCopper,
       diagnostics,
       metrics: {
         ...backendResult.metrics,
         elapsedMs: performance.now() - startedAt,
         backend: backend.id,
-        candidateCount: candidates.length,
+        candidateCount: backendResult.metrics?.candidateCount ?? 1,
         details: {
           ...backendResult.metrics?.details,
           copperPlanning: planned.metrics,
-          planePlanning: planes.metrics,
+          planePlanning: planePlanningMetrics,
+          routePlan,
+          candidateAudit,
         },
       },
       requiresNativeVerification: true,
     }
   } catch (error) {
+    const diagnostics = [
+      ...compiled.diagnostics,
+      ...planned.diagnostics,
+      ...postDiagnostics,
+      ...backendPreflight,
+      ...(backendResult.diagnostics ?? []),
+      ...rejectedAttemptDiagnostics,
+      exception(
+        "ROUTING_POSTPROCESS_EXCEPTION",
+        "Plane or stitching postprocessing failed; the last applicable checkpoint was retained.",
+        error instanceof Error ? error.message : String(error),
+      ),
+    ]
     return {
-      status: "error", operation: program.operation,
+      status: "partial", operation: program.operation,
       rules: compiled.effective,
       ...stackup,
-      diagnostics: [
-        ...compiled.diagnostics,
-        ...planned.diagnostics,
-        ...backendPreflight,
-        ...(backendResult.diagnostics ?? []),
-        exception(
-        "PLANE_PLANNING_EXCEPTION", "Plane or stitching planning threw an exception.",
-        error instanceof Error ? error.message : String(error),
-      )],
-      metrics: { elapsedMs: performance.now() - startedAt, backend: backend.id },
+      ...(program.clearRouting ? { clearRouting: program.clearRouting } : {}),
+      copper: checkpointCopper,
+      diagnostics,
+      metrics: {
+        ...backendResult.metrics,
+        elapsedMs: performance.now() - startedAt,
+        backend: backend.id,
+        candidateCount: backendResult.metrics?.candidateCount ?? 1,
+        details: {
+          ...backendResult.metrics?.details,
+          copperPlanning: planned.metrics,
+          planePlanning: planePlanningMetrics,
+          routePlan,
+          candidateAudit,
+        },
+      },
       requiresNativeVerification: true,
     }
   }

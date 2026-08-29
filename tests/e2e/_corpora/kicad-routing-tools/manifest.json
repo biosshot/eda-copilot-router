@@ -1,6 +1,5 @@
 {
   "schema": "copilot-router-kicad-routing-tools-corpus",
-  "defaultProfile": "balanced",
   "source": "SOURCE.json",
   "cases": [
     { "id": "cap_chain", "directory": "cap_chain", "board": "fixture/cap_chain.kicad_pcb", "expectedDiffPairs": 2, "focus": "two differential pairs through a capacitor chain" },

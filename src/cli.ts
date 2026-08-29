@@ -14,7 +14,7 @@ Commands:
   doctor
   validate <routing-board.json> --dsl <routing.dsl.js>
   run <routing-board.json> --dsl <routing.dsl.js> -o <result.json>
-  route <board.kicad_pcb> --dsl <routing.dsl.js> -o <routed.kicad_pcb> [--python <path>] [--profile fast]
+  route <board.kicad_pcb> --dsl <routing.dsl.js> -o <routed.kicad_pcb> [--python <path>]
 
 The native KiCad command does not require KiCad or kicad-cli. Zone refill and
 native DRC remain optional host/native verification operations.
@@ -57,13 +57,10 @@ async function main() {
       return 1
     }
     const pythonPath = option(args, "--python")
-    const profile = option(args, "--profile") as "fast" | "balanced" | "quality-first" | "completion-first" | undefined
-    if (profile && !["fast", "balanced", "quality-first", "completion-first"].includes(profile)) throw new TypeError(`Unknown profile ${profile}`)
     const result = await run({
       board: imported.board,
       dsl: compileRoutingDsl(source),
       backend: createKrtBackend({ ...(pythonPath ? { pythonPath } : {}) }),
-      ...(profile ? { policy: { profile, maxCandidates: 1 } } : {}),
     })
     const applied = await applyKiCadRoutingResult(imported.context, result, outputPath)
     process.stdout.write(`${JSON.stringify({

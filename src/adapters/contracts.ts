@@ -6,7 +6,8 @@ import type {
   RoutingResult,
   RoutingRules,
 } from "../core/contracts.js"
-import type { CompiledRoutingProgram, RoutingPolicy } from "../intent/types.js"
+import type { CompiledRoutingProgram } from "../intent/types.js"
+import type { ResolvedRoutePlan } from "../core/route-plan.js"
 
 export type RouterCapability =
   | "ordinary-routing"
@@ -29,6 +30,8 @@ export type RouterBackendCapabilities = Readonly<{
 export type BackendRouteRequest = Readonly<{
   board: RoutingBoard
   program: CompiledRoutingProgram
+  /** Board-aware semantic plan. Backends must not derive policy from DSL syntax. */
+  plan: ResolvedRoutePlan
   rules: RoutingRules
   connectivity?: Readonly<{
     /** Pads already joined by router-owned copper generated before routing. */
@@ -37,7 +40,6 @@ export type BackendRouteRequest = Readonly<{
       pads: readonly Readonly<{ component: string; pad: string }>[]
     }>[]
   }>
-  policy?: RoutingPolicy
   signal?: AbortSignal
 }>
 
@@ -53,9 +55,6 @@ export interface RouterBackendAdapter {
   readonly id: string
   readonly capabilities: RouterBackendCapabilities
   preflight?(request: BackendRouteRequest): readonly RoutingDiagnostic[] | Promise<readonly RoutingDiagnostic[]>
-  /** Optional portable split used by core-owned postprocessors such as viaStitch mode along. */
-  routeSpecial?(request: BackendRouteRequest): Promise<BackendRouteResult>
-  routeRemaining?(request: BackendRouteRequest): Promise<BackendRouteResult>
   route(request: BackendRouteRequest): Promise<BackendRouteResult>
 }
 

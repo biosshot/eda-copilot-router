@@ -14,13 +14,15 @@ import { run } from "eda-copilot-router"
 const result = await run({
   board,
   signal: abortController.signal,
-  policy: { profile: "balanced", maxCandidates: 1 },
   dsl: `
     powerNet("VBUS", { maxCurrentA: 2 })
     runAll()
   `,
 })
 ```
+
+Routing uses the single native-auto KRT workflow; callers do not select a
+quality profile or candidate count.
 
 The package lazily prepares pinned KRT `v0.21.3`; no manual checkout is
 required. Downloads are integrity-checked and cached. The optional

@@ -18,7 +18,7 @@ try {
   const output = join(temporary, "routed.kicad_pcb")
   const { stdout } = await execute(process.execPath, [
     resolve(routerDirectory, "package-dist/cli.js"), "route", fixture,
-    "--dsl", dsl, "--profile", "fast", "-o", output,
+    "--dsl", dsl, "-o", output,
   ], { cwd: routerDirectory, maxBuffer: 10 * 1024 * 1024 })
   const summary = JSON.parse(stdout)
   assert.equal(summary.status, "complete", stdout)

@@ -19,7 +19,6 @@ import type {
   PolygonIntent,
   PowerNetIntent,
   RegionSelector,
-  RoutingPolicy,
   RoutingProgram,
   SignalNetIntent,
   StackIntent,
@@ -31,6 +30,8 @@ import type {
 
 const PHYSICAL_LAYER = /^(TOP|BOTTOM|INNER_(?:[1-9]|[12][0-9]|30))$/
 const LAYER_SELECTOR = /^(TOP|BOTTOM|OUTER|ALL|INNER_(?:[1-9]|[12][0-9]|30))$/
+const NET_PRIORITIES = ["critical", "high", "normal", "low"] as const
+const VIA_PREFERENCES = ["auto", "avoid", "forbid"] as const
 
 function nonEmpty(value: unknown, label: string) {
   if ((typeof value !== "string" && typeof value !== "number") || !String(value).trim()) {
@@ -82,6 +83,17 @@ function optionalPositive(source: Record<string, unknown>, key: string) {
 
 function optionalBoolean(source: Record<string, unknown>, key: string) {
   return source[key] === undefined ? {} : { [key]: Boolean(source[key]) }
+}
+
+function optionalEnum<const T extends readonly string[]>(
+  source: Record<string, unknown>, key: string, values: T, label: string,
+): { [K in typeof key]?: T[number] } {
+  if (source[key] === undefined) return {}
+  const value = nonEmpty(source[key], label)
+  if (!(values as readonly string[]).includes(value)) {
+    throw new TypeError(`${label} must be ${values.join(", ")}`)
+  }
+  return { [key]: value as T[number] }
 }
 
 function canonicalPhysicalLayer(value: unknown, label: string) {
@@ -276,7 +288,6 @@ class RoutingDslBuilder {
   private readonly relationEdits: DrcRelationEdit[] = []
   private drcIntent: DrcIntent | undefined
   private stackIntent: StackIntent | undefined
-  private qualityIntent: RoutingPolicy | undefined
   private busDetectIntent: BusDetectIntent | undefined
   private onlyNetNames: string[] | undefined
   private readonly ignoredNetNames = new Set<string>()
@@ -306,7 +317,6 @@ class RoutingDslBuilder {
       fanout: (target: FanoutTarget, options: unknown = {}) => this.fanout(target, options),
       disableFanout: (...targets: FanoutTarget[]) => this.disableFanout(targets),
       stack: (options: unknown) => this.stack(options),
-      quality: (options: unknown) => this.quality(options),
       busDetect: (value: unknown = true) => this.busDetect(value),
       onlyNets: (...nets: string[]) => this.onlyNets(nets),
       ignoreNets: (...nets: string[]) => this.ignoreNets(nets),
@@ -353,7 +363,6 @@ class RoutingDslBuilder {
       relationEdits: this.relationEdits,
       ...(this.drcIntent ? { drc: this.drcIntent } : {}),
       ...(this.stackIntent ? { stack: this.stackIntent } : {}),
-      ...(this.qualityIntent ? { quality: this.qualityIntent } : {}),
       ...(this.busDetectIntent ? { busDetect: this.busDetectIntent } : {}),
       ...(this.onlyNetNames ? { onlyNets: this.onlyNetNames } : {}),
       ignoreNets: [...this.ignoredNetNames],
@@ -457,8 +466,8 @@ class RoutingDslBuilder {
   private powerNet(net: string, input: unknown): undefined {
     const source = object(input, "powerNet options")
     assertKnownKeys(source, [
-      "netClass", "maxCurrentA", "maxTempRiseC", "minTrackWidthMm", "maxTrackWidthMm",
-      "trackWidthMm", "clearanceMm", "edgeClearanceMm", "allowedLayers", "via", "powerPads", "tapWidthMm",
+      "netClass", "maxCurrentA", "maxTempRiseC", "maxTrackWidthMm", "powerPads", "tapWidthMm",
+      "priority", "viaPreference", ...RULE_KEYS,
     ], "powerNet")
     const maxTrackWidthMm = source.maxTrackWidthMm === undefined ? undefined : positive(source.maxTrackWidthMm, "maxTrackWidthMm")
     if (maxTrackWidthMm !== undefined && maxTrackWidthMm > 10) throw new RangeError("maxTrackWidthMm must not exceed 10 mm")
@@ -478,6 +487,8 @@ class RoutingDslBuilder {
       kind: "power-net", net: nonEmpty(net, "power net"),
       ...(source.netClass === undefined ? {} : { netClass: nonEmpty(source.netClass, "powerNet.netClass") }),
       ...ruleFields(source), ...optionalPositive(source, "maxCurrentA"), ...optionalPositive(source, "maxTempRiseC"),
+      ...optionalEnum(source, "priority", NET_PRIORITIES, "powerNet.priority"),
+      ...optionalEnum(source, "viaPreference", VIA_PREFERENCES, "powerNet.viaPreference"),
       ...(maxTrackWidthMm === undefined ? {} : { maxTrackWidthMm }),
       ...(powerPads ? { powerPads } : {}), ...(tapWidth === undefined ? {} : { tapWidthMm: tapWidth }),
     })
@@ -486,10 +497,12 @@ class RoutingDslBuilder {
 
   private signalNet(net: string, input: unknown): undefined {
     const source = object(input, "signalNet options")
-    assertKnownKeys(source, ["netClass", "impedance", ...RULE_KEYS], "signalNet")
+    assertKnownKeys(source, ["netClass", "impedance", "priority", "viaPreference", ...RULE_KEYS], "signalNet")
     this.signalNets.push({
       kind: "signal-net", net: nonEmpty(net, "signal net"),
       ...(source.netClass === undefined ? {} : { netClass: nonEmpty(source.netClass, "signalNet.netClass") }),
+      ...optionalEnum(source, "priority", NET_PRIORITIES, "signalNet.priority"),
+      ...optionalEnum(source, "viaPreference", VIA_PREFERENCES, "signalNet.viaPreference"),
       ...ruleFields(source), ...optionalImpedance(source),
     })
     return undefined
@@ -717,19 +730,6 @@ class RoutingDslBuilder {
       ...optionalPositive(source, "viaPlatingThicknessUm"),
       ...(maxTrackWidthMm === undefined ? {} : { maxTrackWidthMm }), ...(layers ? { layers } : {}),
       ...(solderMask ? { solderMask } : {}),
-    }
-    return undefined
-  }
-
-  private quality(input: unknown): undefined {
-    if (this.qualityIntent) throw new TypeError("quality(...) may be declared only once")
-    const source = object(input, "quality")
-    assertKnownKeys(source, ["profile", "maxCandidates"], "quality")
-    const profile = source.profile === undefined ? "balanced" : nonEmpty(source.profile, "quality.profile")
-    if (!["fast", "balanced", "quality-first", "completion-first"].includes(profile)) throw new TypeError("unknown quality profile")
-    this.qualityIntent = {
-      profile: profile as RoutingPolicy["profile"],
-      maxCandidates: source.maxCandidates === undefined ? 1 : integer(source.maxCandidates, "quality.maxCandidates", 1, 16),
     }
     return undefined
   }

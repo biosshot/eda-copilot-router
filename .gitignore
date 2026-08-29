@@ -6,3 +6,5 @@ package-dist
 artifacts
 tools
 tests/e2e/**/.history/
+__pycache__/
+*.py[cod]

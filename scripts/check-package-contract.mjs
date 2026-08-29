@@ -49,44 +49,25 @@ assert.equal(krt.parseKrtJsonSummaryMin([
   'JSON_SUMMARY_MIN: {"scope":"merged"}',
   'JSON_SUMMARY_MIN: {"scope":"merged"}',
 ].join("\n")), undefined, "KRT must emit exactly one compact verdict")
-assert.deepEqual(
-  krt.krtAutomaticFanoutNets(["SIG", "USB_DP", "SIG", "USB_DM"], ["USB_DP", "USB_DM"]),
-  ["SIG"],
-  "automatic fanout must not pre-route copper owned by the special stage",
-)
 assert.equal(typeof krt.prepareKrtRuntime, "function")
 assert.equal(typeof krt.prepareManagedPython, "function")
 assert.equal(krt.MANAGED_PYTHON_VERSION, "3.12.14-20260814")
 assert.match(krt.managedPythonRelease().url, /python-build-standalone\/releases\/download\/20260814/)
-assert.deepEqual(krt.KRT_QUALITY_PROFILES, {
-  fast: {
-    gridStep: 0.1,
-    maxIterations: 120_000, maxProbeIterations: 5_000, maxRipup: 2, heuristicWeight: 2,
-    viaCost: 50, viaProximityCost: 10, turnCost: 1_000, directionPreferenceCost: 250,
-    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "stranded",
-    neckdownLength: 0.5, neckdownTaperLength: 0.5,
-  },
-  balanced: {
-    gridStep: 0.1,
-    maxIterations: 300_000, maxProbeIterations: 5_000, maxRipup: 4, heuristicWeight: 1.8,
-    viaCost: 50, viaProximityCost: 10, turnCost: 1_000, directionPreferenceCost: 250,
-    dynamicIterations: false, ripupBlockerSelect: "count", ripupAbandonMetric: "stranded",
-    neckdownLength: 0.5, neckdownTaperLength: 0.5,
-  },
-  "quality-first": {
-    gridStep: 0.05,
-    maxIterations: 600_000, maxProbeIterations: 10_000, maxRipup: 5, heuristicWeight: 1.3,
-    viaCost: 80, viaProximityCost: 16, turnCost: 1_500, directionPreferenceCost: 400,
-    dynamicIterations: false, ripupBlockerSelect: "cost", ripupAbandonMetric: "complete-nets",
-    neckdownLength: 0.5, neckdownTaperLength: 0.5,
-  },
-  "completion-first": {
-    gridStep: 0.05,
-    maxIterations: 750_000, maxProbeIterations: 10_000, maxRipup: 5, heuristicWeight: 1.9,
-    viaCost: 10, viaProximityCost: 0, turnCost: 250, directionPreferenceCost: 0,
-    dynamicIterations: true, ripupBlockerSelect: "mincut", ripupAbandonMetric: "weighted-probe",
-    neckdownLength: 0.5, neckdownTaperLength: 0.5,
-  },
+assert.deepEqual(krt.KRT_NATIVE_AUTO_POLICY, {
+  gridStep: 0.1, ordering: "mps",
+  enableNetRescue: true, enableTerminalEscalation: true,
+  ripPreexisting: true, dynamicIterations: true,
+  planeFinalize: false, finalizeRip: true,
+  specialMaxCandidates: 1,
+})
+assert.equal(krt.KRT_QUALITY_PROFILES, undefined)
+assert.deepEqual(krt.buildKrtNativeRecoveryEnvironment({}), {
+  KICAD_RIP_PREEXISTING: "1",
+  KICAD_NET_RESCUE: "1",
+  KICAD_TERMINAL_ESCALATION: "1",
+  KICAD_DYNAMIC_ITERATIONS: "1",
+  KICAD_PLANE_FINALIZE: "0",
+  KICAD_FINALIZE_RIP: "1",
 })
 assert.deepEqual(krt.KRT_RIPUP_BLOCKER_SELECT_CHOICES, [
   "count", "near-target", "bidir", "mincut", "cost",
@@ -154,6 +135,32 @@ const board = {
 }
 
 assert.equal(api.validateRoutingBoard(board).ok, true)
+const boardWithWhitespacePaddedNet = {
+  ...board,
+  nets: [...board.nets, { name: " padded-net " }],
+}
+assert.equal(
+  api.validateRoutingBoard(boardWithWhitespacePaddedNet).ok,
+  false,
+  "net names with leading or trailing whitespace must fail validation before reaching exact KRT selectors",
+)
+const boardWithUnplannedGround = {
+  ...board,
+  pads: [
+    ...board.pads,
+    { component: "U1", number: "4", net: "GND", at: { x: 4, y: 8 }, rotationDeg: 0, layers: ["F.Cu"], shape: { kind: "circle", diameterMm: 1 } },
+  ],
+}
+assert.deepEqual(
+  krt.krtUnplannedGroundNets({ board: boardWithUnplannedGround, program: dsl.compileRoutingDsl("runRouting()") }),
+  ["GND"],
+  "KRT must expose ground nets that it excludes without a planned/imported zone",
+)
+assert.deepEqual(
+  krt.krtUnplannedGroundNets({ board: boardWithUnplannedGround, program: dsl.compileRoutingDsl('ignoreNets("GND"); runRouting()') }),
+  [],
+  "an explicit ground exclusion must acknowledge the missing maze route",
+)
 const netlessZone = {
   layers: ["F.Cu"],
   outline: { outer: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }] },
@@ -210,6 +217,25 @@ assert.equal(dsl.compileRoutingDsl("runCopper()").operation, "copper")
 assert.equal(dsl.compileRoutingDsl("stack({ layers: [{ kind: 'copper', name: 'TOP' }, { kind: 'copper', name: 'BOTTOM' }] }); applyStackup()").operation, "apply-stackup")
 assert.throws(() => dsl.compileRoutingDsl("runCopper(); applyStackup(); runRouting()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
+assert.throws(
+  () => dsl.compileRoutingDsl('quality({ profile: "balanced" }); runRouting()'),
+  /quality is not defined/i,
+  "quality must not remain in the public DSL",
+)
+const netPreferences = dsl.compileRoutingDsl(`
+  signalNet("VCC", { priority: "critical", viaPreference: "avoid" })
+  powerNet("GND", { priority: "low", viaPreference: "forbid" })
+  runRouting()
+`)
+assert.deepEqual(netPreferences.signalNets[0], {
+  kind: "signal-net", net: "VCC", priority: "critical", viaPreference: "avoid",
+})
+assert.deepEqual(netPreferences.powerNets[0], {
+  kind: "power-net", net: "GND", priority: "low", viaPreference: "forbid",
+})
+assert.throws(() => dsl.compileRoutingDsl('signalNet("VCC", { priority: "urgent" }); runRouting()'), /priority must be/i)
+assert.throws(() => dsl.compileRoutingDsl('powerNet("VCC", { viaPreference: "prefer" }); runRouting()'), /viaPreference must be/i)
+assert.deepEqual(dsl.compileRoutingDsl("runRouting()").fanouts, [], "QFN fanout must be opt-in")
 const fanoutPolicy = dsl.compileRoutingDsl(`
   fanout(component("U1"), { method: "underpad", extensionMm: 0.3 })
   fanout(pad("U2", 4), { method: "stub" })
@@ -262,8 +288,8 @@ const finePitchBoard = {
 }
 assert.equal(
   krt.selectKrtGridStep({ board: finePitchBoard, program: finePitchProgram, rules: finePitchRules.effective }, 0.1),
-  0.05,
-  "fast/balanced must automatically use the fine grid for a physical fine-pitch terminal",
+  0.1,
+  "full-board fine-grid escalation is replaced by KRT's bounded local rescue",
 )
 
 const densePads = [
@@ -512,7 +538,7 @@ const impedanceResult = await api.run({
 assert.equal(impedanceResult.status, "complete")
 assert.deepEqual(
   impedanceResult.rules.nets.find((item) => item.net === "VCC").values.impedanceReferenceLayers,
-  ["F.Cu", "B.Cu"],
+  ["TOP", "BOTTOM"],
   "TOP plane copper plus the BOTTOM reference must resolve grounded coplanar waveguide",
 )
 assert.equal(
@@ -540,7 +566,7 @@ const backend = {
         tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }],
         vias: [], zones: [],
       },
-      metrics: { routedNetCount: 1, viaCount: 0 },
+      metrics: { routedNetCount: 1, openNetCount: 0, openNets: [], viaCount: 0 },
     }
   },
 }
@@ -571,7 +597,7 @@ const stackOnly = await api.run({
 })
 assert.equal(stackOnly.status, "complete")
 assert.equal(stackOnly.operation, "apply-stackup")
-assert.deepEqual(stackOnly.stackup.effective.layers.filter((layer) => layer.kind === "copper").map((layer) => layer.layer), ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+assert.deepEqual(stackOnly.stackup.effective.layers.filter((layer) => layer.kind === "copper").map((layer) => layer.layer), ["TOP", "INNER_1", "INNER_2", "BOTTOM"])
 assert.equal(stackOnly.stackup.effective.boardThicknessMm, 1.2)
 assert.equal(backendCalls, 1, "applyStackup must not start the routing backend")
 
@@ -582,7 +608,7 @@ const copperOnly = await api.run({
 })
 assert.equal(copperOnly.status, "complete")
 assert.equal(copperOnly.operation, "copper")
-assert.ok(copperOnly.copper.zones.some((zone) => zone.net === "GND" && zone.layers.includes("B.Cu")))
+assert.ok(copperOnly.copper.zones.some((zone) => zone.net === "GND" && zone.layers.includes("BOTTOM")))
 
 let fourLayerCalls = 0
 const fourLayerBackend = {
@@ -590,7 +616,7 @@ const fourLayerBackend = {
   capabilities: { ...backend.capabilities, maxCopperLayers: 4 },
   async route(request) {
     fourLayerCalls += 1
-    assert.deepEqual(request.board.layers.map((layer) => layer.name), ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+    assert.deepEqual(request.board.layers.map((layer) => layer.name), ["TOP", "INNER_1", "INNER_2", "BOTTOM"])
     assert.equal(request.board.stackup.layers.filter((layer) => layer.kind === "copper").length, 4)
     return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
   },
@@ -615,18 +641,24 @@ assert.equal(fourLayerRoute.status, "complete")
 assert.equal(fourLayerCalls, 1)
 assert.equal(fourLayerRoute.stackup.applyRequested, true)
 
+const emptyReplacementBackend = {
+  ...fourLayerBackend,
+  async route() {
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
+  },
+}
 const retained = { net: "VCC", layer: "F.Cu", widthMm: 0.2, points: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }
 const retainedResult = await api.run({
   board: { ...board, copper: { fixed: emptyCopper, editable: { ...emptyCopper, tracks: [retained] } } },
-  backend: fourLayerBackend,
+  backend: emptyReplacementBackend,
   dsl: "runRouting()",
 })
-assert.deepEqual(retainedResult.copper.tracks, [retained], "retained editable copper must remain in the replacement result")
+assert.deepEqual(retainedResult.copper.tracks, [], "backend copper is the complete editable replacement, so recovered rip-up can remove stale tracks")
 assert.equal(retainedResult.clearRouting, undefined, "routing without clearRouting must not authorize native copper deletion")
 
 const clearedResult = await api.run({
   board: { ...board, copper: { fixed: emptyCopper, editable: { ...emptyCopper, tracks: [retained] } } },
-  backend: fourLayerBackend,
+  backend: emptyReplacementBackend,
   dsl: `clearRouting({ nets: ["VCC"], items: ["tracks"] }); runRouting()`,
 })
 assert.deepEqual(clearedResult.clearRouting, { tracks: ["VCC"] })
@@ -667,21 +699,20 @@ assert.ok(fenced.copper.vias.some((via) => String(via.id).startsWith("via-stitch
 const fenceBands = new Set(fenced.copper.vias.map((via) => Math.abs(via.at.y - 5).toFixed(3)))
 assert.ok(fenceBands.size >= 2, "default along stitch must create multiple lateral rows")
 
-let remainingSawFence = false
+let singleFenceRouteCalls = 0
 const stagedFenceBackend = {
   ...backend,
-  async routeSpecial() {
+  async route(request) {
+    singleFenceRouteCalls += 1
+    assert.ok(request.plan, "the single backend route must receive the resolved route plan")
     return {
       status: "complete",
       copper: {
         tracks: [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }],
         vias: [], zones: [],
       },
+      metrics: { openNetCount: 0, openNets: [] },
     }
-  },
-  async routeRemaining(request) {
-    remainingSawFence = request.board.copper.fixed.vias.some((via) => String(via.id).startsWith("via-stitch:VCC_GUARD:"))
-    return { status: "complete", copper: emptyCopper }
   },
 }
 const stagedFence = await api.run({
@@ -689,7 +720,8 @@ const stagedFence = await api.run({
   dsl: `viaStitch("VCC_GUARD", { mode: "along", routes: ["VCC"], net: "GND", pitchMm: 1.5 }); runAll()`,
 })
 assert.equal(stagedFence.status, "complete")
-assert.equal(remainingSawFence, true, "remaining routing must see core-generated fence vias as fixed copper")
+assert.equal(singleFenceRouteCalls, 1, "core must route once and add along stitches after backend routing")
+assert.ok(stagedFence.copper.vias.some((via) => String(via.id).startsWith("via-stitch:VCC_GUARD:")))
 
 const existingRoute = {
   net: "VCC", layer: "F.Cu", widthMm: 0.3,
@@ -704,7 +736,7 @@ assert.ok(copperExistingFence.copper.vias.length >= 2, "runCopper must stitch re
 
 const oldAndNewFenceBackend = {
   ...stagedFenceBackend,
-  async routeSpecial() {
+  async route() {
     return {
       status: "complete",
       copper: {
@@ -726,7 +758,7 @@ assert.ok(oldAndNewFence.copper.vias.some((via) => via.at.y > 6), "runAll must s
 
 const incompleteFenceBackend = {
   ...stagedFenceBackend,
-  async routeSpecial() {
+  async route() {
     return {
       status: "partial",
       copper: {
@@ -736,7 +768,6 @@ const incompleteFenceBackend = {
       metrics: { openNetCount: 1, openNets: ["VCC"] },
     }
   },
-  async routeRemaining() { return { status: "complete", copper: emptyCopper } },
 }
 const incompleteFence = await api.run({
   board, backend: incompleteFenceBackend,
@@ -920,80 +951,23 @@ assert.ok(compactPlane.copper.vias.every((via) => {
   ) - 1e-7
 }), "plane stitching must see compact zones planned in the same copper operation")
 
-const singleBalancedProfiles = []
-const singleBalancedBackend = {
+let singleCoreRouteCalls = 0
+const singleCoreRouteBackend = {
   ...backend,
   async route(request) {
-    singleBalancedProfiles.push(request.policy.profile)
+    singleCoreRouteCalls += 1
+    assert.ok(request.plan)
+    assert.equal("policy" in request, false, "engine profiles must not leak through the backend contract")
     return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
   },
 }
-await api.run({
-  board, dsl: `quality({ profile: "balanced", maxCandidates: 1 }); runRouting()`, backend: singleBalancedBackend,
+const singleCoreRouteResult = await api.run({
+  board, dsl: "runRouting()", backend: singleCoreRouteBackend,
 })
-assert.deepEqual(singleBalancedProfiles, ["balanced"], "one selected profile must mean one backend run")
-
-const cascadeProfiles = []
-const cascadeBudgets = []
-const cascadeBackend = {
-  ...backend,
-  async route(request) {
-    cascadeProfiles.push(request.policy.profile)
-    cascadeBudgets.push(request.policy.maxCandidates)
-    const complete = request.policy.profile === "completion-first"
-    return {
-      status: complete ? "complete" : "partial",
-      copper: {
-        tracks: complete
-          ? [{ net: "VCC", layer: "F.Cu", widthMm: 0.3, points: [{ x: 4, y: 5 }, { x: 8, y: 5 }] }]
-          : [],
-        vias: [], zones: [],
-      },
-      metrics: { openNetCount: complete ? 0 : 2, viaCount: 0 },
-    }
-  },
-}
-const cascadeResult = await api.run({
-  board, dsl: "runRouting()", backend: cascadeBackend,
-  policy: { profile: "balanced", maxCandidates: 2 },
-})
-assert.deepEqual(cascadeProfiles, ["balanced", "completion-first"])
-assert.deepEqual(cascadeBudgets, [2, 2], "stage-local backends must receive the caller's bounded candidate budget")
-assert.equal(cascadeResult.status, "complete")
-assert.equal(cascadeResult.copper.tracks.length, 1)
-assert.equal(cascadeResult.metrics.candidateCount, 2)
-assert.ok(cascadeResult.diagnostics.some((item) => (
-  item.code === "ROUTING_PORTFOLIO_SELECTED" && item.details.selectedProfile === "completion-first"
-)))
-
-const qualityCascadeProfiles = []
-const qualityCascadeBackend = {
-  ...backend,
-  async route(request) {
-    qualityCascadeProfiles.push(request.policy.profile)
-    return { status: "partial", copper: emptyCopper, metrics: { openNetCount: 1 } }
-  },
-}
-await api.run({
-  board, dsl: `quality({ profile: "quality-first", maxCandidates: 3 }); runRouting()`, backend: qualityCascadeBackend,
-})
-assert.deepEqual(qualityCascadeProfiles, ["quality-first", "balanced", "completion-first"])
-
-let earlyStopCalls = 0
-const earlyStopBackend = {
-  ...backend,
-  async route() {
-    earlyStopCalls += 1
-    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
-  },
-}
-const earlyStopResult = await api.run({
-  board, dsl: "runRouting()", backend: earlyStopBackend,
-  policy: { profile: "completion-first", maxCandidates: 3 },
-})
-assert.equal(earlyStopResult.status, "complete")
-assert.equal(earlyStopCalls, 1, "a fully routed fast candidate must stop the cascade")
-assert.equal(earlyStopResult.metrics.candidateCount, 1)
+assert.equal(singleCoreRouteResult.status, "complete")
+assert.equal(singleCoreRouteCalls, 1, "core must delegate exactly one complete route to the backend")
+assert.equal(singleCoreRouteResult.metrics.candidateCount, 1)
+assert.ok(singleCoreRouteResult.diagnostics.some((item) => item.code === "ROUTING_CANDIDATE_AUDITED"))
 
 let deprecatedTimeoutFinished = false
 const noInternalTimeoutBackend = {
@@ -1006,10 +980,9 @@ const noInternalTimeoutBackend = {
 }
 const noInternalTimeoutResult = await api.run({
   board, dsl: "runRouting()", backend: noInternalTimeoutBackend,
-  policy: { profile: "fast", timeoutMs: 1 },
 })
 assert.equal(noInternalTimeoutResult.status, "complete")
-assert.equal(deprecatedTimeoutFinished, true, "deprecated timeoutMs must not stop public run()")
+assert.equal(deprecatedTimeoutFinished, true, "core must not impose an implicit backend timeout")
 
 const externalAbort = new AbortController()
 let backendObservedAbort = false
@@ -1028,7 +1001,6 @@ const abortableBackend = {
 }
 const abortedRun = api.run({
   board, dsl: "runRouting()", backend: abortableBackend,
-  policy: { profile: "completion-first", maxCandidates: 3 },
   signal: externalAbort.signal,
 })
 await new Promise((resolvePromise) => setImmediate(resolvePromise))
@@ -1043,7 +1015,7 @@ const polygonBackend = {
   ...backend,
   async route(request) {
     polygonBackendRequest = request
-    return { status: "complete", copper: emptyCopper }
+    return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0, openNets: [] } }
   },
 }
 const polygonResult = await api.run({
@@ -1101,8 +1073,6 @@ const mainPowerBackend = {
     mainPowerRequest = request
     return { status: "complete", copper: emptyCopper, metrics: { openNetCount: 0 } }
   },
-  async routeSpecial() { throw new Error("powerNet must not enter the logical special stage") },
-  async routeRemaining() { throw new Error("a power-only run must stay in the main stage") },
 }
 const tappedPowerResult = await api.run({
   board: tappedPowerBoard,
@@ -1143,7 +1113,7 @@ assert.equal(planeResult.status, "complete")
 assert.equal(polygonBackendRequest.board.copper.fixed.zones.length, 0)
 assert.equal(polygonBackendRequest.program.planes.length, 0)
 assert.equal(planeResult.copper.zones.length, 1)
-assert.deepEqual(planeResult.copper.zones[0].layers, ["F.Cu", "B.Cu"])
+assert.deepEqual(planeResult.copper.zones[0].layers, ["TOP", "BOTTOM"])
 assert.equal(planeResult.copper.zones[0].priority, 1)
 assert.equal(planeResult.copper.zones[0].minThicknessMm, 0.254)
 assert.equal(planeResult.copper.zones[0].padConnection.mode, "none")
@@ -1274,9 +1244,12 @@ const malformed = await api.run({
     async route() { return { status: "complete", copper: { tracks: [{ net: "VCC" }], vias: [], zones: [] } } },
   },
 })
-assert.equal(malformed.status, "error")
-assert.ok(malformed.diagnostics.some((item) => item.code === "ROUTING_TRACK_INVALID"))
-assert.equal(malformed.copper.tracks.length, 1, "post-validation must retain the diagnostic candidate")
+assert.equal(malformed.status, "partial")
+assert.ok(malformed.diagnostics.some((item) => (
+  item.code === "ROUTING_CANDIDATE_REJECTED"
+  && item.details.validation.some((validation) => validation.code === "ROUTING_TRACK_INVALID")
+)))
+assert.equal(malformed.copper.tracks.length, 0, "invalid later geometry must retain the applicable pre-route checkpoint")
 
 const doctor = spawnSync(process.execPath, [join(distRoot, "cli.js"), "doctor"], { cwd: root, encoding: "utf8" })
 assert.equal(doctor.status, 0, doctor.stderr)

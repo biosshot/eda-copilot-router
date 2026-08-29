@@ -35,15 +35,17 @@ List or run explicit cases:
 
 ```powershell
 npm run e2e:krt-corpus -- --list
-npm run e2e:krt-corpus -- --case cap_chain --profile balanced --max-candidates 1
-npm run e2e:krt-corpus -- --all --profile balanced --max-candidates 1
+npm run e2e:krt-corpus -- --case cap_chain
+npm run e2e:krt-corpus -- --all
 
 # A case is also directly runnable:
-node tests/e2e/cap_chain/run.mjs --profile balanced
+node tests/e2e/cap_chain/run.mjs --run-id local-check
 ```
 
 The runner has no internal timeout. `Ctrl+C` is forwarded through `AbortSignal`.
 Results are isolated under `results/e2e/kicad-routing-tools/<case>/<run-id>`.
+Every case uses the same built-in `native-auto` KRT policy; the corpus exposes
+no external quality profile or candidate-count control.
 
 Some upstream boards currently expose strict KiCad adapter gaps (duplicate
 designators, custom pad shapes, or an unknown-net fixed track). They remain in the

@@ -118,14 +118,25 @@ export type NetClassIntent = RuleIntent & Readonly<{
   nets: readonly string[]
 }>
 
-export type SignalNetIntent = RuleIntent & Readonly<{
+/** Relative routing importance. Omission in the DSL means `normal`. */
+export type NetPriority = "critical" | "high" | "normal" | "low"
+
+/** Via policy for an individual net. Omission in the DSL means `auto`. */
+export type ViaPreference = "auto" | "avoid" | "forbid"
+
+export type NetRoutingPreference = Readonly<{
+  priority?: NetPriority
+  viaPreference?: ViaPreference
+}>
+
+export type SignalNetIntent = RuleIntent & NetRoutingPreference & Readonly<{
   kind: "signal-net"
   net: string
   netClass?: string
   impedance?: ImpedanceConstraint
 }>
 
-export type PowerNetIntent = RuleIntent & Readonly<{
+export type PowerNetIntent = RuleIntent & NetRoutingPreference & Readonly<{
   kind: "power-net"
   net: string
   netClass?: string
@@ -248,14 +259,6 @@ export type ClearRoutingIntent = Readonly<{
   zones?: ClearRoutingNetSelector
 }>
 
-export type RoutingProfile = "fast" | "completion-first" | "balanced" | "quality-first"
-
-export type RoutingPolicy = Readonly<{
-  profile?: RoutingProfile
-  maxCandidates?: number
-  meander?: Readonly<{ amplitudeMm?: number; spacingMm?: number }>
-}>
-
 export type RoutingProgram = Readonly<{
   polygons: readonly PolygonIntent[]
   planes: readonly PlaneIntent[]
@@ -264,16 +267,15 @@ export type RoutingProgram = Readonly<{
   differentialPairs: readonly DifferentialPairIntent[]
   matchedGroups: readonly MatchedGroupIntent[]
   viaStitches: readonly ViaStitchIntent[]
-  /** Explicit policy overrides for automatic dense-package fanout. */
+  /** Explicit opt-in requests for dense-package fanout. */
   fanouts: readonly FanoutIntent[]
-  /** Components or logical pads that automatic dense-package fanout must leave untouched. */
+  /** Components or logical pads that explicit dense-package fanout must leave untouched. */
   fanoutExclusions: readonly FanoutTarget[]
   netClasses: readonly NetClassIntent[]
   /** Ordered, explicit edits of native DRC relation membership. */
   relationEdits?: readonly DrcRelationEdit[]
   drc?: DrcIntent
   stack?: StackIntent
-  quality?: RoutingPolicy
   busDetect?: BusDetectIntent
   onlyNets?: readonly string[]
   ignoreNets: readonly string[]

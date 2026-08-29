@@ -305,14 +305,16 @@ they may not require copper that violates a weaker source constraint. Such a
 program fails preflight with `DRC_APPLY_REQUIRED`; the caller must select
 `runAll()` (or run a separate `applyDrcRules()` program) instead.
 
-## Scope, cleanup, and quality
+## Scope, cleanup, and net routing preferences
 
 The following statements are part of the implemented contract:
 
 ```js
-quality({ profile: "completion-first", maxCandidates: 3 })
 onlyNets("USB_DP", "USB_DM", "USB_VBUS")
 ignoreNets("GND", "TEST_POINT")
+
+signalNet("XTAL_IN", { priority: "critical", viaPreference: "avoid" })
+signalNet("XTAL_OUT", { priority: "critical", viaPreference: "avoid" })
 
 clearRouting({
   nets: ["USB_DP", "USB_DM"], // or "all"
@@ -320,11 +322,12 @@ clearRouting({
 })
 ```
 
-- quality profiles are `fast`, `balanced`, `quality-first`, and
-  `completion-first`;
-- `maxCandidates` has a hard maximum of 16. KRT uses the same bounded budget
-  for its cheap special-stage ordering/rip-up variants and stops at the first
-  electrically complete candidate;
+- `priority` is `critical`, `high`, `normal`, or `low`; omission means
+  `normal`;
+- `viaPreference` is `auto`, `avoid`, or `forbid`; omission means `auto`;
+- `avoid` is a strong search preference and `forbid` is a prohibitive
+  best-effort preference. Neither is a DRC rule, so KRT may still retain a via
+  when that is the only useful partial result;
 - `onlyNets` establishes the route scope and `ignoreNets` subtracts from it;
 - differential pairs and matched groups are atomic when scope is resolved;
 - copper already electrically connected by retained tracks or planned zones is
@@ -332,9 +335,9 @@ clearRouting({
 - `clearRouting` can target all nets or an explicit net list;
 - cleanup item kinds are explicit. The default is tracks and vias; zones are
   removed only when `"zones"` is requested;
-- existing native copper is never deleted merely because `runCopper()`,
-  `runRouting()`, or `runAll()` returned copper. Deletion requires the explicit
-  `clearRouting` scope above;
+- `clearRouting` performs the requested pre-route cleanup exactly as before.
+  Outside that scope, transaction-owned editable copper may still be moved or
+  replaced by KRT's custody-backed blocker recovery; fixed/locked copper may not;
 - fixed copper is never cleared. Host adapters should normally import unlocked
   native tracks, vias, and zones as editable; genuinely locked copper and
   normalized non-routing copper obstacles remain fixed.
@@ -342,15 +345,15 @@ clearRouting({
 ## Separation from backend tuning
 
 Backend choice, executable paths, iteration counts, raw rip-up limits, A* costs,
-and backend-specific search switches are not board DSL. Portable `quality` and
-candidate count are DSL policy; each backend adapter maps that policy to its
-own supported controls. The router does not impose a time limit: callers stop
-work only through the `AbortSignal` passed to `run(...)`.
+candidate count, profiles, and backend-specific search switches are not board
+DSL. The router selects its search policy from the board and resolved intent.
+Callers stop work through the `AbortSignal` passed to `run(...)`.
 
 ```text
 local router DSL = copper intent + electrical/routing rules
-quality policy   = portable search objective
-backend adapter  = engine-specific tuning
+net preferences  = portable priority and via intent
+router policy    = automatically selected search objective
+backend adapter  = engine-specific execution
 ```
 
 ## Bus, impedance, zones, and via stitching
@@ -394,9 +397,9 @@ viaStitch("RF_GUARD", {
 ```
 
 Raw A* costs, MPS/inside-out switches, grid resolution, raw iteration and
-rip-up limits, and proximity penalties remain adapter mappings of
-`quality(...)`. Polarity/pin swaps and schematic rewrites remain outside this
-copper-only contract.
+rip-up limits, and proximity penalties remain internal router/backend policy.
+Polarity/pin swaps and schematic rewrites remain outside this copper-only
+contract.
 
 ## Rule semantics
 

@@ -108,5 +108,4 @@ viaStitch("RF_GROUND_FENCE", {
   stagger: true,
 })
 
-quality({ profile: "balanced", maxCandidates: 1 })
 runAll()

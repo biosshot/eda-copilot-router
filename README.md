@@ -8,6 +8,9 @@ EasyEDA and KiCad hosts may keep using the EDA-neutral `RoutingBoard` /
 `RoutingResult` boundary. The package also includes a standalone KiCad file
 adapter and CLI; neither KRT routing path requires installed KiCad.
 
+Routing uses one native-auto KRT workflow. There is no caller-selected quality
+profile or candidate-count tuning surface.
+
 ## Public surface
 
 - `eda-copilot-router` — `run(...)`, board/result contracts and validation.

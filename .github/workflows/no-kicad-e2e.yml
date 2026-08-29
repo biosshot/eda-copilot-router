@@ -99,10 +99,10 @@ jobs:
           test ! -e ../easyeda-copilot
           test ! -e ../KiCadRoutingTools
           test -z "${COPILOT_ROUTER_KRT_DIR:-}"
-          test ! -e "$COPILOT_ROUTER_CACHE_DIR/backends/krt/0.20.4"
+          test ! -e "$COPILOT_ROUTER_CACHE_DIR/backends/krt/0.21.3"
       - run: npm run e2e:no-kicad:krt
       - name: Assert managed KRT was installed into the isolated cache
-        run: test -e "$COPILOT_ROUTER_CACHE_DIR/backends/krt/0.20.4"
+        run: test -e "$COPILOT_ROUTER_CACHE_DIR/backends/krt/0.21.3"
       - run: npm run e2e:no-kicad:native
       - run: npm run e2e:no-kicad:packed
 
@@ -130,13 +130,13 @@ jobs:
             if (Test-Path -LiteralPath $sibling) { throw "Unexpected sibling project: $sibling" }
           }
           if ($env:COPILOT_ROUTER_KRT_DIR) { throw "COPILOT_ROUTER_KRT_DIR must be unset" }
-          $managed = Join-Path $env:COPILOT_ROUTER_CACHE_DIR "backends/krt/0.20.4"
+          $managed = Join-Path $env:COPILOT_ROUTER_CACHE_DIR "backends/krt/0.21.3"
           if (Test-Path -LiteralPath $managed) { throw "Managed KRT cache must start empty" }
       - run: npm run e2e:no-kicad:krt
       - name: Assert managed KRT was installed into the isolated cache
         shell: pwsh
         run: |
-          $managed = Join-Path $env:COPILOT_ROUTER_CACHE_DIR "backends/krt/0.20.4"
+          $managed = Join-Path $env:COPILOT_ROUTER_CACHE_DIR "backends/krt/0.21.3"
           if (-not (Test-Path -LiteralPath $managed)) { throw "Managed KRT was not cached" }
       - run: npm run e2e:no-kicad:native
       - run: npm run e2e:no-kicad:packed

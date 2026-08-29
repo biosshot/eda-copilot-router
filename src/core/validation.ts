@@ -191,6 +191,35 @@ function pathArray(value: unknown): value is readonly PointMm[] {
   return path(value, 2)
 }
 
+function rounded(value: number) {
+  return Number(value.toFixed(6))
+}
+
+function fixedEchoSignatures(copper: RoutingCopper) {
+  const tracks = new Set(copper.tracks.map((track) => {
+    const points = track.points.map((item) => [rounded(item.x), rounded(item.y)])
+    const reversed = [...points].reverse()
+    const normalized = JSON.stringify(points) <= JSON.stringify(reversed) ? points : reversed
+    return JSON.stringify([track.net, track.layer, rounded(track.widthMm), normalized])
+  }))
+  const vias = new Set(copper.vias.map((via) => JSON.stringify([
+    via.net, rounded(via.at.x), rounded(via.at.y), rounded(via.diameterMm), rounded(via.drillMm),
+    via.fromLayer, via.toLayer, via.type ?? "through",
+  ])))
+  const zones = new Set(copper.zones.filter((zone) => zone.net).map((zone) => JSON.stringify({
+    net: zone.net,
+    layers: [...zone.layers],
+    outline: zone.outline,
+    clearanceMm: zone.clearanceMm,
+    minThicknessMm: zone.minThicknessMm,
+    priority: zone.priority,
+    fill: zone.fill,
+    padConnection: zone.padConnection,
+    removeIslandsBelowMm2: zone.removeIslandsBelowMm2,
+  })))
+  return { tracks, vias, zones }
+}
+
 export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBoard> {
   const diagnostics: RoutingDiagnostic[] = []
   if (!object(value)) return {
@@ -215,7 +244,7 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
     layers.add(item.name)
   })
   netItems.forEach((item, index) => {
-    if (!object(item) || typeof item.name !== "string" || !item.name.trim()) {
+    if (!object(item) || typeof item.name !== "string" || !item.name.trim() || item.name !== item.name.trim()) {
       error(diagnostics, "ROUTING_NET_INVALID", `nets[${index}] is invalid.`, `nets[${index}]`)
       return
     }
@@ -343,5 +372,21 @@ export function validateRoutingCopper(copper: unknown, board: RoutingBoard): Val
     new Set(board.nets.map((net) => net.name)),
     new Set(board.layers.map((layer) => layer.name)),
   )
+  // Echo signatures assume already validated geometry. Invalid untrusted
+  // backend objects must produce diagnostics, never crash the host grader.
+  if (!diagnostics.some((item) => item.severity === "error")
+    && object(copper) && Array.isArray(copper.tracks) && Array.isArray(copper.vias) && Array.isArray(copper.zones)) {
+    const fixed = fixedEchoSignatures(board.copper.fixed)
+    const candidate = fixedEchoSignatures(copper as RoutingCopper)
+    for (const kind of ["tracks", "vias", "zones"] as const) {
+      const echoed = [...candidate[kind]].filter((signature) => fixed[kind].has(signature))
+      if (echoed.length) error(
+        diagnostics,
+        "ROUTING_FIXED_COPPER_ECHO",
+        `Backend replacement echoed ${echoed.length} immutable fixed ${kind} item(s) as editable copper.`,
+        `copper.${kind}`,
+      )
+    }
+  }
   return { ok: !diagnostics.some((item) => item.severity === "error"), value: copper as RoutingCopper, diagnostics }
 }

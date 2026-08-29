@@ -1,7 +1,7 @@
 # Routing data contract
 
 Status: accepted direction
-Date: 2026-08-13
+Date: 2026-08-28
 
 ## Boundary
 
@@ -29,10 +29,18 @@ native coordinate conversion exactly once.
 No `version`, `schema`, `V1`, or `V2` fields are part of these structures before
 the first public release.
 
-Physical copper layers use stable names selected by the board adapter and used
-consistently throughout one `RoutingBoard`. The built-in KiCad adapter retains
-`F.Cu`, `In1.Cu`, and `B.Cu`; an EasyEDA adapter may use its own stable names.
-`RoutingLayer.index` carries physical ordering.
+The router core has one strict physical-layer namespace: `TOP`, `BOTTOM`, and
+`INNER_1`, `INNER_2`, ... in physical stack order. No native EDA layer name is
+valid inside `RoutingBoard`, a compiled rule, a backend result, or a core
+postprocessor. `RoutingLayer.index` carries the physical ordering used to assign
+the inner-layer identifiers.
+
+Board adapters own both directions of translation. For example, the KiCad
+adapter imports `F.Cu`, `In1.Cu`, and `B.Cu` as `TOP`, `INNER_1`, and `BOTTOM`,
+then maps canonical result copper back to KiCad names when it applies the
+transaction. EasyEDA and other hosts do the same at their boundary. This is an
+intentional pre-1.0 break: callers must not pass native layer aliases directly
+to the core.
 
 ## Core types
 
@@ -45,6 +53,7 @@ interface RoutingBoard {
   cutouts: PointMm[][]
   layers: RoutingLayer[]
   nets: RoutingNet[]
+  components: RoutingComponent[]
   pads: RoutingPad[]
   keepouts: RoutingKeepout[]
   stackup?: RoutingStackup
@@ -64,18 +73,30 @@ interface RoutingCopper {
 interface RoutingResult {
   status: "complete" | "partial" | "error"
   operation: "apply-drc" | "apply-stackup" | "copper" | "route" | "all"
-  rules: {
-    effective: RoutingRules
-    applyRequested: boolean
-    overriddenFields: RoutingRuleOverride[]
-  }
+  rules: RoutingRules
   stackup?: {
     effective: RoutingStackup
     applyRequested: true
   }
+  clearRouting?: RoutingClearIntent
   copper?: RoutingCopper
   diagnostics: Diagnostic[]
   metrics: RoutingMetrics
+  requiresNativeVerification: true
+}
+
+interface BackendRouteRequest {
+  board: RoutingBoard
+  program: CompiledRoutingProgram
+  plan: ResolvedRoutePlan
+  rules: RoutingRules
+}
+
+interface BackendRouteResult {
+  status: "complete" | "partial" | "error"
+  copper: RoutingCopper
+  diagnostics?: RoutingDiagnostic[]
+  metrics?: Partial<RoutingMetrics>
 }
 ```
 
@@ -111,22 +132,56 @@ state of that editable copper, not an append-only list and not a full PCB.
 This lets completion and blocker repair reroute earlier generated copper without
 requiring a general-purpose PCB patch format.
 
+The same replacement rule applies at the backend boundary.
+`BackendRouteResult.copper` is the complete transaction-owned editable
+replacement produced by the one `backend.route(request)` call. It is not an
+additions delta. Fixed copper is absent from the replacement and must remain
+unchanged. This is what lets native recovery rip and rebuild editable blockers
+without the core accidentally restoring the obsolete routes.
+
+`BackendRouteRequest.plan` is the single board-aware semantic routing plan. It
+contains the selected net scope, resolved `priority`/`viaPreference` policy,
+compatible differential, matched, and critical groups, explicit fanout
+targets, and the ordinary main scope. Backends consume this normalized plan;
+they do not infer execution policy from statement order or expose separate
+special/remaining entry points.
+
 `RoutingResult.copper` is present when the DSL selected `runCopper()`,
 `runRouting()`, or `runAll()`. An `applyDrcRules()`- or `applyStackup()`-only
 operation does not produce replacement copper. `runCopper()` plans zone
 outlines and independent stitching without starting a routing backend; exact
 native fill remains a host operation.
 
-`RoutingResult.clearRouting` is the only authorization to delete existing
-native copper. Without it, applying any operation preserves all existing
-copper and appends only newly produced geometry. With it, an adapter deletes
-only the selected nets and item kinds, then adds newly produced geometry. An
-adapter may preserve unchanged native objects instead of recreating them.
+`RoutingResult.clearRouting` authorizes the explicit pre-route discard selected
+by `clearRouting(...)`; it determines which unlocked editable objects are
+removed from the transaction input before the backend starts. The backend's
+complete replacement may subsequently omit or rebuild other transaction-owned
+editable objects as part of native blocker recovery even when no clear intent
+was requested. Fixed/locked copper is never eligible. An adapter preserves
+unchanged native objects by identity when their geometry is unchanged and
+replaces changed or omitted editable objects from the final snapshot.
 
-The built-in KiCad adapter does this by default for unlocked tracks, vias, and
-zones. Native locked copper and normalized graphical-copper obstacles remain
-fixed. Consequently `clearRouting()` can remove any selected unlocked routing
-copper while preserving actual locks.
+The built-in KiCad adapter applies those replacement semantics to unlocked
+tracks, vias, and zones. Native locked copper and normalized graphical-copper
+obstacles remain fixed. Consequently `clearRouting()` can discard selected
+unlocked routing copper before search while native KRT recovery can still move
+other editable blockers without touching actual locks.
+
+## Partial-result invariant
+
+A parseable, structurally applicable board snapshot remains useful even when a
+router process reports an error or leaves nets open. The core semantically
+audits the backend replacement against its pre-route checkpoint and keeps the
+better applicable snapshot. Core-owned plane and `viaStitch(...)`
+postprocessors use the same checkpoint rule: invalid later geometry cannot
+erase the last usable copper.
+
+A `partial` result is therefore applicable through the same transactional host
+path as a complete result; the status reports incompleteness rather than vetoing
+the copper. A run is rejected before any copper is returned only when preflight
+cannot produce a legal request, the caller hard-aborts, no structurally usable
+snapshot exists, or immutable/protected copper damage makes a snapshot unsafe.
+Incomplete routing by itself is not a rejection condition.
 
 ## Rules
 
@@ -141,10 +196,10 @@ contains stable pair ids plus positive/negative net names, while
 `matchedGroups` contains member nets and tolerance. Width and gap fields alone
 are never used to guess pair membership from net names.
 
-The result always reports the effective rules and which fields differ from the
-source. `rules.applyRequested` is true only for `applyDrcRules()` and
-`runAll()`. It tells the host to persist those effective fields; the DSL command
-itself does not return or directly mutate an EDA document. See
+The result always reports the complete effective rules. The host persists them
+only for `applyDrcRules()` and `runAll()`; `runRouting()` may use only a rule set
+that remains legal under unchanged source DRC. The DSL command itself does not
+return or directly mutate an EDA document. See
 [`drc-rule-precedence.md`](./drc-rule-precedence.md).
 
 ## Validation ownership
