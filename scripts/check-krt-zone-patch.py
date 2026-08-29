@@ -18,11 +18,21 @@ sys.path[:0] = [
     os.path.join(root, "py_router"),
     os.path.join(root, "rust_router"),
 ]
+# Exercise the legacy developer form of the same opaque-token mapping the host
+# supplies through its exact-selector sidecar.
+os.environ.pop("COPILOT_ROUTER_EXACT_SELECTORS_FILE", None)
+os.environ["COPILOT_ROUTER_EXACT_NET_SELECTION"] = '[["POWER_TOKEN", "PWR"]]'
 
 import copilot_router_krt_patch as patch  # noqa: E402
+import cleanup_pipeline  # noqa: E402
+import net_queries  # noqa: E402
 import obstacle_cache  # noqa: E402
 import obstacle_map  # noqa: E402
+import output_writer  # noqa: E402
+import pcb_modification  # noqa: E402
+import kicad_oracle  # noqa: E402
 import single_ended_routing  # noqa: E402
+from kicad_parser import Pad, Segment, Via  # noqa: E402
 
 
 class Config:
@@ -60,6 +70,17 @@ assert any((row[:2] == [10, 10]).all() for row in cells), "filled-copper interio
 assert not len(patch._zone_obstacles(pcb, 2, Config())[0]), "wrong net inherited the zone cache"
 assert obstacle_map.build_base_obstacle_map.__module__ == "copilot_router_krt_patch"
 assert obstacle_cache.precompute_net_obstacles.__module__ == "copilot_router_krt_patch"
+assert pcb_modification.prune_redundant_cycles.__module__ == "copilot_router_krt_patch"
+assert cleanup_pipeline.prune_redundant_cycles.__module__ == "copilot_router_krt_patch"
+assert cleanup_pipeline.run_post_route_cleanup.__module__ == "copilot_router_krt_patch"
+assert output_writer.write_routed_output.__module__ == "copilot_router_krt_patch"
+assert kicad_oracle.oracle_reconnect.__module__ == "copilot_router_krt_patch"
+power_map = net_queries.identify_power_nets(
+    SimpleNamespace(nets={1: SimpleNamespace(name="PWR")}),
+    ["POWER_TOKEN"],
+    [0.42],
+)
+assert power_map == {1: 0.42}, "opaque --power-nets token lost its exact net mapping"
 
 
 class NeckdownConfig:
@@ -139,7 +160,115 @@ parsed = patch._parse_obstacle_fills("""
 assert ("VCC", "F.Cu") in parsed
 assert ("VCC", "B.Cu") not in parsed, "cuttable DSL plane became a fixed obstacle"
 
+
+class StackCleanupConfig:
+    layers = ["F.Cu", "B.Cu", "In1.Cu"]
+    layer_costs = [1.0, 1.0, -1.0]
+    power_net_widths = {1: 0.2}
+    via_cost = 50
+
+
+scope_board = SimpleNamespace(zones=[
+    SimpleNamespace(net_id=1, layer="In1.Cu"),
+    SimpleNamespace(net_id=2, layer="In1.Cu"),
+    SimpleNamespace(net_id=3, layer="In1.Cu"),
+])
+assert patch._stack_plane_scope(scope_board, StackCleanupConfig(), {1, 2, 3}) == {
+    1: {"In1.Cu"},
+}, "GND/ordinary plane zones leaked into explicit Stack power cleanup scope"
+
+
+def cleanup_pad(x, reference):
+    return Pad(
+        component_ref=reference,
+        pad_number="1",
+        global_x=x,
+        global_y=0.0,
+        local_x=0.0,
+        local_y=0.0,
+        size_x=0.6,
+        size_y=0.6,
+        shape="circle",
+        layers=["F.Cu"],
+        net_id=1,
+        net_name="PWR",
+    )
+
+
+def cleanup_segment(first, second):
+    return Segment(first, 0.0, second, 0.0, 0.2, "F.Cu", 1)
+
+
+def cleanup_via(x):
+    return Via(x, 0.0, 0.4, 0.2, ["F.Cu", "B.Cu"], 1)
+
+
+def cleanup_case(distance, fill_polygons, *, third_pad=False,
+                 input_parallel=False):
+    routed_segment = cleanup_segment(0.0, distance)
+    input_segment = cleanup_segment(0.0, distance) if input_parallel else None
+    segments = ([input_segment] if input_segment is not None else []) + [routed_segment]
+    vias = [] if input_parallel or third_pad else [cleanup_via(0.0), cleanup_via(distance)]
+    pads = [cleanup_pad(0.0, "U1"), cleanup_pad(distance, "U2")]
+    if third_pad:
+        pads.append(cleanup_pad(distance + 5.0, "U3"))
+    board = SimpleNamespace(
+        nets={1: SimpleNamespace(name="PWR")},
+        net_id_to_name={1: "PWR"},
+        zones=[SimpleNamespace(net_id=1, layer="In1.Cu", polygon=fill_polygons[0])],
+        segments=segments,
+        vias=vias,
+        pads_by_net={1: pads},
+        exact_fill_provider=lambda: {("PWR", "In1.Cu"): fill_polygons},
+    )
+    results = [{"new_segments": [routed_segment], "new_vias": list(vias)}]
+    stats = patch._prune_stack_plane_redundancy(
+        results, board, {1}, StackCleanupConfig(),
+    )
+    return board, results, stats, input_segment
+
+
+near_fill = [[(-1.0, -1.0), (2.0, -1.0), (2.0, 1.0), (-1.0, 1.0)]]
+near_board, _, near_stats, _ = cleanup_case(1.0, near_fill)
+assert near_stats["segments"] == 0 and near_stats["vias"] == 1
+assert len(near_board.segments) == 1 and len(near_board.vias) == 1, (
+    "short pad-to-pad connection should retain only one useful plane tap"
+)
+
+far_fill = [[(-1.0, -1.0), (11.0, -1.0), (11.0, 1.0), (-1.0, 1.0)]]
+far_board, _, far_stats, _ = cleanup_case(10.0, far_fill)
+assert far_stats["segments"] == 1 and far_stats["vias"] == 0
+assert len(far_board.segments) == 0 and len(far_board.vias) == 2, (
+    "long connection should prefer two plane taps over the parallel track"
+)
+
+split_fill = [
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)],
+    [(9.0, -1.0), (11.0, -1.0), (11.0, 1.0), (9.0, 1.0)],
+]
+split_board, _, split_stats, _ = cleanup_case(10.0, split_fill)
+assert split_stats["segments"] == 0 and split_stats["vias"] == 0
+assert len(split_board.segments) == 1 and len(split_board.vias) == 2, (
+    "separate split-plane islands must retain their inter-island track and taps"
+)
+
+partial_board, _, partial_stats, _ = cleanup_case(
+    1.0, near_fill, third_pad=True,
+)
+assert partial_stats["segments"] == 0 and len(partial_board.segments) == 1, (
+    "cleanup must preserve pad pairs already connected in a partial net"
+)
+
+authority_board, _, authority_stats, input_segment = cleanup_case(
+    1.0, near_fill, input_parallel=True,
+)
+assert authority_stats["segments"] == 1 and authority_stats["vias"] == 0
+assert authority_board.segments == [input_segment], (
+    "input copper must participate in connectivity but remain read-only"
+)
+
 print(
     f"KRT exact-filled-zone patch: {len(cells)} track cells, {len(vias)} via cells; "
-    f"neckdown taper {taper_length:.3f} mm in {len(taper)} steps"
+    f"neckdown taper {taper_length:.3f} mm in {len(taper)} steps; "
+    "stack-plane cleanup synthetic cases passed"
 )
