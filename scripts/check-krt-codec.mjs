@@ -78,7 +78,15 @@ const board = {
       { net: "N", at: { x: 4, y: 17 }, diameterMm: 0.6, drillMm: 0.3, fromLayer: "TOP", toLayer: "BOTTOM", type: "through" },
       { net: "N", at: { x: 6, y: 17 }, diameterMm: 0.5, drillMm: 0.2, fromLayer: "TOP", toLayer: "INNER_2", type: "blind-buried" },
     ],
-    zones: [],
+    zones: [{
+      net: "N", layers: ["BOTTOM"], priority: 2, minThicknessMm: 0.08, clearanceMm: 0.15,
+      outline: {
+        outer: [{ x: 10, y: 10 }, { x: 14, y: 10 }, { x: 14, y: 14 }, { x: 10, y: 14 }],
+        holes: [[{ x: 11, y: 11 }, { x: 12, y: 11 }, { x: 12, y: 12 }, { x: 11, y: 12 }]],
+      },
+      fill: { style: "hatched", hatchThicknessMm: 0.4, hatchGapMm: 0.5, hatchOrientationDeg: 45 },
+      padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.25 },
+    }],
   } },
 }
 
@@ -129,7 +137,12 @@ try {
     .replace(/\s*\(segment\s+\(start 1 17\)[\s\S]*?\(uuid "[^"]+"\)\)/, "")
     .replace(/\)\s*$/, `
       (segment (start 5 17) (end 8 17) (width 0.2) (layer "B.Cu") (net "N")
-        (uuid "00000000-0000-0000-0000-000000000099")))\n`)
+        (uuid "00000000-0000-0000-0000-000000000099"))
+      (zone (net "N") (layer "In2.Cu")
+        (uuid "00000000-0000-0000-0000-000000000100")
+        (priority 7) (connect_pads yes (clearance 0.15)) (min_thickness 0.08)
+        (fill yes (thermal_gap 0.2) (thermal_bridge_width 0.25))
+        (polygon (pts (xy 5 5) (xy 15 5) (xy 15 15) (xy 5 15)))))\n`)
   await writeFile(routedBoard, replaced, "utf8")
   const recovered = await readKrtBoard(inputBoard, routedBoard, board)
   assert.ok(recovered.copper.tracks.some((track) => track.layer === "BOTTOM"
@@ -143,6 +156,18 @@ try {
     "KRT output parsing must not silently turn blind/buried vias into through vias")
   assert.ok(!recovered.copper.vias.some((via) => via.at.x === 6 && via.at.y === 18),
     "fixed microvias must not leak into backend-owned replacement copper")
+  assert.equal(recovered.copper.zones.length, 2, "editable and native KRT zones must survive replacement decoding")
+  const nativeZone = recovered.copper.zones.find((zone) => zone.layers.includes("INNER_2"))
+  assert.deepEqual(nativeZone.layers, ["INNER_2"])
+  assert.equal(nativeZone.net, "N")
+  assert.equal(nativeZone.priority, 7)
+  assert.equal(nativeZone.connection, "solid")
+  const retainedZone = recovered.copper.zones.find((zone) => zone.layers.includes("BOTTOM"))
+  assert.equal(retainedZone.priority, 2)
+  assert.equal(retainedZone.fill.style, "hatched")
+  assert.equal(retainedZone.outline.holes.length, 1, "editable zone holes must survive KRT replacement parsing")
+  assert.ok(!recovered.copper.zones.some((zone) => zone.layers.includes("INNER_1")),
+    "fixed zones must not leak into backend-owned replacement copper")
   assert.ok((source.match(/\(polygon \(pts/g) ?? []).length >= 4, "zone and keepout hole contours must be serialized")
   const points = approximateKiCadArc({ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, 0.01)
   assert.ok(points.length > 3)

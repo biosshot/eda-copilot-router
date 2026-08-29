@@ -227,6 +227,13 @@ export type StackCopperLayerIntent = Readonly<{
   kind: "copper"
   thicknessOz?: number
   thicknessMm?: number
+  /**
+   * Reserve this copper layer for one full-board plane or a native split
+   * plane. Ordinary signal routing must not use a layer with this property.
+   */
+  plane?: Readonly<{
+    nets: readonly string[]
+  }>
 }>
 
 export type StackDielectricLayerIntent = Readonly<{

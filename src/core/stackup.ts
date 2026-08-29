@@ -3,6 +3,22 @@ import type { StackIntent } from "../intent/types.js"
 
 const COPPER_MM_PER_OZ = 0.03479
 
+export type RoutingStackPlane = Readonly<{
+  layer: string
+  nets: readonly string[]
+}>
+
+/** Resolve stack-declared plane layers into the materialized board namespace. */
+export function routingStackPlanes(
+  board: Pick<RoutingBoard, "layers">,
+  stack: StackIntent | undefined,
+): readonly RoutingStackPlane[] {
+  const copper = stack?.layers?.filter((layer) => layer.kind === "copper") ?? []
+  return copper.flatMap((layer, index) => layer.plane
+    ? [{ layer: board.layers[index]?.name ?? layer.name, nets: [...layer.plane.nets] }]
+    : [])
+}
+
 function physicalLayerName(board: RoutingBoard, canonical: string) {
   if (canonical === "TOP") return board.layers.find((layer) => layer.side === "top")?.name ?? canonical
   if (canonical === "BOTTOM") return board.layers.find((layer) => layer.side === "bottom")?.name ?? canonical

@@ -223,7 +223,14 @@ declare function stack(options: {
   viaPlatingThicknessUm?: number;
   maxTrackWidthMm?: number;
   layers?: Array<
-    | { kind: "copper"; name: PhysicalLayer; thicknessOz?: number; thicknessMm?: number }
+    | {
+        kind: "copper";
+        name: PhysicalLayer;
+        thicknessOz?: number;
+        thicknessMm?: number;
+        /** One net creates a full plane; multiple nets create a native split plane. */
+        plane?: { nets: string[] };
+      }
     | { kind: "dielectric"; name?: string; thicknessMm?: number; relativePermittivity?: number; lossTangent?: number; material?: string }
   >;
   solderMask?: {

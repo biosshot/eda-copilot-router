@@ -85,7 +85,7 @@
     "test": "npm run test:package",
     "e2e:no-kicad:portable": "npm run build:package && node tests/e2e/no_kicad/portable.mjs",
     "e2e:no-kicad:polygon": "npm run build:package && node scripts/check-powerbank-polygon-search.mjs && node scripts/check-band-amp-polygon-search.mjs",
-    "e2e:no-kicad:krt": "npm run build:package && node tests/e2e/no_kicad/krt.mjs && node tests/e2e/no_kicad/krt_native_workflow.mjs && node tests/e2e/no_kicad/krt_matched_semantic.mjs",
+    "e2e:no-kicad:krt": "npm run build:package && node tests/e2e/no_kicad/krt.mjs && node tests/e2e/no_kicad/krt_planes.mjs && node tests/e2e/no_kicad/krt_native_workflow.mjs && node tests/e2e/no_kicad/krt_matched_semantic.mjs",
     "e2e:no-kicad:native": "npm run build:package && node tests/e2e/no_kicad/native.mjs",
     "e2e:no-kicad:packed": "node tests/e2e/no_kicad/packed.mjs",
     "e2e:no-kicad": "npm run e2e:no-kicad:portable && npm run e2e:no-kicad:polygon && npm run e2e:no-kicad:krt && npm run e2e:no-kicad:native && npm run e2e:no-kicad:packed",

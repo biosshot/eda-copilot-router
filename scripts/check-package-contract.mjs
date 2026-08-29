@@ -161,6 +161,17 @@ assert.deepEqual(
   [],
   "an explicit ground exclusion must acknowledge the missing maze route",
 )
+assert.deepEqual(
+  krt.krtUnplannedGroundNets({
+    board: boardWithUnplannedGround,
+    program: dsl.compileRoutingDsl(`stack({ layers: [
+      { kind: "copper", name: "TOP", plane: { nets: ["GND"] } },
+      { kind: "copper", name: "BOTTOM" }
+    ] }); runRouting()`),
+  }),
+  [],
+  "a stack-declared plane is an explicit ground plan even before KRT materializes its zone",
+)
 const netlessZone = {
   layers: ["F.Cu"],
   outline: { outer: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }] },
@@ -202,6 +213,28 @@ const explicitBusArgs = krt.buildKrtRemainingArgs("input.kicad_pcb", "output.kic
 assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-detection-radius") + 1], "3")
 assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-min-nets") + 1], "3")
 assert.equal(explicitBusArgs[explicitBusArgs.indexOf("--bus-attraction-radius") + 1], "4")
+const nativePlaneCommand = krt.buildKrtPlaneArgs("input.kicad_pcb", "output.kicad_pcb", {
+  ...busStage,
+  layers: ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"],
+  remainingNets: ["GND", "VCC", "+1V8"],
+  planes: [
+    { layer: "In1.Cu", nets: ["GND"] },
+    { layer: "In2.Cu", nets: ["VCC", "+1V8"] },
+  ],
+})
+assert.deepEqual(nativePlaneCommand.diagnostics, [])
+assert.deepEqual(
+  nativePlaneCommand.args.slice(nativePlaneCommand.args.indexOf("--nets") + 1, nativePlaneCommand.args.indexOf("--plane-layers")),
+  ["GND", "VCC|+1V8"],
+)
+assert.deepEqual(
+  nativePlaneCommand.args.slice(nativePlaneCommand.args.indexOf("--layer-costs") + 1, nativePlaneCommand.args.indexOf("--grid-step") < 0
+    ? nativePlaneCommand.args.indexOf("--fab-overrides")
+    : nativePlaneCommand.args.indexOf("--grid-step")),
+  ["1", "-1", "-1", "1"],
+  "dedicated planes stay available to the zone engine but forbidden to routed tracks",
+)
+assert.ok(!nativePlaneCommand.args.includes("--clearance"), "native plane routing must preserve per-net project clearances")
 assert.throws(() => dsl.compileRoutingDsl(`drc({ via: { from: "TOP", to: "BOTTOM" } }); runAll()`), /unknown field/i,
   "via layer spans must stay hidden from the public contract")
 assert.throws(() => dsl.compileRoutingDsl(`plane({ net: "GND", paddingMm: 1 }); runCopper()`), /unknown field.*paddingMm/i,
@@ -215,6 +248,53 @@ assert.equal(dsl.compileRoutingDsl(allDsl).operation, "all")
 assert.throws(() => dsl.compileRoutingDsl("runRouting(); runAll()"), /exactly one terminal/i)
 assert.equal(dsl.compileRoutingDsl("runCopper()").operation, "copper")
 assert.equal(dsl.compileRoutingDsl("stack({ layers: [{ kind: 'copper', name: 'TOP' }, { kind: 'copper', name: 'BOTTOM' }] }); applyStackup()").operation, "apply-stackup")
+const stackPlaneProgram = dsl.compileRoutingDsl(`
+  stack({ layers: [
+    { kind: "copper", name: "TOP" },
+    { kind: "dielectric", thicknessMm: 0.2 },
+    { kind: "copper", name: "INNER_1", plane: { nets: ["GND"] } },
+    { kind: "dielectric", thicknessMm: 1.0 },
+    { kind: "copper", name: "INNER_2", plane: { nets: ["VCC", "GND"] } },
+    { kind: "dielectric", thicknessMm: 0.2 },
+    { kind: "copper", name: "BOTTOM" }
+  ] })
+  runRouting()
+`)
+assert.deepEqual(stackPlaneProgram.stack.layers.filter((layer) => layer.kind === "copper" && layer.plane).map((layer) => layer.plane.nets), [
+  ["GND"], ["VCC", "GND"],
+])
+const stackPlaneRules = dsl.compileRoutingRules(board, stackPlaneProgram)
+assert.ok(stackPlaneRules.requiredCapabilities.includes("zones"))
+assert.ok(!stackPlaneRules.diagnostics.some((item) => item.severity === "error"), JSON.stringify(stackPlaneRules.diagnostics))
+const outerPlaneProgram = dsl.compileRoutingDsl(`stack({ layers: [
+  { kind: "copper", name: "TOP", plane: { nets: ["GND"] } },
+  { kind: "copper", name: "BOTTOM" }
+] }); runRouting()`)
+assert.ok(!dsl.compileRoutingRules(board, outerPlaneProgram).diagnostics.some((item) => item.severity === "error"),
+  "dedicated planes are legal on outer copper layers too")
+const copperOnlyStackPlane = dsl.compileRoutingDsl(`stack({ layers: [
+  { kind: "copper", name: "TOP", plane: { nets: ["GND"] } },
+  { kind: "copper", name: "BOTTOM" }
+] }); runCopper()`)
+assert.ok(dsl.compileRoutingRules(board, copperOnlyStackPlane).diagnostics.some((item) => (
+  item.code === "DSL_STACK_PLANE_ROUTING_REQUIRED"
+)), "runCopper must not silently omit a native stack plane")
+const conflictingPlaneProgram = dsl.compileRoutingDsl(`
+  stack({ layers: [
+    { kind: "copper", name: "TOP" },
+    { kind: "copper", name: "INNER_1", plane: { nets: ["GND"] } },
+    { kind: "copper", name: "BOTTOM" }
+  ] })
+  plane({ net: "VCC", layers: ["INNER_1"], region: board() })
+  runAll()
+`)
+assert.ok(dsl.compileRoutingRules(board, conflictingPlaneProgram).diagnostics.some((item) => (
+  item.code === "DSL_STACK_PLANE_CONFLICT" && item.severity === "error"
+)), "explicit plane() must not overlap a stack dedicated plane")
+assert.throws(() => dsl.compileRoutingDsl(`stack({ layers: [
+  { kind: "copper", name: "TOP", plane: { nets: [] } },
+  { kind: "copper", name: "BOTTOM" }
+] }); runRouting()`), /non-empty array/i)
 assert.throws(() => dsl.compileRoutingDsl("runCopper(); applyStackup(); runRouting()"), /exactly one terminal/i)
 assert.throws(() => dsl.compileRoutingDsl("polygon('VCC').connect(pad('U1', 1))"), /terminal command/i)
 assert.throws(

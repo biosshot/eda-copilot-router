@@ -13,18 +13,22 @@ import type {
 } from "../core/contracts.js"
 import { createLayerCatalog } from "../core/layers.js"
 import { netTerminalSpansMm } from "../core/net-geometry.js"
+import { routingStackPlanes } from "../core/stackup.js"
 import type { FanoutIntent } from "../intent/types.js"
 import {
   auditKrtBoardConnectivity,
   auditKrtBoardDrc,
   krtCriticalNetDrcNonRegressing,
   persistKrtProtectedNets,
+  runKrtPlaneFinalize,
+  runKrtPlanes,
   runKrtRemaining,
   runKrtQfnFanout,
   runKrtSpecial,
   type KrtDiagnostic,
   type KrtNumericRules,
   type KrtProcessResult,
+  type KrtPlaneSpec,
   type KrtQfnFanoutSpec,
   type KrtStageSpec,
 } from "./krt-adapter.js"
@@ -45,6 +49,7 @@ export {
   auditKrtBoardDrc,
   buildKrtAuditScopeTransport,
   buildKrtNativeRecoveryEnvironment,
+  buildKrtPlaneArgs,
   buildKrtRemainingArgs,
   buildKrtSpecialCandidatePortfolio,
   buildKrtSpecialCandidates,
@@ -68,6 +73,7 @@ export {
   KRT_RIPUP_ABANDON_METRIC_CHOICES,
   KRT_RIPUP_BLOCKER_SELECT_CHOICES,
   type KrtOrdering,
+  type KrtPlaneSpec,
   type KrtDiffPairCustodyEvidence,
   type KrtOrdinaryMatchedRetryEvidence,
   type KrtRipupAbandonMetric,
@@ -157,6 +163,9 @@ export function krtUnplannedGroundNets(
     ...request.board.copper.fixed.zones,
     ...request.board.copper.editable.zones,
   ].flatMap((zone) => zone.net ? [zone.net] : []))
+  for (const plane of routingStackPlanes(request.board, request.program.stack)) {
+    for (const net of plane.nets) zoned.add(net)
+  }
   return orderedScopeNets(request).filter((net) => (
     isGroundNetName(net)
     && !ignored.has(net)
@@ -172,11 +181,22 @@ function routableScopeNets(request: BackendRouteRequest) {
   ))
 }
 
+function connectivityScopeNets(request: BackendRouteRequest) {
+  const planeNets = new Set(routingStackPlanes(request.board, request.program.stack)
+    .flatMap((plane) => plane.nets))
+  return request.plan.scopeNets.filter((net) => (
+    (!isGroundNetName(net) || planeNets.has(net))
+    && request.board.pads.filter((pad) => pad.net === net).length >= 2
+  ))
+}
+
 function normalizedLayerSet(layers: readonly string[]) {
   return [...new Set(layers)].sort()
 }
 
 function routeLayerDiagnostics(request: BackendRouteRequest, nets: readonly string[]) {
+  const dedicated = new Set(routingStackPlanes(request.board, request.program.stack)
+    .map((plane) => plane.layer))
   const constrained = nets.flatMap((net) => {
     const layers = ruleFor(request, net).allowedLayers
     return layers?.length ? [{ net, layers: normalizedLayerSet(layers) }] : []
@@ -188,26 +208,40 @@ function routeLayerDiagnostics(request: BackendRouteRequest, nets: readonly stri
     if (current) current.nets.push(item.net)
     else sets.set(key, { layers: item.layers, nets: [item.net] })
   }
-  return sets.size <= 1 ? [] : [diagnostic(
-    "KRT_PER_NET_LAYER_SCOPE_UNSUPPORTED",
-    "error",
+  const diagnostics: RoutingDiagnostic[] = sets.size <= 1 ? [] : [diagnostic(
+    "KRT_PER_NET_LAYER_SCOPE_UNSUPPORTED", "error",
     "One KRT process cannot preserve incompatible per-net allowedLayers; split the routing scope into compatible calls.",
     { groups: [...sets.values()] },
   )]
+  const unroutable = nets.filter((net) => {
+    const allowed = ruleFor(request, net).allowedLayers ?? request.board.layers.map((layer) => layer.name)
+    return !allowed.some((layer) => !dedicated.has(layer))
+  })
+  if (unroutable.length) diagnostics.push(diagnostic(
+    "KRT_NO_SIGNAL_LAYER",
+    "error",
+    "A routed net has no signal-capable layer after stack dedicated-plane layers are excluded.",
+    { nets: unroutable, dedicatedLayers: [...dedicated] },
+  ))
+  return diagnostics
 }
 
 function routeLayersFor(request: BackendRouteRequest, nets: readonly string[]) {
   const catalog = createLayerCatalog(request.board.layers)
+  const dedicated = new Set(routingStackPlanes(request.board, request.program.stack)
+    .map((plane) => plane.layer))
   const constrained = nets
     .map((net) => ruleFor(request, net).allowedLayers)
     .find((layers): layers is readonly string[] => Boolean(layers?.length))
-  if (!constrained) return request.board.layers.map((item) => catalog.kiCadName(item.name))
+  if (!constrained) return request.board.layers
+    .filter((item) => !dedicated.has(item.name))
+    .map((item) => catalog.kiCadName(item.name))
   const allowed = new Set(constrained)
   // Unconstrained nets in this call inherit the one explicit safe subset. This
   // may reduce routability, but it can never violate another net's layer rule.
   return request.board.layers
     .map((item) => item.name)
-    .filter((layer) => allowed.has(layer))
+    .filter((layer) => allowed.has(layer) && !dedicated.has(layer))
     .map((layer) => catalog.kiCadName(layer))
 }
 
@@ -326,6 +360,9 @@ function minimumRules(values: readonly RoutingRuleValues[], gridStep = 0.1): Krt
 
 /** @internal Pure routed-copper safety gate exposed for contract tests. */
 export function krtRoutedCopperRuleDiagnostics(request: BackendRouteRequest, copper: RoutingCopper) {
+  const planeOwners = new Map(routingStackPlanes(request.board, request.program.stack)
+    .map((plane) => [plane.layer, new Set(plane.nets)] as const))
+  const dedicatedPlaneLayers = new Set(planeOwners.keys())
   const narrowTracks = copper.tracks.flatMap((track) => {
     const minimum = Math.max(HARD_MIN_TRACK_WIDTH_MM, ruleFor(request, track.net).minTrackWidthMm)
     return track.widthMm + 1e-9 < minimum
@@ -352,7 +389,8 @@ export function krtRoutedCopperRuleDiagnostics(request: BackendRouteRequest, cop
   })
   const forbiddenLayers = copper.tracks.flatMap((track) => {
     const allowed = ruleFor(request, track.net).allowedLayers
-    return allowed?.length && !allowed.includes(track.layer)
+    const owners = planeOwners.get(track.layer)
+    return (owners ? !owners.has(track.net) : Boolean(allowed?.length && !allowed.includes(track.layer)))
       ? [{ net: track.net, actualLayer: track.layer, allowedLayers: allowed }]
       : []
   })
@@ -372,8 +410,8 @@ export function krtRoutedCopperRuleDiagnostics(request: BackendRouteRequest, cop
   if (forbiddenLayers.length) diagnostics.push(diagnostic(
     "KRT_TRACK_ON_FORBIDDEN_LAYER",
     "error",
-    `KRT produced ${forbiddenLayers.length} track segment(s) outside their compiled allowedLayers; the board is retained only as a partial candidate.`,
-    { samples: forbiddenLayers.slice(0, 16) },
+    `KRT produced ${forbiddenLayers.length} track segment(s) on a forbidden or stack dedicated-plane layer; the board is retained only as a partial candidate.`,
+    { dedicatedPlaneLayers: [...dedicatedPlaneLayers], samples: forbiddenLayers.slice(0, 16) },
   ))
   return diagnostics
 }
@@ -632,6 +670,8 @@ export function planKrtQfnFanout(
   if (!fanouts.length) return []
   const scope = new Set(routeNets.filter((net) => !isGroundNetName(net)))
   const layerCatalog = createLayerCatalog(request.board.layers)
+  const dedicatedLayers = new Set(routingStackPlanes(request.board, request.program.stack)
+    .map((plane) => plane.layer))
   const logicalPadCounts = new Map<string, number>()
   for (const pad of request.board.pads) if (pad.net) {
     logicalPadCounts.set(pad.net, (logicalPadCounts.get(pad.net) ?? 0) + 1)
@@ -651,7 +691,7 @@ export function planKrtQfnFanout(
   for (const component of request.board.components) {
     if (excludedComponents.has(component.designator)) continue
     const mountedLayer = request.board.layers.find((layer) => layer.side === component.side)?.name
-    if (!mountedLayer) continue
+    if (!mountedLayer || dedicatedLayers.has(mountedLayer)) continue
     const packagePads = request.board.pads.filter((pad) => (
       pad.component === component.designator && !pad.hole && pad.layers.includes(mountedLayer)
     ))
@@ -1399,6 +1439,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
     capabilities: {
       supported: [
         "ordinary-routing", "vias", "differential-pairs", "matched-length",
+        "zones",
         "impedance-controlled", "preserve-fixed-copper", "fixed-zone-obstacles",
         "preconnected-pad-groups", "parallel-vias",
       ],
@@ -1457,6 +1498,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
       const specialStage = request.program.differentialPairs.length > 0
         || request.program.matchedGroups.length > 0
         || request.program.viaStitches.some((item) => item.mode === "along")
+        || routingStackPlanes(request.board, request.program.stack).length > 0
       const root = options.artifactsDirectory
         ? join(resolve(options.artifactsDirectory), "native-auto", specialStage ? "special" : "remaining")
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
@@ -1468,9 +1510,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         fallbackPrepared = prepared
         const layerCatalog = createLayerCatalog(request.board.layers)
         const { gridStep: requestedGridStep, ...nativePolicy } = KRT_NATIVE_AUTO_POLICY
+        const stackPlanes = routingStackPlanes(request.board, request.program.stack)
+        const planeNetNames = [...new Set(stackPlanes.flatMap((plane) => plane.nets))]
         const routeScopeNets = routableScopeNets(request)
-        fallbackRouteScopeNets = routeScopeNets
-        fallbackOpenNets = routeScopeNets
+        const auditScopeNets = connectivityScopeNets(request)
+        fallbackRouteScopeNets = auditScopeNets
+        fallbackOpenNets = auditScopeNets
         const routeScope = new Set(routeScopeNets)
         // Keep declared and actually planned special scope separate. A group
         // can be declared yet unrepresentable (or only partly routable); those
@@ -1496,8 +1541,8 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         const deferredSpecialNets = [...declaredSpecialNets]
           .filter((net) => !plannedSpecialNets.has(net))
         const fullBoardRules = minimumRules(
-          routeScopeNets.length
-            ? routeScopeNets.map((net) => ruleFor(request, net))
+          auditScopeNets.length
+            ? auditScopeNets.map((net) => ruleFor(request, net))
             : [request.rules.default],
           requestedGridStep,
         )
@@ -1531,17 +1576,92 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         }
         let current = prepared.inputBoard
         fallbackCurrentBoard = current
+        let planeResult: KrtProcessResult | undefined
+        if (stackPlanes.length) {
+          const output = join(root, "00-planes.kicad_pcb")
+          const planeSpec = {
+            ...common,
+            rules: fullBoardRules,
+            fabOverridesPath: fullBoardFab,
+            remainingNets: planeNetNames,
+            protectedNets: [],
+            planes: stackPlanes.map((plane) => ({
+              layer: layerCatalog.kiCadName(plane.layer),
+              nets: plane.nets,
+            })),
+          } satisfies KrtPlaneSpec
+          planeResult = await runKrtPlanes(
+            current,
+            output,
+            planeSpec,
+            join(root, "planes"),
+          )
+          let candidateCopper: RoutingCopper | undefined
+          try {
+            if (planeResult.attempted && await exists(output)) candidateCopper = (
+              await readKrtBoard(prepared.inputBoard, output, request.board)
+            ).copper
+          } catch (error) {
+            diagnostics.push(diagnostic(
+              "KRT_PLANE_OUTPUT_UNREADABLE",
+              "warning",
+              "KRT left a plane artifact that could not be decoded; routing continues from the previous checkpoint.",
+              { error: error instanceof Error ? error.message : String(error) },
+            ))
+          }
+          const observed = candidateCopper?.zones.flatMap((zone) => stackPlanes.flatMap((plane) => (
+            zone.net && plane.nets.includes(zone.net) && zone.layers.includes(plane.layer)
+              ? [{ layer: plane.layer, net: zone.net }]
+              : []
+          ))) ?? []
+          const observedKeys = new Set(observed.map((item) => `${item.layer}\u0000${item.net}`))
+          const missing = stackPlanes.flatMap((plane) => plane.nets.flatMap((net) => (
+            observedKeys.has(`${plane.layer}\u0000${net}`) ? [] : [{ layer: plane.layer, net }]
+          )))
+          const planeRuleDiagnostics = candidateCopper
+            ? krtRoutedCopperRuleDiagnostics(
+                request,
+                subtractKrtCopper(request.board.copper.editable, candidateCopper),
+              )
+            : []
+          const accepted = Boolean(
+            candidateCopper
+            && observed.length
+            && !planeRuleDiagnostics.some((item) => item.severity === "error"),
+          )
+          diagnostics.push(...convertDiagnostics(planeResult.diagnostics).map((item) => (
+            accepted && item.severity === "error" ? { ...item, severity: "warning" as const } : item
+          )))
+          diagnostics.push(...planeRuleDiagnostics)
+          if (accepted) {
+            current = output
+            fallbackCurrentBoard = current
+            diagnostics.push(diagnostic(
+              missing.length ? "KRT_STACK_PLANES_PARTIAL" : "KRT_STACK_PLANES_CREATED",
+              missing.length ? "warning" : "info",
+              missing.length
+                ? "KRT created a useful partial set of stack planes; the board was retained and missing plane zones remain visible in diagnostics."
+                : "KRT created every stack-declared full/split plane before signal routing.",
+              { observed, missing },
+            ))
+          } else diagnostics.push(diagnostic(
+            "KRT_STACK_PLANES_UNAVAILABLE",
+            "error",
+            "KRT did not produce any requested stack plane zone; signal routing continues from the unmodified board as a partial result.",
+            { requested: stackPlanes },
+          ))
+        }
         const initialAuditSpec: KrtStageSpec = {
           ...common,
           rules: fullBoardRules,
           fabOverridesPath: fullBoardFab,
-          remainingNets: routeScopeNets,
+          remainingNets: auditScopeNets,
           protectedNets: [],
         }
-        const initialConnectivity = routeScopeNets.length
+        const initialConnectivity = auditScopeNets.length
           ? await auditKrtBoardConnectivity(
               current,
-              routeScopeNets,
+              auditScopeNets,
               initialAuditSpec,
               join(root, "initial-audit", "connectivity"),
             )
@@ -1556,7 +1676,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           if (audit.diagnostics.some((item) => item.severity === "error")) return undefined
           const open = new Set(audit.openNets)
           const componentsByNet: Record<string, number> = {}
-          for (const net of routeScopeNets) {
+          for (const net of auditScopeNets) {
             const count = open.has(net) ? audit.componentCountByNet[net] : 1
             if (count === undefined || !Number.isFinite(count) || count < 1) return undefined
             componentsByNet[net] = count
@@ -1668,7 +1788,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           ...common,
           rules: fullBoardRules,
           fabOverridesPath: fullBoardFab,
-          remainingNets: routeScopeNets,
+          remainingNets: auditScopeNets,
           protectedNets: [...protectedNets],
         })
         let checkpointConnectivity: Awaited<ReturnType<typeof auditKrtBoardConnectivity>> | undefined = fanoutPromoted
@@ -1681,15 +1801,15 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         ))
         const ensureCheckpointAudits = async (tag: string) => {
           const spec = boardAuditSpec()
-          if (!checkpointConnectivity && routeScopeNets.length) checkpointConnectivity = await auditKrtBoardConnectivity(
+          if (!checkpointConnectivity && auditScopeNets.length) checkpointConnectivity = await auditKrtBoardConnectivity(
             current,
-            routeScopeNets,
+            auditScopeNets,
             spec,
             join(root, "stage-gates", tag, "baseline-connectivity"),
           )
-          if (!checkpointDrc && routeScopeNets.length) checkpointDrc = await auditKrtBoardDrc(
+          if (!checkpointDrc && auditScopeNets.length) checkpointDrc = await auditKrtBoardDrc(
             current,
-            routeScopeNets,
+            auditScopeNets,
             spec,
             join(root, "stage-gates", tag, "baseline-drc"),
           )
@@ -1738,18 +1858,18 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const baseline = outputExists && candidateCopper
             ? await ensureCheckpointAudits(tag)
             : { spec: boardAuditSpec(), connectivity: undefined, drc: undefined }
-          const candidateConnectivity = outputExists && candidateCopper && routeScopeNets.length
+          const candidateConnectivity = outputExists && candidateCopper && auditScopeNets.length
             ? await auditKrtBoardConnectivity(
                 output,
-                routeScopeNets,
+                auditScopeNets,
                 baseline.spec,
                 join(root, "stage-gates", tag, "candidate-connectivity"),
               )
             : undefined
-          const candidateDrc = outputExists && candidateCopper && routeScopeNets.length
+          const candidateDrc = outputExists && candidateCopper && auditScopeNets.length
             ? await auditKrtBoardDrc(
                 output,
-                routeScopeNets,
+                auditScopeNets,
                 baseline.spec,
                 join(root, "stage-gates", tag, "candidate-drc"),
               )
@@ -1764,7 +1884,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             && !candidateConnectivity.diagnostics.some((item) => item.severity === "error"),
           )
           const baselineOpen = new Set(baseline.connectivity?.openNets ?? [])
-          const connectivityNonRegressing = !routeScopeNets.length || Boolean(
+          const connectivityNonRegressing = !auditScopeNets.length || Boolean(
             baselineConnectivityUsable
             && candidateConnectivityUsable
             && candidateConnectivity!.openNets.every((net) => baselineOpen.has(net))
@@ -1776,13 +1896,13 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const drcComparable = Boolean(
             baseline.drc && candidateDrc && !baseline.drc.failed && !candidateDrc.failed,
           )
-          const drcNonRegressing = !routeScopeNets.length || Boolean(
+          const drcNonRegressing = !auditScopeNets.length || Boolean(
             drcComparable
             && candidateDrc!.violationCount <= baseline.drc!.violationCount
             && fingerprintMultisetIsSubset(candidateDrc!.fingerprints, baseline.drc!.fingerprints)
             && fingerprintMultisetIsSubset(candidateDrc!.shortFingerprints, baseline.drc!.shortFingerprints),
           )
-          const shortsNonRegressing = !routeScopeNets.length || Boolean(
+          const shortsNonRegressing = !auditScopeNets.length || Boolean(
             drcComparable
             && fingerprintMultisetIsSubset(candidateDrc!.shortFingerprints, baseline.drc!.shortFingerprints),
           )
@@ -1860,7 +1980,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             if (evidence) fallbackCheckpointConnectivityEvidence = evidence
             fallbackOpenNets = candidateConnectivityUsable
               ? candidateConnectivity!.openNets
-              : routeScopeNets
+              : auditScopeNets
           } else diagnostics.push(diagnostic(
             "KRT_STAGE_CANDIDATE_REJECTED",
             "warning",
@@ -2200,8 +2320,8 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         }
 
         const finalAuditSpec = boardAuditSpec()
-        let finalAudit = routeScopeNets.length
-          ? await auditKrtBoardConnectivity(current, routeScopeNets, finalAuditSpec, join(root, "final-audit"))
+        let finalAudit = auditScopeNets.length
+          ? await auditKrtBoardConnectivity(current, auditScopeNets, finalAuditSpec, join(root, "final-audit"))
           : {
               openNets: [] as string[], issueFingerprints: [] as string[], issueFingerprintsByNet: {}, componentCountByNet: {},
               elapsedMs: 0, diagnostics: [] as KrtDiagnostic[],
@@ -2276,6 +2396,30 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             hardPolicyBatchCount: planKrtOrdinaryBatches(request, monolithicFallbackNets, false).length,
           },
         ))
+        if (planeNetNames.length) {
+          const tag = "05-plane-finalize"
+          const output = join(root, `${tag}.kicad_pcb`)
+          const result = await runKrtPlaneFinalize(
+            current,
+            output,
+            {
+              ...boardAuditSpec(),
+              remainingNets: planeNetNames,
+              planeFinalize: true,
+            },
+            join(root, "plane-finalize"),
+          )
+          const promoted = await promoteStageCandidate(tag, output, result, "ordinary")
+          if (promoted.accepted && promoted.connectivity) {
+            finalAudit = promoted.connectivity
+            diagnostics.push(diagnostic(
+              "KRT_STACK_PLANES_FINALIZED",
+              "info",
+              "KRT's native finalizer welded and verified stack-plane pad connections after signal routing.",
+              { nets: planeNetNames, openNets: finalAudit.openNets.filter((net) => planeNetNames.includes(net)) },
+            ))
+          }
+        }
         type RepairJob = Readonly<{
           kind: "open"
           batch: KrtOrdinaryBatch
@@ -2317,6 +2461,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         const incumbentStats = incumbentCopper ? copperStatsByNet(incumbentCopper) : new Map()
         const repairRipExclusions = new Set([
           ...verifiedSpecialNets,
+          ...planeNetNames,
           ...request.board.nets.map((item) => item.name).filter(isGroundNetName),
           ...request.board.copper.fixed.zones.flatMap((zone) => zone.net ? [zone.net] : []),
           ...request.board.copper.editable.zones.flatMap((zone) => zone.net ? [zone.net] : []),
@@ -2325,6 +2470,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           .reverse()
           .map((result) => result.jsonSummary)
         const ordinaryOpen = krtOrdinaryRecoveryScope(finalAudit.openNets, [...verifiedSpecialNets])
+          .filter((net) => routeScope.has(net))
         const openRepairJobs: RepairJob[] = planKrtOrdinaryBatches(request, ordinaryOpen, true)
           .map((batch) => ({
             kind: "open",
@@ -2404,10 +2550,10 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         )
         let repairElapsedMs = 0
         let skippedRepairJobs = 0
-        let baselineDrc = routeScopeNets.length
+        let baselineDrc = auditScopeNets.length
           ? await auditKrtBoardDrc(
               current,
-              routeScopeNets,
+              auditScopeNets,
               { ...finalAuditSpec, timeoutMs: Math.max(1, remainingRepairBudget()) },
               join(root, "repair", "baseline-drc"),
             )
@@ -2485,12 +2631,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const candidateAudit = canAuditConnectivity
             ? await auditKrtBoardConnectivity(
                 output,
-                routeScopeNets,
+                auditScopeNets,
                 { ...finalAuditSpec, timeoutMs: connectivityBudgetMs },
                 join(artifactDir, "connectivity"),
               )
             : {
-                openNets: [...routeScopeNets], issueFingerprints: [] as string[], issueFingerprintsByNet: {}, componentCountByNet: {},
+                openNets: [...auditScopeNets], issueFingerprints: [] as string[], issueFingerprintsByNet: {}, componentCountByNet: {},
                 elapsedMs: 0, diagnostics: [] as KrtDiagnostic[],
               }
           const drcBudgetMs = remainingRepairBudget()
@@ -2498,7 +2644,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const candidateDrc = canAuditDrc
             ? await auditKrtBoardDrc(
                 output,
-                routeScopeNets,
+                auditScopeNets,
                 { ...finalAuditSpec, timeoutMs: drcBudgetMs },
                 join(artifactDir, "drc"),
               )
@@ -2706,7 +2852,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           diagnostics,
           metrics: {
             elapsedMs: performance.now() - startedAt,
-            routedNetCount: Math.max(0, routeScope.size - openNets.size),
+            routedNetCount: Math.max(0, auditScopeNets.length - openNets.size),
             openNetCount: openNets.size,
             openNets: [...openNets].sort(),
             ...(finalConnectivityEvidence
@@ -2723,6 +2869,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
                 cacheDirectory: managed.cacheDirectory,
               },
               policy: "native-auto",
+              planes: planeResult?.jsonSummary,
               initialConnectivity: initialConnectivityEvidence ?? { auditFailed: true },
               finalConnectivity: finalConnectivityEvidence ?? { auditFailed: true },
               protectedNets: [...protectedNets].sort(),

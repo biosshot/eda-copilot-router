@@ -234,8 +234,10 @@ export type KrtStageSpec = {
   dynamicIterations?: boolean
   /** Restore upstream custody-backed pre-existing-copper recovery. */
   ripPreexisting?: boolean
-  /** Core owns plane generation; opt in only when native plane finalization is desired. */
+  /** Enable KRT's native plane repair/finalization for an explicit plane stage. */
   planeFinalize?: boolean
+  /** route.py finalization-only calls pair this with KICAD_FINALIZE_ONLY=1. */
+  skipRouting?: boolean
   /** Allow blocker rip-up in native plane finalization when that stage is enabled. */
   finalizeRip?: boolean
   /** Nets whose verified copper must remain protected during later native recovery. */
@@ -266,6 +268,13 @@ export type KrtStageSpec = {
   signal?: AbortSignal
 }
 
+export type KrtPlaneSpec = KrtStageSpec & Readonly<{
+  planes: readonly Readonly<{
+    layer: string
+    nets: readonly string[]
+  }>[]
+}>
+
 export type KrtQfnFanoutSpec = KrtStageSpec & Readonly<{
   component: string
   /** Exact logical pad numbers; duplicate physical pads with the same number are treated together. */
@@ -283,7 +292,7 @@ export type KrtProcessStatus =
   | "process_failed"
 
 export type KrtProcessResult = {
-  stage: "fanout" | "special" | "remaining"
+  stage: "plane" | "fanout" | "special" | "remaining"
   backend: "krt"
   status: KrtProcessStatus
   attempted: boolean
@@ -1319,7 +1328,7 @@ async function writeStageManifest(
   result: KrtProcessResult,
   spec: KrtStageSpec,
   artifactsDir: string,
-  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
+  scriptName: "route_planes.py" | "qfn_fanout.py" | "route_diff.py" | "route.py",
 ) {
   const inputProject = projectSidecarPath(result.inputBoard)
   const authoritativeProject = resolve(spec.authoritativeProjectPath ?? inputProject)
@@ -1755,7 +1764,7 @@ async function commonPreflight(
   inputBoard: string,
   outputBoard: string,
   spec: KrtStageSpec,
-  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
+  scriptName: "route_planes.py" | "qfn_fanout.py" | "route_diff.py" | "route.py",
   diagnostics: KrtDiagnostic[],
 ) {
   if (resolve(inputBoard).toLowerCase() === resolve(outputBoard).toLowerCase()) {
@@ -2081,6 +2090,25 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
   return nets
 }
 
+function planePreflight(spec: KrtPlaneSpec, diagnostics: KrtDiagnostic[]) {
+  const planes = spec.planes.map((plane) => ({
+    layer: plane.layer.trim(),
+    nets: unique(plane.nets.map((net) => net.trim()).filter(Boolean)),
+  }))
+  if (!planes.length) diagnostics.push(diagnostic(
+    "KRT_INVALID_PLANE_SCOPE", "error", "A native plane stage requires at least one plane layer.",
+  ))
+  const routingLayers = new Set(spec.layers)
+  const invalid = planes.filter((plane) => !plane.layer || !plane.nets.length || !routingLayers.has(plane.layer))
+  if (invalid.length) diagnostics.push(diagnostic(
+    "KRT_INVALID_PLANE_SCOPE",
+    "error",
+    "Every native plane requires a known copper layer and at least one net.",
+    { invalid, layers: spec.layers },
+  ))
+  return planes
+}
+
 function commonArgs(
   inputBoard: string,
   outputBoard: string,
@@ -2178,6 +2206,7 @@ function remainingArgs(
   // silently flatten stricter classes.
   const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
   args.push("--nets", ...unique(nets).map(krtLiteralNetFilterPattern))
+  if (spec.skipRouting) args.push("--skip-routing")
   if (spec.busDetect) {
     args.push("--bus")
     if (spec.busDetect !== true) {
@@ -2198,6 +2227,38 @@ function remainingArgs(
 
   // console.log(args)
   return args //.slice(0, 2)
+}
+
+function planeArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtPlaneSpec,
+  planes: readonly { layer: string; nets: readonly string[] }[],
+) {
+  const args = [resolve(inputBoard), resolve(outputBoard)]
+  args.push("--nets", ...planes.map((plane) => plane.nets.join("|")))
+  args.push("--plane-layers", ...planes.map((plane) => plane.layer))
+  args.push("--layers", ...unique(spec.layers))
+  const dedicated = new Set(planes.map((plane) => plane.layer))
+  args.push("--layer-costs", ...unique(spec.layers).map((layer) => dedicated.has(layer) ? "-1" : "1"))
+  pushNumericArg(args, "--grid-step", spec.rules.gridStep)
+  pushNumericArg(args, "--hole-to-hole-clearance", spec.rules.holeToHoleClearance)
+  pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
+  pushNumericArg(args, "--same-net-pad-clearance", spec.rules.sameNetPadClearance)
+  args.push("--fab-overrides", resolve(spec.fabOverridesPath), "--no-fix-drc-settings")
+  return args
+}
+
+/** Deterministic native split/full-plane command helper used by contract tests. */
+export function buildKrtPlaneArgs(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtPlaneSpec,
+) {
+  const diagnostics: KrtDiagnostic[] = []
+  const planes = planePreflight(spec, diagnostics)
+  if (diagnostics.some((item) => item.severity === "error")) return { args: [], diagnostics }
+  return { args: planeArgs(inputBoard, outputBoard, spec, planes), diagnostics }
 }
 
 /** Deterministic command-contract helper used by adapter contract tests. */
@@ -2287,14 +2348,14 @@ function exactNetSelectionNets(spec: KrtStageSpec): string[] {
 }
 
 async function executeStage(
-  stage: "fanout" | "special" | "remaining",
+  stage: "plane" | "fanout" | "special" | "remaining",
   inputBoard: string,
   outputBoard: string,
   spec: KrtStageSpec,
   artifactsDir: string,
-  scriptName: "qfn_fanout.py" | "route_diff.py" | "route.py",
+  scriptName: "route_planes.py" | "qfn_fanout.py" | "route_diff.py" | "route.py",
   buildArgs: (diagnostics: KrtDiagnostic[]) => string[] | undefined,
-  summaryKind: "fanout" | "special" | "remaining" = stage,
+  summaryKind: "plane" | "fanout" | "special" | "remaining" = stage,
   extraEnvironment: Readonly<Record<string, string>> = {},
 ): Promise<KrtProcessResult> {
   const diagnostics: KrtDiagnostic[] = []
@@ -2376,7 +2437,7 @@ async function executeStage(
 
     const netSelectionCandidates = exactNetSelectionNets(spec)
     const ripSelectionCandidates = unique(spec.ripExistingNets ?? [])
-    const compact = compactKrtExactSelectorArgs(builtArgs, {
+    const compact = scriptName === "route_planes.py" ? undefined : compactKrtExactSelectorArgs(builtArgs, {
       netSelection: netSelectionCandidates,
       ripSelection: ripSelectionCandidates,
       ripAuthorization: unique([
@@ -2388,13 +2449,13 @@ async function executeStage(
         return [normalized.positive, normalized.negative] as const
       }),
     })
-    const args = compact.args
-    const hasExactSelectorScope = compact.sidecar.netSelection.length > 0
+    const args = compact ? compact.args : [...builtArgs]
+    const hasExactSelectorScope = Boolean(compact && (compact.sidecar.netSelection.length > 0
       || compact.sidecar.ripSelection.length > 0
       || compact.sidecar.ripAuthorization.length > 0
-      || compact.sidecar.diffPairs.length > 0
+      || compact.sidecar.diffPairs.length > 0))
     const selectorEnvironment: Record<string, string> = {}
-    if (hasExactSelectorScope) {
+    if (hasExactSelectorScope && compact) {
       const selectorPath = join(normalizedArtifacts, `krt-${stage}-exact-selectors.json`)
       await writeFile(selectorPath, `${JSON.stringify(compact.sidecar, null, 2)}\n`, "utf8")
       selectorEnvironment.COPILOT_ROUTER_EXACT_SELECTORS_FILE = selectorPath
@@ -2562,7 +2623,7 @@ async function executeStage(
       spec.protectedNets,
       spec.enableTerminalEscalation !== false,
     )
-    else {
+    else if (summaryKind === "fanout") {
       const unescaped = stringArray(result.jsonSummary.unescaped_nets)
       if (unescaped.length) diagnostics.push(diagnostic(
         "KRT_FANOUT_PARTIAL",
@@ -2575,6 +2636,13 @@ async function executeStage(
         "KRT_FANOUT_DRC_CHECK_FAILED",
         "warning",
         `KRT's built-in post-fanout DRC check could not complete: ${grazes.error}`,
+      ))
+    } else {
+      const zones = recordArray(result.jsonSummary.plane_zones)
+      if (!zones.length) diagnostics.push(diagnostic(
+        "KRT_PLANE_SUMMARY_EMPTY",
+        "warning",
+        "KRT returned a plane summary without any plane_zones entries.",
       ))
     }
 
@@ -4182,6 +4250,52 @@ export async function runKrtSpecial(
   await saveOutputArtifact(aggregate, resolve(artifactsDir))
   await persistResultArtifacts(aggregate, resolve(artifactsDir)).catch(() => undefined)
   return aggregate
+}
+
+export async function runKrtPlanes(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtPlaneSpec,
+  artifactsDir: string,
+): Promise<KrtProcessResult> {
+  return executeStage(
+    "plane",
+    inputBoard,
+    outputBoard,
+    spec,
+    artifactsDir,
+    "route_planes.py",
+    (diagnostics) => {
+      const planes = planePreflight(spec, diagnostics)
+      if (diagnostics.some((item) => item.severity === "error")) return undefined
+      return planeArgs(inputBoard, outputBoard, spec, planes)
+    },
+    "plane",
+  )
+}
+
+/** Run KRT's native post-route plane welding without another maze route. */
+export async function runKrtPlaneFinalize(
+  inputBoard: string,
+  outputBoard: string,
+  spec: KrtStageSpec,
+  artifactsDir: string,
+): Promise<KrtProcessResult> {
+  const finalSpec = { ...spec, skipRouting: true, planeFinalize: true }
+  return executeStage(
+    "remaining",
+    inputBoard,
+    outputBoard,
+    finalSpec,
+    artifactsDir,
+    "route.py",
+    () => {
+      const nets = unique(finalSpec.remainingNets)
+      return nets.length ? remainingArgs(inputBoard, outputBoard, finalSpec, nets) : []
+    },
+    "remaining",
+    { KICAD_FINALIZE_ONLY: "1" },
+  )
 }
 
 export async function runKrtRemaining(

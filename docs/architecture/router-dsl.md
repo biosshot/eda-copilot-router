@@ -226,14 +226,11 @@ stack({
   viaPlatingThicknessUm: 20,
   layers: [
     { name: "TOP", kind: "copper", thicknessOz: 1 },
-    {
-      name: "CORE",
-      kind: "dielectric",
-      thicknessMm: 1.53,
-      relativePermittivity: 4.3,
-      lossTangent: 0.02,
-      material: "FR4",
-    },
+    { name: "PP1", kind: "dielectric", thicknessMm: 0.2, relativePermittivity: 4.3 },
+    { name: "INNER_1", kind: "copper", plane: { nets: ["GND"] } },
+    { name: "CORE", kind: "dielectric", thicknessMm: 1.0, relativePermittivity: 4.3, lossTangent: 0.02, material: "FR4" },
+    { name: "INNER_2", kind: "copper", plane: { nets: ["+3V3", "+1V8", "VBAT"] } },
+    { name: "PP2", kind: "dielectric", thicknessMm: 0.2, relativePermittivity: 4.3 },
     { name: "BOTTOM", kind: "copper", thicknessOz: 1 },
   ],
   solderMask: {
@@ -250,6 +247,20 @@ four-layer stack and route that effective four-layer board in the same
 `run(...)` call. `RoutingResult.stackup` asks the host to apply the identical
 physical stack before applying returned copper. Missing electrical properties
 are errors only when a requested calculation, such as impedance, requires them.
+
+`plane: { nets: [...] }` reserves that copper layer for native plane copper.
+One net creates a full-board plane; multiple nets invoke KRT's native split-plane
+grammar on the same layer. Dedicated planes are legal on any copper layer, but
+ordinary maze routing and explicit fanout cannot place tracks there. KRT pours
+the zones before signal routing and performs one bounded final plane
+repair/weld after routing. The resulting polygons are returned as ordinary
+`RoutedZone` records; no host-specific EasyEDA plane-layer type is required.
+
+This stack property is deliberately separate from `plane(...)`. `plane(...)`
+is an explicit normal pour on a signal/mixed layer and keeps its existing
+region, zone-style, and stitching semantics. Targeting the same layer with both
+forms is a DSL conflict. `runCopper()` cannot execute the native split-plane
+algorithm; use `runRouting()` or `runAll()` when a stack plane is declared.
 
 The object fields use explicit unit suffixes where values would otherwise be
 ambiguous. Backend paths, presets, and search knobs remain outside the DSL.
@@ -286,8 +297,8 @@ operation in the interpreter and return no value. Only the outer package
   planning without starting KRT. It returns native zone outlines; the host owns
   the exact zone refill. Route-dependent `along` and `return` stitching require
   `runRouting()` or `runAll()`.
-- `runRouting()` executes all requested polygon, plane, special-net, and
-  ordinary routing work without requesting a native DRC update. An authored
+- `runRouting()` executes all requested polygon, plane, stack full/split-plane,
+  special-net, and ordinary routing work without requesting a native DRC update. An authored
   `stack(...)` is still returned for physical application because routed copper
   may use newly declared layers.
 - `runAll()` is the single-command form of applying effective DRC rules first
