@@ -17,6 +17,8 @@
     "src/adapters/contracts.ts",
     "src/adapters/kicad.ts",
     "src/backends/assets.ts",
+    "src/backends/easyeda-wasm.ts",
+    "src/backends/hybrid.ts",
     "src/backends/krt.ts"
   ]
 }

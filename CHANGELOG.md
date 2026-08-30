@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add the Hybrid backend: KRT keeps constrained and multilayer routing while
+  bundled EasyEDA WASM handles ordinary remaining nets on boards with at most
+  two copper layers.
+- Preserve every leaf-backend diagnostic across preflight/runtime fallback and
+  return the best semantically graded usable checkpoint as `partial` whenever
+  a degraded route can still be applied.
 - Upgrade the managed KiCadRoutingTools backend from `0.20.4` to `0.21.3`,
   including the new release archive integrity pin and runtime capability gate.
 - Consume `route.py --json-out` as the authoritative merged reconciliation

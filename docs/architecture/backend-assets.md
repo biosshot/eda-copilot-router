@@ -29,6 +29,10 @@ version.
 
 ## Backend
 
+- EasyEDA WASM worker JavaScript and WebAssembly are bundled in the npm package.
+  They require no download, Python, global install, or host-owned path. Package
+  contract tests assert that both assets are present, and a no-KiCad smoke test
+  starts the real worker and routes a board through the shipped WebAssembly.
 - KRT is managed from the official `v0.21.3` release archive. The package also
   selects the release's platform-specific `grid_router` module and prepares
   every dependency declared by that release's `requirements.txt` in a

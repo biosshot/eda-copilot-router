@@ -1,7 +1,7 @@
 # eda-copilot-router
 
-EDA-neutral PCB routing contracts, DSL compiler, polygon/plane planning, and a
-single KRT backend.
+EDA-neutral PCB routing contracts, DSL compiler, polygon/plane planning, KRT
+and EasyEDA WASM leaf backends, and a Hybrid routing strategy.
 
 A host can convert its native board into `RoutingBoard`, call `run(...)`, and
 apply `RoutingResult` using native refill and DRC. Native editor structures are
@@ -21,8 +21,11 @@ const result = await run({
 })
 ```
 
-Routing uses the single native-auto KRT workflow; callers do not select a
-quality profile or candidate count.
+`run()` continues to default to the single native-auto KRT workflow. An
+EasyEDA host can pass `createHybridBackend()`: constrained nets stay with KRT,
+ordinary remaining nets use bundled EasyEDA WASM on boards with at most two
+copper layers, and multilayer requests remain unchanged KRT requests. Callers
+do not select a quality profile or candidate count.
 
 The package lazily prepares pinned KRT `v0.21.3`; no manual checkout is
 required. Downloads are integrity-checked and cached. The optional

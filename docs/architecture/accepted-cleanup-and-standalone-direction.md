@@ -70,12 +70,14 @@ routes by native DRC or to continue a later stage from an exact native refill.
 Standalone CLI orchestration may call the board adapter after `run(...)`; that
 does not require putting editor-specific verification into the core API.
 
-## KRT is the default engine
+## KRT remains the default engine
 
-KRT is the only production backend and becomes the default. Ordinary callers
-and the CLI must not be required to select it with `--backend` or load an
-arbitrary JavaScript backend module. The low-level backend interface may
-remain for testing and future replacement engines.
+KRT is the default for ordinary callers and the CLI; they are not required to
+select it with `--backend` or load an arbitrary JavaScript backend module. A
+later Hybrid strategy is additive: the EasyEDA host may explicitly inject it
+through the existing low-level backend interface without changing `run(...)`,
+the DSL, or any board/result contract. Hybrid delegates constrained scopes to
+this same KRT implementation rather than copying its stages.
 
 KRT consumes a temporary KiCad board even when the originating host is
 EasyEDA. The router-owned `RoutingBoard`-to-KRT codec writes

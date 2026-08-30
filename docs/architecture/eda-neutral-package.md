@@ -49,9 +49,12 @@ Board-wide planes and stitching vias are planned after trace routing, using the
 returned tracks/vias as obstacles. This keeps a GND plane from blocking the
 route search while retaining polygon-first ownership for compact power copper.
 
-KRT is the only production backend and is the default engine. The router-owned
-codec materializes its temporary KiCad board and returns the portable
-`RoutingResult` copper model. Host integrations neither construct nor override
-that codec. The npm package does not expose native EDA structures or the
-private polygon geometry scene. The accepted next-step details are recorded in
+KRT is the default engine for `run()` and the standalone KiCad path. EasyEDA
+hosts may instead select the Hybrid strategy, which composes the unchanged KRT
+leaf backend with bundled EasyEDA WASM behind the same `RouterBackendAdapter`
+contract. The router-owned codec materializes KRT's temporary KiCad board and
+returns the portable `RoutingResult` copper model. Host integrations neither
+construct nor override that codec. The npm package does not expose native EDA
+structures or the private polygon geometry scene. The accepted baseline details
+are recorded in
 [`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).

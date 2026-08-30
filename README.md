@@ -1,31 +1,39 @@
 # eda-copilot-router
 
-EDA-neutral routing core with one production backend: KiCad Routing Tools
-(KRT). The package compiles the local routing DSL into effective design rules,
-plans compact polygons/planes, runs KRT, and returns portable copper geometry.
+EDA-neutral routing core with KiCad Routing Tools (KRT), a bundled EasyEDA WASM
+router, and a production Hybrid strategy. The package compiles the local
+routing DSL into effective design rules, plans compact polygons/planes, runs
+the selected strategy, and returns portable copper geometry.
 
 EasyEDA and KiCad hosts may keep using the EDA-neutral `RoutingBoard` /
 `RoutingResult` boundary. The package also includes a standalone KiCad file
 adapter and CLI; neither KRT routing path requires installed KiCad.
 
-Routing uses one native-auto KRT workflow. There is no caller-selected quality
-profile or candidate-count tuning surface.
+KRT remains the default for `run()` and the KiCad CLI. EasyEDA hosts can select
+Hybrid: on boards with at most two copper layers it sends constrained nets to
+the unchanged KRT backend and ordinary remaining nets to EasyEDA WASM. On
+multilayer boards it delegates the original request to KRT. There is no
+caller-selected quality profile or candidate-count tuning surface.
 
 ## Public surface
 
 - `eda-copilot-router` — `run(...)`, board/result contracts and validation.
 - `eda-copilot-router/dsl` — DSL compiler and preflight.
-- `eda-copilot-router/backends/krt` — the only routing backend.
+- `eda-copilot-router/backends/hybrid` — KRT/EasyEDA scope orchestration and fallback.
+- `eda-copilot-router/backends/easyeda-wasm` — bundled ordinary-net router.
+- `eda-copilot-router/backends/krt` — KRT leaf backend.
 - `eda-copilot-router/backends/assets` — managed KRT asset support.
 - `eda-copilot-router/adapters/kicad` — standalone KiCad import/apply.
 - `eda-copilot-router/schema` and `/core` — portable contracts/schema.
 
 ```js
-import { createKrtBackend, run } from "eda-copilot-router"
+import { createHybridBackend, run } from "eda-copilot-router"
 
-const backend = createKrtBackend({
-  artifactsDirectory: "results/krt",
-  // pythonPath: "/explicit/python", // optional; COPILOT_ROUTER_PYTHON also works
+const backend = createHybridBackend({
+  krt: {
+    artifactsDirectory: "results/krt",
+    // pythonPath: "/explicit/python", // optional; COPILOT_ROUTER_PYTHON also works
+  },
 })
 
 const result = await run({

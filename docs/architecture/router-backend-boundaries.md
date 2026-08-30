@@ -25,16 +25,35 @@ The public orchestration model uses three independent boundaries:
    contract.
 
 Backend distribution follows [backend-assets.md](backend-assets.md): KRT is a
-verified lazy-managed asset. A manual checkout is never part of the public
-backend contract.
+verified lazy-managed asset and EasyEDA WASM is bundled with the package. A
+manual checkout is never part of the public backend contract.
 
 KiCad AST nodes and other native document objects are not router-core
 contracts.
 
-KRT is the default production engine. Its temporary KiCad board is materialized
-by one router-owned codec with no host or caller override. A built-in standalone
-KiCad operation composes native import/apply around the same portable core. See
+KRT remains the default engine for `run()` and the standalone KiCad CLI. The
+EasyEDA host may select the production Hybrid adapter. Its temporary KiCad board
+is materialized by one router-owned codec with no host or caller override. A
+built-in standalone KiCad operation composes native import/apply around the
+same portable core. See
 [`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).
+
+Hybrid is an internal routing strategy, not a second DSL or contract. On boards
+with at most two copper layers it sends differential, matched, power,
+critical/high-priority, impedance, fanout, bus-detection, via-sensitive, and
+per-net-layer-constrained scopes to the unchanged KRT adapter. EasyEDA WASM
+receives only the ordinary remaining scope.
+On multilayer boards Hybrid passes the exact original request to KRT. The full
+board and all existing copper remain visible to both leaf backends; only the
+internal `request.plan` and compiled intent are narrowed.
+
+If a leaf backend fails preflight or at runtime, Hybrid retries the other leaf
+on the full routable scope when possible. Every fallback is explicitly
+`partial`, retains diagnostics from every attempted stage, and selects the best
+usable checkpoint with the same semantic candidate grader used by the core.
+If neither leaf can start, the incoming editable checkpoint is returned as
+`partial` with both errors. Hybrid does not add a second clearance/DRC verifier;
+native verification remains the host boundary described below.
 
 Do not add backend-specific route-job types to the DSL. The DSL describes
 electrical intent and constraints. The core planner selects internal phases and
@@ -92,8 +111,8 @@ DRC/connectivity checks.
 
 This staging is orchestration policy, not a set of DSL route-job types. There
 is no public quality profile, candidate-count knob, or special/remaining
-backend method. A future backend may replace KiCadRoutingTools without changing
-the electrical intent or the single-call contract.
+backend method. Hybrid composes leaf backends without changing the electrical
+intent or the single-call core contract.
 
 ## Rule ownership and preflight
 
@@ -248,9 +267,14 @@ obsolete editable input.
 
 ## Backend roles
 
-- `KiCadRoutingToolsBackendAdapter`: production single-call backend; it owns
+- `HybridBackendAdapter`: thin scope selection and bounded fallback. It owns no
+  KRT routing stages and introduces no public route-job contract.
+- `KiCadRoutingToolsBackendAdapter`: KRT leaf backend; it owns
   compatible special batches, critical/high ordering, native recovery, final
   connectivity audit, and conversion of the routed board to one replacement.
+- `EasyEdaWasmBackendAdapter`: ordinary-net leaf backend for the remaining
+  scope. It consumes effective per-net width, clearance, and via geometry and
+  returns a complete editable replacement.
 - Core polygon engine: native-zone outline planning, independent of trace
   routing backends.
 - Core route planning, snapshot grading, plane/stitch postprocessing, and final
