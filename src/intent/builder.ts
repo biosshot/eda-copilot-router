@@ -685,20 +685,13 @@ class RoutingDslBuilder {
       layers = source.layers.map((value, index) => {
         const item = object(value, `stack.layers[${index}]`)
         if (item.kind === "copper") {
-          assertKnownKeys(item, ["name", "kind", "thicknessOz", "thicknessMm", "plane"], `stack.layers[${index}]`)
+          assertKnownKeys(item, ["name", "kind", "thicknessOz", "thicknessMm"], `stack.layers[${index}]`)
           if (item.thicknessOz !== undefined && item.thicknessMm !== undefined) {
             throw new TypeError(`stack.layers[${index}] may specify thicknessOz or thicknessMm, not both`)
-          }
-          let plane: { nets: string[] } | undefined
-          if (item.plane !== undefined) {
-            const source = object(item.plane, `stack.layers[${index}].plane`)
-            assertKnownKeys(source, ["nets"], `stack.layers[${index}].plane`)
-            plane = { nets: netNames(source.nets, `stack.layers[${index}].plane.nets`) }
           }
           return {
             kind: "copper" as const, name: canonicalPhysicalLayer(item.name, `stack.layers[${index}].name`),
             ...optionalPositive(item, "thicknessOz"), ...optionalPositive(item, "thicknessMm"),
-            ...(plane ? { plane } : {}),
           }
         }
         if (item.kind !== "dielectric") throw new TypeError(`stack.layers[${index}].kind must be copper or dielectric`)

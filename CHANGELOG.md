@@ -13,9 +13,6 @@
   versioned router cache instead of hardcoding or modifying global packages.
 - Hide `maxVias` from the public routing DSL; via-count guardrails are
   implementation-owned.
-- Add dedicated full/split planes through `stack.layers[].plane.nets`, backed
-  by KRT's native pour and final repair pipeline and portable `RoutedZone`
-  output.
 
 ## 0.2.1 - 2026-08-22
 

@@ -6,7 +6,6 @@ import type {
   PointMm,
   RoutedTrack,
   RoutedVia,
-  RoutedZone,
   RoutingCopper,
   RoutingPad,
 } from "../core/contracts.js"
@@ -357,79 +356,7 @@ function netMap(root: SExpression[]) {
 
 function expressionNet(expression: SExpression[], nets: Map<string, string>) {
   const value = atom(findChild(expression, "net")?.[1])
-  const named = atom(findChild(expression, "net_name")?.[1])
-  return named ?? (value === undefined ? undefined : nets.get(value) ?? value)
-}
-
-function polygonRing(expression: SExpression[]): PointMm[] {
-  const points = findChild(expression, "pts")
-  if (!points) return []
-  return listChildren(points, "xy").flatMap((item) => {
-    const x = Number(atom(item[1]))
-    const y = Number(atom(item[2]))
-    return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : []
-  })
-}
-
-function parseZone(expression: SExpression[], nets: Map<string, string>): RoutedZone | undefined {
-  if (findChild(expression, "keepout")) return undefined
-  const net = expressionNet(expression, nets)
-  if (!net) return undefined
-  const layer = atom(findChild(expression, "layer")?.[1])
-  const layers = layer
-    ? [layer]
-    : findChild(expression, "layers")?.slice(1).map(atom)
-      .filter((item): item is string => item !== undefined) ?? []
-  const rings = listChildren(expression, "polygon").map(polygonRing)
-    .filter((ring) => ring.length >= 3)
-  if (!layers.length || !rings.length) return undefined
-  const connectionExpression = findChild(expression, "connect_pads")
-  const connection: RoutedZone["connection"] = atom(connectionExpression?.[1]) === "yes"
-    ? "solid"
-    : "thermal"
-  const fillExpression = findChild(expression, "fill")
-  const fillMode = atom(findChild(fillExpression ?? [], "mode")?.[1])
-  const thermalGapMm = childNumber(fillExpression ?? [], "thermal_gap")
-  const spokeWidthMm = childNumber(fillExpression ?? [], "thermal_bridge_width")
-  const spokeCount = childNumber(fillExpression ?? [], "thermal_bridge_count")
-  const spokeAngleDeg = childNumber(fillExpression ?? [], "thermal_bridge_angle")
-  const removeIslandsBelowMm2 = childNumber(fillExpression ?? [], "island_area_min")
-  const clearanceMm = childNumber(connectionExpression ?? [], "clearance")
-  const minThicknessMm = childNumber(expression, "min_thickness")
-  const priority = childNumber(expression, "priority")
-  const id = atom(findChild(expression, "uuid")?.[1])
-  return {
-    ...(id ? { id } : {}),
-    net,
-    layers,
-    outline: { outer: rings[0], ...(rings.length > 1 ? { holes: rings.slice(1) } : {}) },
-    ...(priority === undefined ? {} : { priority }),
-    ...(minThicknessMm === undefined ? {} : { minThicknessMm }),
-    ...(clearanceMm === undefined ? {} : { clearanceMm }),
-    connection,
-    fill: {
-      style: fillMode === "hatch" ? "hatched" : "solid",
-      ...(fillMode !== "hatch" ? {} : {
-        ...(childNumber(fillExpression ?? [], "hatch_thickness") === undefined ? {} : {
-          hatchThicknessMm: childNumber(fillExpression ?? [], "hatch_thickness"),
-        }),
-        ...(childNumber(fillExpression ?? [], "hatch_gap") === undefined ? {} : {
-          hatchGapMm: childNumber(fillExpression ?? [], "hatch_gap"),
-        }),
-        ...(childNumber(fillExpression ?? [], "hatch_orientation") === undefined ? {} : {
-          hatchOrientationDeg: childNumber(fillExpression ?? [], "hatch_orientation"),
-        }),
-      }),
-    },
-    padConnection: {
-      mode: connection,
-      ...(thermalGapMm === undefined ? {} : { thermalGapMm }),
-      ...(spokeWidthMm === undefined ? {} : { spokeWidthMm }),
-      ...(spokeCount === undefined ? {} : { spokeCount }),
-      ...(spokeAngleDeg === undefined ? {} : { spokeAngleDeg }),
-    },
-    ...(removeIslandsBelowMm2 === undefined ? {} : { removeIslandsBelowMm2 }),
-  }
+  return value === undefined ? undefined : nets.get(value) ?? value
 }
 
 function parseCopper(source: string): RoutingCopper {
@@ -461,11 +388,7 @@ function parseCopper(source: string): RoutingCopper {
       net, at, diameterMm, drillMm, fromLayer: layers[0], toLayer: layers.at(-1)!, type,
     })
   }
-  const zones = listChildren(root, "zone").flatMap((expression) => {
-    const zone = parseZone(expression, nets)
-    return zone ? [zone] : []
-  })
-  return { tracks, vias, zones }
+  return { tracks, vias, zones: [] }
 }
 
 function rounded(value: number) {
@@ -486,53 +409,6 @@ function viaKey(via: RoutedVia) {
   ])
 }
 
-function canonicalRing(points: readonly PointMm[]) {
-  const values = points.map((point) => [rounded(point.x), rounded(point.y)] as const)
-  if (!values.length) return values
-  const minimalRotation = (ring: readonly (readonly [number, number])[]) => {
-    const tokens = ring.map((point) => JSON.stringify(point))
-    let left = 0
-    let right = 1
-    let offset = 0
-    while (left < tokens.length && right < tokens.length && offset < tokens.length) {
-      const comparison = tokens[(left + offset) % tokens.length]
-        .localeCompare(tokens[(right + offset) % tokens.length])
-      if (comparison === 0) {
-        offset += 1
-        continue
-      }
-      if (comparison > 0) {
-        left += offset + 1
-        if (left === right) left += 1
-      } else {
-        right += offset + 1
-        if (left === right) right += 1
-      }
-      offset = 0
-    }
-    const start = Math.min(left, right)
-    return [...ring.slice(start), ...ring.slice(0, start)]
-  }
-  const forward = minimalRotation(values)
-  const reverse = minimalRotation([...values].reverse())
-  return JSON.stringify(forward).localeCompare(JSON.stringify(reverse)) <= 0 ? forward : reverse
-}
-
-function zoneKey(zone: RoutedZone) {
-  const holes = (zone.outline.holes ?? []).map(canonicalRing)
-    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-  return JSON.stringify([
-    zone.net ?? "",
-    [...zone.layers].sort(),
-    canonicalRing(zone.outline.outer),
-    holes,
-    zone.priority ?? null,
-    rounded(zone.minThicknessMm ?? 0.1),
-    rounded(zone.clearanceMm ?? 0),
-    zone.connection ?? zone.padConnection?.mode ?? "thermal",
-  ])
-}
-
 /** @internal Multiset subtraction used by replacement decoding and stage safety gates. */
 export function subtractKrtCopper(before: RoutingCopper, after: RoutingCopper): RoutingCopper {
   const primitiveTracks = (copper: RoutingCopper) => copper.tracks.flatMap((track) => (
@@ -543,10 +419,8 @@ export function subtractKrtCopper(before: RoutingCopper, after: RoutingCopper): 
   ))
   const tracks = new Map<string, number>()
   const vias = new Map<string, number>()
-  const zones = new Map<string, number>()
   for (const track of primitiveTracks(before)) tracks.set(trackKey(track), (tracks.get(trackKey(track)) ?? 0) + 1)
   for (const via of before.vias) vias.set(viaKey(via), (vias.get(viaKey(via)) ?? 0) + 1)
-  for (const zone of before.zones) zones.set(zoneKey(zone), (zones.get(zoneKey(zone)) ?? 0) + 1)
   return {
     tracks: primitiveTracks(after).filter((track) => {
       const key = trackKey(track)
@@ -562,13 +436,7 @@ export function subtractKrtCopper(before: RoutingCopper, after: RoutingCopper): 
       vias.set(key, count - 1)
       return false
     }),
-    zones: after.zones.filter((zone) => {
-      const key = zoneKey(zone)
-      const count = zones.get(key) ?? 0
-      if (count <= 0) return true
-      zones.set(key, count - 1)
-      return false
-    }),
+    zones: [],
   }
 }
 
@@ -674,5 +542,13 @@ export async function readKrtBoard(
   // disk but the core would silently merge the removed route back in.
   const editable = subtractKrtCopper(copperToKiCadLayers(board.copper.fixed, catalog), after)
   const canonical = canonicalizeCopper(editable, catalog)
-  return { copper: canonical }
+  return {
+    copper: {
+      ...canonical,
+      // route.py does not own zones and parseCopper intentionally ignores
+      // KiCad fill caches. Keep the transaction-owned zone records verbatim
+      // so replacement semantics do not accidentally delete them.
+      zones: board.copper.editable.zones,
+    },
+  }
 }

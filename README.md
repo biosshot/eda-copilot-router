@@ -68,13 +68,6 @@ only that stack, while `runCopper()` plans polygon/plane zone outlines without
 starting KRT. The KiCad adapter treats unlocked tracks, vias, and zones as
 editable by default; native locked copper remains fixed.
 
-A copper stack entry may declare `plane: { nets: [...] }`. One net creates a
-dedicated full plane; multiple nets create a native KRT split plane. These
-layers are excluded from ordinary signal routing, and their output is returned
-through the existing portable `RoutedZone` contract. Stack planes require
-`runRouting()` or `runAll()`; they are distinct from explicit `plane(...)`
-pours on signal/mixed layers.
-
 `trackWidthMm` and `via.diameterMm` / `via.drillMm` are nominal geometry.
 Their `min*` counterparts are hard manufacturing/DRC limits and also bound
 neck-down geometry.

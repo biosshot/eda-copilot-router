@@ -376,21 +376,8 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (program.stack.layers !== undefined) array(program.stack.layers, "stack.layers", diagnostics).forEach((raw, index) => {
       const path = `stack.layers[${index}]`; const item = object(raw) ? raw : {}
       if (item.kind === "copper") {
-        exactKeys(item, ["kind", "name", "thicknessOz", "thicknessMm", "plane"], diagnostics, path)
+        exactKeys(item, ["kind", "name", "thicknessOz", "thicknessMm"], diagnostics, path)
         if (item.thicknessOz !== undefined && item.thicknessMm !== undefined) diagnostics.push(error("DSL_STACK_CONFLICT", `${path} cannot specify thicknessOz and thicknessMm together.`, path))
-        if (item.plane !== undefined) {
-          const planePath = `${path}.plane`
-          if (!object(item.plane)) diagnostics.push(error("DSL_STACK_PLANE_INVALID", `${planePath} must be an object.`, planePath))
-          else {
-            exactKeys(item.plane, ["nets"], diagnostics, planePath)
-            if (!Array.isArray(item.plane.nets) || !item.plane.nets.length
-              || item.plane.nets.some((net) => typeof net !== "string" || !net.trim())) diagnostics.push(error(
-                "DSL_STACK_PLANE_INVALID",
-                `${planePath}.nets must be a non-empty array of net names.`,
-                `${planePath}.nets`,
-              ))
-          }
-        }
       } else if (item.kind === "dielectric") {
         exactKeys(item, ["kind", "name", "thicknessMm", "relativePermittivity", "lossTangent", "material"], diagnostics, path)
       } else diagnostics.push(error("DSL_STACK_LAYER_INVALID", `${path}.kind must be copper or dielectric.`, path))

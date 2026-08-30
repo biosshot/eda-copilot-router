@@ -51,8 +51,3 @@ are deliberately left to an installed host/native verification stage.
 `stack(...)` changes the effective physical board used by the same routing
 call. Use `applyStackup()` for a stack-only operation or `runCopper()` to emit
 zone outlines without invoking KRT.
-
-Set `plane: { nets: [...] }` on a copper stack entry to request a dedicated
-full plane (one net) or native KRT split plane (multiple nets). Stack planes
-require `runRouting()` or `runAll()` and are returned through portable
-`RoutedZone` geometry.
