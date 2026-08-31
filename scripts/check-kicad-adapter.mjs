@@ -184,11 +184,15 @@ try {
       { kind: "copper", layer: "TOP", thicknessMm: 0.035 },
       { kind: "dielectric", name: "PREPREG 1", thicknessMm: 0.35, relativePermittivity: 4.2 },
       { kind: "copper", layer: "INNER_1", thicknessMm: 0.035 },
-      { kind: "dielectric", name: "CORE", thicknessMm: 0.36, relativePermittivity: 4.2 },
+      { kind: "dielectric", name: "CORE", thicknessMm: 0.34, relativePermittivity: 4.2 },
       { kind: "copper", layer: "INNER_2", thicknessMm: 0.035 },
       { kind: "dielectric", name: "PREPREG 2", thicknessMm: 0.35, relativePermittivity: 4.2 },
       { kind: "copper", layer: "BOTTOM", thicknessMm: 0.035 },
     ],
+    solderMask: {
+      top: { thicknessMm: 0.01, relativePermittivity: 3.3 },
+      bottom: { thicknessMm: 0.01, relativePermittivity: 3.3 },
+    },
   }
   const stackOnly = await applyKiCadRoutingResult(imported.context, {
     ...baseResult, operation: "apply-stackup",
@@ -199,6 +203,8 @@ try {
   assert.match(stackOnlySource, /00000000-0000-0000-0000-000000000001/, "stack-only apply must not touch editable copper")
   assert.match(stackOnlySource, /00000000-0000-0000-0000-000000000002/, "stack-only apply must preserve locked copper")
   assert.match(stackOnlySource, /\(thickness 1\.2\)/)
+  assert.match(stackOnlySource, /\(layer "F\.Mask"[\s\S]*?\(type "Top Solder Mask"\)[\s\S]*?\(thickness 0\.01\)/)
+  assert.match(stackOnlySource, /\(layer "B\.Mask"[\s\S]*?\(type "Bottom Solder Mask"\)[\s\S]*?\(thickness 0\.01\)/)
 
   const partialOutput = join(directory, "partial-clear.kicad_pcb")
   const partial = await applyKiCadRoutingResult(imported.context, {
@@ -220,6 +226,8 @@ try {
   assert.ok(roundTrip.board, JSON.stringify(roundTrip.diagnostics))
   assert.deepEqual(roundTrip.board.layers.map((layer) => layer.name), ["TOP", "INNER_1", "INNER_2", "BOTTOM"])
   assert.equal(roundTrip.board.stackup.boardThicknessMm, 1.2)
+  assert.equal(roundTrip.board.stackup.layers.length, 7)
+  assert.deepEqual(roundTrip.board.stackup.solderMask, fourLayerStack.solderMask)
   console.log("standalone KiCad adapter contract: ok")
 } finally {
   await rm(directory, { recursive: true, force: true })

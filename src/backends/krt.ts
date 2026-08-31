@@ -172,6 +172,75 @@ function routableScopeNets(request: BackendRouteRequest) {
   ))
 }
 
+/** @internal Nets reserved from the EasyEDA bulk pass for late KRT custody. */
+export function krtPostEasyReservedNets(request: BackendRouteRequest) {
+  const routableNets = routableScopeNets(request)
+  const routable = new Set(routableNets)
+  const reserved = new Set<string>()
+  const claim = (net: string) => { if (routable.has(net)) reserved.add(net) }
+  for (const group of request.program.matchedGroups) for (const net of group.nets) claim(net)
+  for (const group of request.rules.matchedGroups ?? []) for (const net of group.nets) claim(net)
+  for (const net of routable) if (ruleFor(request, net).impedanceOhm !== undefined) claim(net)
+  for (const item of request.program.powerNets) claim(item.net)
+  for (const policy of request.plan.netPolicies) {
+    if (policy.priority === "high" || policy.priority === "critical" || policy.viaPreference !== "auto") {
+      claim(policy.net)
+    }
+  }
+  const allLayers = normalizedLayerSet(request.board.layers.map((layer) => layer.name))
+  for (const net of routable) {
+    const allowed = normalizedLayerSet(ruleFor(request, net).allowedLayers ?? [])
+    if (allowed.length && (allowed.length !== allLayers.length
+      || allowed.some((layer, index) => layer !== allLayers[index]))) claim(net)
+  }
+  for (const fanout of request.program.fanouts) {
+    for (const pad of request.board.pads) {
+      if (!pad.net || pad.component !== fanout.target.component) continue
+      if (fanout.target.kind === "pad" && pad.number !== fanout.target.pad) continue
+      claim(pad.net)
+    }
+  }
+  return routableNets.filter((net) => reserved.has(net))
+}
+
+function krtSpecialWorkflowRequest(
+  request: BackendRouteRequest,
+  mode: KrtWorkflowMode,
+  postEasyOpenNets: readonly string[] = [],
+) {
+  if (mode === "full") return request
+  const reserved = new Set(krtPostEasyReservedNets(request))
+  const open = new Set(postEasyOpenNets)
+  const matched = new Set([
+    ...request.program.matchedGroups.flatMap((group) => group.nets),
+    ...(request.rules.matchedGroups ?? []).flatMap((group) => group.nets),
+  ])
+  return {
+    ...request,
+    program: {
+      ...request.program,
+      // EasyEDA owns ordinary differential pairs in Hybrid. KRT reclaims only
+      // impedance pairs or pairs overlapping a matched relation.
+      differentialPairs: request.program.differentialPairs.filter((pair) => (
+        // EasyEDA owns an ordinary pair when it closed both members. If either
+        // member is still open, KRT reclaims the whole atomic pair so recovery
+        // can never degrade it into two unrelated single-ended routes.
+        open.has(pair.positive)
+        || open.has(pair.negative)
+        || (reserved.has(pair.positive)
+          && reserved.has(pair.negative)
+          && (ruleFor(request, pair.positive).impedanceOhm !== undefined
+            || ruleFor(request, pair.negative).impedanceOhm !== undefined
+            || matched.has(pair.positive)
+            || matched.has(pair.negative)))
+      )),
+      matchedGroups: request.program.matchedGroups.filter((group) => (
+        group.nets.every((net) => reserved.has(net))
+      )),
+    },
+  }
+}
+
 function normalizedLayerSet(layers: readonly string[]) {
   return [...new Set(layers)].sort()
 }
@@ -219,6 +288,9 @@ function specialRules(request: BackendRouteRequest, gridStep = 0.1): { rules?: K
   const specialNets = new Set([
     ...request.program.differentialPairs.flatMap((pair) => [pair.positive, pair.negative]),
     ...request.program.matchedGroups.flatMap((group) => group.nets),
+    ...(request.program.onlyNets ?? request.plan.scopeNets).filter((net) => (
+      ruleFor(request, net).impedanceOhm !== undefined
+    )),
   ])
   if (!specialNets.size) return { diagnostics: [] }
   const values = [...specialNets].map((net) => ruleFor(request, net))
@@ -398,17 +470,21 @@ async function writeFabOverrides(path: string, values: KrtNumericRules) {
 }
 
 /**
- * One production policy: preserve KRT's measured native search/cost defaults
- * and set only orchestration invariants. In particular, via cost, heuristic
- * weight, iteration caps and rip-up ranking are deliberately not overridden.
+ * One production policy: preserve KRT's measured native cost/rip-up defaults
+ * while placing a deterministic ceiling on ordinary A* work.  The sole final
+ * rescue stage has its own tighter grid/cell/iteration bounds in the bundled
+ * adapter patch.
  */
 export const KRT_NATIVE_AUTO_POLICY = Object.freeze({
   gridStep: 0.1,
   ordering: "mps" as const,
-  enableNetRescue: true,
-  enableTerminalEscalation: true,
+  // Intermediate calls stay cheap and deterministic.  The workflow enables
+  // the bounded rescue ladder exactly once for the final remaining scope.
+  enableNetRescue: false,
+  enableTerminalEscalation: false,
   ripPreexisting: true,
-  dynamicIterations: true,
+  dynamicIterations: false,
+  maxIterations: 200_000,
   planeFinalize: false,
   finalizeRip: true,
   specialMaxCandidates: 1,
@@ -453,9 +529,11 @@ export function krtMatchedFallbackGridStep(
 export const KRT_MAX_POST_MAIN_REPAIRS = 8
 /** Exact native blocker grants per open repair; custody keeps this deliberately small. */
 export const KRT_MAX_OPEN_REPAIR_BLOCKER_VICTIMS = 3
-export const KRT_POST_MAIN_REPAIR_BUDGET_RATIO = 0.3
+export const KRT_POST_MAIN_REPAIR_BUDGET_RATIO = 1
 /** Enough startup allowance for a tiny-board isolated native repair. */
-export const KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS = 5_000
+export const KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS = 15_000
+/** Outer watchdog only; iterations/grid/attempt count are the primary bounds. */
+export const KRT_MAX_POST_MAIN_REPAIR_BUDGET_MS = 60_000
 export const KRT_SHORT_VIA_REPAIR_MAX_LENGTH_MM = 10
 export const KRT_SHORT_VIA_REPAIR_MAX_DETOUR_RATIO = 2
 export const KRT_SHORT_VIA_REPAIR_LENGTH_SLACK_MM = 2
@@ -463,7 +541,7 @@ export const KRT_SHORT_VIA_REPAIR_LENGTH_SLACK_MM = 2
 export const KRT_ORDINARY_CLEARANCE_BUCKET_MM = 0.05
 /** Nearby hard neck-down floors share one conservative native process. */
 export const KRT_ORDINARY_TRACK_WIDTH_BUCKET_MM = 0.05
-/** Hard cap across critical/early/main ordinary compatibility batches. */
+/** Hard cap across ordinary compatibility batches in the one main pass. */
 export const KRT_MAX_ORDINARY_ROUTE_BATCHES = 32
 
 type KrtRepairOrderItem = Readonly<{
@@ -734,7 +812,50 @@ type KrtSpecialBatch = Readonly<{
   priorityWeight: number
   /** Differential routing keeps its special-before-ordinary custody boundary. */
   containsDifferential: boolean
+  impedance?: Readonly<{
+    targetOhm: number
+    coplanarGapMm?: number
+    differential: boolean
+  }>
 }>
+
+type KrtWorkflowMode = "full" | "post-easy"
+
+function impedanceSpecForNets(
+  request: BackendRouteRequest,
+  nets: readonly string[],
+): { spec?: NonNullable<KrtSpecialBatch["impedance"]>; diagnostics: RoutingDiagnostic[] } {
+  const constrained = nets.map((net) => ({ net, rules: ruleFor(request, net) }))
+    .filter((item) => item.rules.impedanceOhm !== undefined)
+  if (!constrained.length) return { diagnostics: [] }
+  if (constrained.length !== nets.length) return {
+    diagnostics: [diagnostic(
+      "KRT_IMPEDANCE_ATOMIC_SCOPE_CONFLICT",
+      "error",
+      "One atomic special component mixes impedance-controlled and unconstrained nets; it cannot be represented by one native KRT solve.",
+      { nets, impedanceNets: constrained.map((item) => item.net) },
+    )],
+  }
+  const targets = constrained.map((item) => item.rules.impedanceOhm!)
+  const gaps = constrained.map((item) => item.rules.impedanceCoplanarGapMm ?? 0)
+  const differential = constrained.map((item) => Boolean(item.rules.differential))
+  if (!sameNumber(targets) || !sameNumber(gaps) || differential.some((value) => value !== differential[0])) return {
+    diagnostics: [diagnostic(
+      "KRT_IMPEDANCE_BATCH_CONFLICT",
+      "error",
+      "One native KRT impedance invocation requires one target, coplanar gap, and single-ended/differential topology.",
+      { nets, targets, coplanarGaps: gaps, differential },
+    )],
+  }
+  return {
+    diagnostics: [],
+    spec: {
+      targetOhm: targets[0],
+      ...(gaps[0] > 0 ? { coplanarGapMm: gaps[0] } : {}),
+      differential: differential[0],
+    },
+  }
+}
 
 function strongestViaPreference(request: BackendRouteRequest, nets: readonly string[]): KrtViaPreference {
   const order: readonly KrtViaPreference[] = ["auto", "avoid", "forbid"]
@@ -752,11 +873,11 @@ function strongestPriorityWeight(request: BackendRouteRequest, nets: readonly st
   return nets.reduce((strongest, net) => Math.max(strongest, policies.get(net) ?? 4), 0)
 }
 
-/** @internal Differential and critical special batches retain the pre-critical custody boundary. */
+/** @internal Compatibility helper: every hard-special batch now precedes the single ordinary pass. */
 export function krtSpecialBatchRunsBeforeCritical(
-  batch: Pick<KrtSpecialBatch, "containsDifferential" | "priorityWeight">,
+  _batch: Pick<KrtSpecialBatch, "containsDifferential" | "priorityWeight">,
 ) {
-  return batch.containsDifferential || batch.priorityWeight >= 64
+  return true
 }
 
 /**
@@ -830,6 +951,8 @@ export function planKrtSpecialBatches(
       id: group.id,
       nets: [...group.nets],
     })),
+    ...routeScopeNets.filter((net) => ruleFor(request, net).impedanceOhm !== undefined)
+      .map((net) => ({ kind: "impedance" as const, id: `impedance:${net}`, nets: [net] })),
   ]
   const edges: string[][] = []
   for (const edge of declaredEdges) {
@@ -881,9 +1004,10 @@ export function planKrtSpecialBatches(
   for (const nets of components.values()) {
     const scoped = scopedSpecialRequest(request, nets)
     const resolved = specialRules(scoped, gridStep)
+    const impedance = impedanceSpecForNets(scoped, nets)
     const viaPreference = strongestViaPreference(request, nets)
     const layerDiagnostics = routeLayerDiagnostics(scoped, nets)
-    const groupDiagnostics = [...resolved.diagnostics, ...layerDiagnostics]
+    const groupDiagnostics = [...resolved.diagnostics, ...impedance.diagnostics, ...layerDiagnostics]
     if (!resolved.rules || groupDiagnostics.some((item) => item.severity === "error")) {
       // A non-representable atomic special group is local damage, not a reason
       // to discard every routable net on the board. Keep the original codes and
@@ -912,6 +1036,7 @@ export function planKrtSpecialBatches(
       )),
       viaPreference,
       priorityWeight: strongestPriorityWeight(request, nets),
+      impedance: impedance.spec,
     })
     const current = compatible.get(key) ?? []
     current.push(...nets)
@@ -923,6 +1048,7 @@ export function planKrtSpecialBatches(
     const uniqueNets = [...new Set(nets)]
     const scoped = scopedSpecialRequest(request, uniqueNets)
     const resolved = specialRules(scoped, gridStep)
+    const impedance = impedanceSpecForNets(scoped, uniqueNets)
     if (!resolved.rules) continue
     batches.push({
       id: `special-${String(index + 1).padStart(2, "0")}`,
@@ -933,11 +1059,13 @@ export function planKrtSpecialBatches(
       viaPreference: strongestViaPreference(request, uniqueNets),
       priorityWeight: strongestPriorityWeight(request, uniqueNets),
       containsDifferential: scoped.program.differentialPairs.length > 0,
+      ...(impedance.spec ? { impedance: impedance.spec } : {}),
     })
   }
   return {
     batches: batches.sort((left, right) => (
-      Number(right.containsDifferential) - Number(left.containsDifferential)
+      Number(Boolean(right.impedance)) - Number(Boolean(left.impedance))
+      || Number(right.containsDifferential) - Number(left.containsDifferential)
       || right.priorityWeight - left.priorityWeight
       || left.id.localeCompare(right.id)
     )),
@@ -1196,6 +1324,116 @@ function trackLengthMm(copper: RoutingCopper) {
   }, 0), 0)
 }
 
+export type KrtImpedanceNetAudit = Readonly<{
+  net: string
+  targetOhm: number
+  calculatedOhm?: number
+  expectedWidthMm: number
+  totalLengthMm: number
+  controlledLengthMm: number
+  offWidthLengthMm: number
+  controlledFraction: number
+  actualWidthsMm: readonly number[]
+  allowedLayers: readonly string[]
+  actualLayers: readonly string[]
+  referenceNet?: string
+  referenceLayers: readonly string[]
+  coplanarGapMm?: number
+  stackupAware: boolean
+  verified: boolean
+  reasons: readonly string[]
+}>
+
+/**
+ * Geometry-side impedance custody check.  KRT performs the native stackup
+ * solve; this audit proves that the promoted copper actually retained the
+ * solved trunk width/layer instead of being silently replaced by rescue-width
+ * copper.  Plane fill/field-solver verification remains a native KiCad signoff
+ * concern and is reported separately from this deterministic backend gate.
+ */
+export function auditKrtImpedanceCopper(
+  request: BackendRouteRequest,
+  copper: RoutingCopper,
+  scopeNets: readonly string[] = request.plan.scopeNets,
+) {
+  const scope = new Set(scopeNets)
+  const reports: KrtImpedanceNetAudit[] = []
+  for (const net of request.plan.scopeNets) {
+    if (!scope.has(net)) continue
+    const rules = ruleFor(request, net)
+    if (rules.impedanceOhm === undefined) continue
+    const expected = rules.preferredTrackWidthMm
+    const widthTolerance = Math.max(0.01, expected * 0.03)
+    const tracks = copper.tracks.filter((track) => track.net === net)
+    const pieces = tracks.map((track) => ({
+      widthMm: track.widthMm,
+      layer: track.layer,
+      lengthMm: track.points.slice(1).reduce((sum, point, index) => {
+        const previous = track.points[index]
+        return sum + Math.hypot(point.x - previous.x, point.y - previous.y)
+      }, 0),
+    }))
+    const totalLengthMm = pieces.reduce((sum, item) => sum + item.lengthMm, 0)
+    const controlledLengthMm = pieces
+      .filter((item) => Math.abs(item.widthMm - expected) <= widthTolerance)
+      .reduce((sum, item) => sum + item.lengthMm, 0)
+    const offWidthLengthMm = Math.max(0, totalLengthMm - controlledLengthMm)
+    const allowedLayers = rules.allowedLayers ?? request.board.layers.map((layer) => layer.name)
+    const actualLayers = [...new Set(pieces.map((item) => item.layer))]
+    const reasons: string[] = []
+    if (!request.board.stackup) reasons.push("missing-stackup")
+    if (totalLengthMm <= 1e-9) reasons.push("no-routed-copper")
+    if (controlledLengthMm <= 1e-9) reasons.push("no-impedance-width-trunk")
+    // Production impedance stages use 0.5 mm binary neck-down plus a 1 mm
+    // taper at each terminal. Pad capture and grid snapping add at most about
+    // 0.75 mm per end on the measured corpus; 4.5 mm distinguishes that local
+    // transition from KRT's old 2.5 mm-per-end default (about 5.98 mm off-width
+    // on this fixture).
+    if (offWidthLengthMm > 4.5 + 1e-6) reasons.push("neckdown-budget-exceeded")
+    if (actualLayers.some((layer) => !allowedLayers.includes(layer))) reasons.push("forbidden-layer")
+    if (rules.calculatedImpedanceOhm !== undefined) {
+      const tolerance = rules.impedanceTolerancePercent ?? 10
+      if (Math.abs(rules.calculatedImpedanceOhm - rules.impedanceOhm) / rules.impedanceOhm * 100 > tolerance + 1e-6) {
+        reasons.push("compiled-target-outside-tolerance")
+      }
+    }
+    reports.push({
+      net,
+      targetOhm: rules.impedanceOhm,
+      ...(rules.calculatedImpedanceOhm === undefined ? {} : { calculatedOhm: rules.calculatedImpedanceOhm }),
+      expectedWidthMm: expected,
+      totalLengthMm,
+      controlledLengthMm,
+      offWidthLengthMm,
+      controlledFraction: totalLengthMm > 0 ? controlledLengthMm / totalLengthMm : 0,
+      actualWidthsMm: [...new Set(pieces.map((item) => Number(item.widthMm.toFixed(6))))].sort((a, b) => a - b),
+      allowedLayers,
+      actualLayers,
+      ...(rules.impedanceReferenceNet === undefined ? {} : { referenceNet: rules.impedanceReferenceNet }),
+      referenceLayers: rules.impedanceReferenceLayers ?? [],
+      ...(rules.impedanceCoplanarGapMm === undefined ? {} : { coplanarGapMm: rules.impedanceCoplanarGapMm }),
+      stackupAware: Boolean(request.board.stackup),
+      verified: reasons.length === 0,
+      reasons,
+    })
+  }
+  const failed = reports.filter((item) => !item.verified)
+  const diagnostics: RoutingDiagnostic[] = []
+  if (reports.length) diagnostics.push(diagnostic(
+    failed.length ? "KRT_IMPEDANCE_GEOMETRY_UNVERIFIED" : "KRT_IMPEDANCE_GEOMETRY_VERIFIED",
+    failed.length ? "error" : "info",
+    failed.length
+      ? `${failed.length} impedance-controlled net(s) did not retain a stackup-solved trunk and bounded pad escape.`
+      : `${reports.length} impedance-controlled net(s) retained their stackup-solved width, layer, and bounded pad escape.`,
+    { reports },
+  ))
+  return {
+    reports,
+    diagnostics,
+    verifiedNets: reports.filter((item) => item.verified).map((item) => item.net),
+  }
+}
+
 function copperStatsByNet(copper: RoutingCopper) {
   const stats = new Map<string, { trackLengthMm: number; viaCount: number }>()
   const forNet = (net: string) => {
@@ -1285,9 +1523,9 @@ export type KrtStageConnectivityTradeoff = Readonly<{
 
 /**
  * Compare two full-board connectivity snapshots without making every ordinary
- * net monotonic. Critical and already-protected nets remain hard invariants;
- * unprotected nets may trade places only when the same priority/open/component
- * tuple used by final candidate selection strictly improves.
+ * net monotonic. Only semantically verified protected nets are hard invariants;
+ * generic critical is a strong score, not immutable copper, because it may be
+ * the blocker that must move to complete a better board.
  */
 export function krtStageConnectivityTradeoff(
   baseline: KrtStageConnectivitySnapshot,
@@ -1296,10 +1534,7 @@ export function krtStageConnectivityTradeoff(
   protectedNets: readonly string[] = [],
 ): KrtStageConnectivityTradeoff {
   const weights = new Map(netPolicies.map((policy) => [policy.net, policy.priorityWeight] as const))
-  const hardNets = new Set([
-    ...protectedNets,
-    ...netPolicies.filter((policy) => policy.protectOnSuccess).map((policy) => policy.net),
-  ])
+  const hardNets = new Set(protectedNets)
   const baselineOpen = new Set(baseline.openNets)
   const candidateOpen = new Set(candidate.openNets)
   const newlyOpenedNets = [...candidateOpen].filter((net) => !baselineOpen.has(net)).sort()
@@ -1375,7 +1610,10 @@ function processFailed(result: KrtProcessResult) {
   return result.status !== "completed" || result.diagnostics.some((item) => item.severity === "error")
 }
 
-export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackendAdapter {
+function createKrtWorkflowBackend(
+  options: KrtBackendOptions = {},
+  workflowMode: KrtWorkflowMode = "full",
+): RouterBackendAdapter {
   let preparedRuntime: Promise<PreparedKrtRuntime> | undefined
   const runtime = (signal?: AbortSignal) => {
     if (!preparedRuntime) preparedRuntime = prepareKrtRuntime({
@@ -1428,7 +1666,8 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         },
       ))
       const routeScope = routableScopeNets(request)
-      const specialPlan = planKrtSpecialBatches(request, routeScope, KRT_NATIVE_AUTO_POLICY.gridStep)
+      const specialRequest = krtSpecialWorkflowRequest(request, workflowMode)
+      const specialPlan = planKrtSpecialBatches(specialRequest, routeScope, KRT_NATIVE_AUTO_POLICY.gridStep)
       diagnostics.push(...specialPlan.diagnostics)
       const specialNets = new Set(specialPlan.batches.flatMap((batch) => batch.nets))
       const ordinary = routeScope.filter((net) => !specialNets.has(net))
@@ -1454,11 +1693,14 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         return { status: "error", copper: EMPTY_COPPER, diagnostics: [runtimeDiagnostic(error)] }
       }
       const krtDirectory = managed.directory
-      const specialStage = request.program.differentialPairs.length > 0
-        || request.program.matchedGroups.length > 0
+      const declaredWorkflowSpecialRequest = krtSpecialWorkflowRequest(request, workflowMode)
+      const specialStage = declaredWorkflowSpecialRequest.program.differentialPairs.length > 0
+        || declaredWorkflowSpecialRequest.program.matchedGroups.length > 0
+        || (workflowMode === "post-easy" && request.program.differentialPairs.length > 0)
+        || routableScopeNets(request).some((net) => ruleFor(request, net).impedanceOhm !== undefined)
         || request.program.viaStitches.some((item) => item.mode === "along")
       const root = options.artifactsDirectory
-        ? join(resolve(options.artifactsDirectory), "native-auto", specialStage ? "special" : "remaining")
+        ? join(resolve(options.artifactsDirectory), `native-auto-${workflowMode}`, specialStage ? "special" : "remaining")
         : await mkdtemp(join(tmpdir(), "copilot-router-krt-"))
       const ownedTemporary = !options.artifactsDirectory
       await mkdir(root, { recursive: true })
@@ -1472,29 +1714,6 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         fallbackRouteScopeNets = routeScopeNets
         fallbackOpenNets = routeScopeNets
         const routeScope = new Set(routeScopeNets)
-        // Keep declared and actually planned special scope separate. A group
-        // can be declared yet unrepresentable (or only partly routable); those
-        // members must flow into ordinary routing instead of disappearing.
-        const declaredSpecialNets = new Set<string>()
-        for (const pair of request.program.differentialPairs) {
-          if (routeScope.has(pair.positive)) declaredSpecialNets.add(pair.positive)
-          if (routeScope.has(pair.negative)) declaredSpecialNets.add(pair.negative)
-        }
-        for (const group of request.program.matchedGroups) {
-          for (const net of group.nets) if (routeScope.has(net)) declaredSpecialNets.add(net)
-        }
-        const specialGridStep = selectKrtGridStep(request, requestedGridStep, [...declaredSpecialNets])
-        const specialPlan = planKrtSpecialBatches(request, routeScopeNets, specialGridStep)
-        diagnostics.push(...specialPlan.diagnostics)
-        // Net-set subtraction alone cannot detect an overlapping constraint:
-        // a net may be routed by one complete special group while another group
-        // containing it was deferred. Keep that semantic loss partial too.
-        const specialConstraintsDeferred = specialPlan.diagnostics.some((item) => (
-          item.code === "KRT_SPECIAL_GROUP_DEFERRED"
-        ))
-        const plannedSpecialNets = new Set(specialPlan.batches.flatMap((batch) => batch.nets))
-        const deferredSpecialNets = [...declaredSpecialNets]
-          .filter((net) => !plannedSpecialNets.has(net))
         const fullBoardRules = minimumRules(
           routeScopeNets.length
             ? routeScopeNets.map((net) => ruleFor(request, net))
@@ -1571,6 +1790,37 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         fallbackInitialConnectivityEvidence = initialConnectivityEvidence
         fallbackCheckpointConnectivityEvidence = initialConnectivityEvidence
         fallbackOpenNets = initialConnectivity.openNets
+        const workflowSpecialRequest = krtSpecialWorkflowRequest(
+          request,
+          workflowMode,
+          initialConnectivity.openNets,
+        )
+        // Keep declared and actually planned special scope separate. A group
+        // can be declared yet unrepresentable (or only partly routable); those
+        // members must flow into ordinary routing instead of disappearing.
+        const declaredSpecialNets = new Set<string>()
+        for (const pair of workflowSpecialRequest.program.differentialPairs) {
+          if (routeScope.has(pair.positive)) declaredSpecialNets.add(pair.positive)
+          if (routeScope.has(pair.negative)) declaredSpecialNets.add(pair.negative)
+        }
+        for (const group of workflowSpecialRequest.program.matchedGroups) {
+          for (const net of group.nets) if (routeScope.has(net)) declaredSpecialNets.add(net)
+        }
+        for (const net of routeScopeNets) {
+          if (ruleFor(request, net).impedanceOhm !== undefined) declaredSpecialNets.add(net)
+        }
+        const specialGridStep = selectKrtGridStep(request, requestedGridStep, [...declaredSpecialNets])
+        const specialPlan = planKrtSpecialBatches(workflowSpecialRequest, routeScopeNets, specialGridStep)
+        diagnostics.push(...specialPlan.diagnostics)
+        // Net-set subtraction alone cannot detect an overlapping constraint:
+        // a net may be routed by one complete special group while another group
+        // containing it was deferred. Keep that semantic loss partial too.
+        const specialConstraintsDeferred = specialPlan.diagnostics.some((item) => (
+          item.code === "KRT_SPECIAL_GROUP_DEFERRED"
+        ))
+        const plannedSpecialNets = new Set(specialPlan.batches.flatMap((batch) => batch.nets))
+        const deferredSpecialNets = [...declaredSpecialNets]
+          .filter((net) => !plannedSpecialNets.has(net))
         let fanoutPromoted = false
         const fanoutResults: KrtProcessResult[] = []
         // Fanout is now strictly explicit, so an explicit target may include
@@ -1706,6 +1956,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           result: KrtProcessResult,
           gate: "strict" | "ordinary" = "strict",
           requireConnectivityImprovement = false,
+          impedanceScopeNets: readonly string[] = [],
         ) => {
           const resultDiagnostics = convertDiagnostics(result.diagnostics)
           const outputExists = result.attempted && await exists(output)
@@ -1735,6 +1986,9 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const ruleDiagnostics = candidateDelta
             ? krtRoutedCopperRuleDiagnostics(request, candidateDelta)
             : []
+          const impedanceAudit = candidateCopper && impedanceScopeNets.length
+            ? auditKrtImpedanceCopper(request, candidateCopper, impedanceScopeNets)
+            : { reports: [], diagnostics: [] as RoutingDiagnostic[], verifiedNets: [] as string[] }
           const baseline = outputExists && candidateCopper
             ? await ensureCheckpointAudits(tag)
             : { spec: boardAuditSpec(), connectivity: undefined, drc: undefined }
@@ -1810,7 +2064,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           // An ordinary full-board pass is allowed to retain useful partial
           // copper with a new non-short DRC diagnostic. Rejecting 900 newly
           // connected nets because of one clearance item recreates the old
-          // all-or-nothing failure mode. Physical shorts, critical/protected
+          // all-or-nothing failure mode. Physical shorts, verified protected
           // connectivity damage and hard-rule violations remain hard gates.
           const drcGatePassed = krtStageDrcGatePasses(gate, {
             drcNonRegressing,
@@ -1825,6 +2079,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             && candidateCopper
             && !hardDamage.length
             && !ruleDiagnostics.some((item) => item.severity === "error")
+            && (!impedanceScopeNets.length || impedanceAudit.verifiedNets.length > 0)
             && krtStageConnectivityGatePasses({
               connectivityNonRegressing,
               connectivityImproved,
@@ -1841,12 +2096,17 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             ...convertDiagnostics(candidateConnectivity?.diagnostics ?? []),
             ...convertDiagnostics(candidateDrc?.diagnostics ?? []),
           ]
-          const stageDiagnostics = [...resultDiagnostics, ...auditDiagnostics, ...ruleDiagnostics]
+          const stageDiagnostics = [
+            ...resultDiagnostics,
+            ...auditDiagnostics,
+            ...ruleDiagnostics,
+            ...demoteErrors(impedanceAudit.diagnostics),
+          ]
           diagnostics.push(...(accepted ? stageDiagnostics : demoteErrors(stageDiagnostics)))
           if (accepted && !connectivityNonRegressing && weightedTradeoffPasses) diagnostics.push(diagnostic(
             "KRT_STAGE_WEIGHTED_CONNECTIVITY_TRADEOFF_SELECTED",
             "info",
-            "Selected a stage that strictly improves weighted full-board connectivity while preserving every critical/protected net.",
+            "Selected a stage that strictly improves weighted full-board connectivity while preserving every verified protected net.",
             { tag, gate, ...connectivityTradeoff },
           ))
           if (accepted) {
@@ -1874,6 +2134,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
                 : checkpointUnreadable === undefined ? undefined : String(checkpointUnreadable),
               hardDamage: hardDamage.map((item) => item.code),
               ruleErrors: ruleDiagnostics.filter((item) => item.severity === "error").map((item) => item.code),
+              impedance: impedanceAudit.reports,
               beforeOpenNets: baseline.connectivity?.openNets,
               afterOpenNets: candidateConnectivity?.openNets,
               beforeDrcViolations: baseline.drc?.violationCount,
@@ -1895,15 +2156,15 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             drc: candidateDrc,
             baselineConnectivity: baseline.connectivity,
             baselineDrc: baseline.drc,
+            impedanceVerifiedNets: impedanceAudit.verifiedNets,
           }
         }
         const indexedSpecialBatches = specialPlan.batches.map((batch, index) => ({ batch, index }))
-        const leadingSpecialBatches = indexedSpecialBatches.filter(({ batch }) => (
-          krtSpecialBatchRunsBeforeCritical(batch)
-        ))
-        const trailingSpecialBatches = indexedSpecialBatches.filter(({ batch }) => (
-          !krtSpecialBatchRunsBeforeCritical(batch)
-        ))
+        // Every hard-special transaction runs before ordinary bulk routing.
+        // The former diff -> critical -> matched split consumed corridors and
+        // repeated nearly equivalent route.py work without measured benefit.
+        const leadingSpecialBatches = indexedSpecialBatches
+        const trailingSpecialBatches: typeof indexedSpecialBatches = []
         const specialResults: KrtProcessResult[] = []
         const verifiedSpecialNets = new Set<string>()
         const ordinaryFallbackSpecialNets = new Set<string>()
@@ -1928,7 +2189,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
                     ? {}
                     : { lengthMatchTolerance: krtMatchedFallbackTolerance(batch.rules.lengthMatchTolerance) }),
                 }
-            const result = await runKrtSpecial(current, output, {
+            const specialSpec: KrtStageSpec = {
               ...common,
               layers: batch.layers,
               rules: batch.rules,
@@ -1943,6 +2204,18 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
               ordinaryMatchedRules: batch.rules,
               ordinaryMatchedFallbackRules: matchedFallbackRules,
               ordinaryMatchedFabOverridesPath: specialFab,
+              ...(batch.impedance
+                ? {
+                    impedance: {
+                      targetOhm: batch.impedance.targetOhm,
+                      ...(batch.impedance.coplanarGapMm === undefined
+                        ? {}
+                        : { coplanarGapMm: batch.impedance.coplanarGapMm }),
+                    },
+                    neckdownLength: 0.5,
+                    neckdownTaperLength: 1,
+                  }
+                : {}),
               // Differential routing keeps the single measured native path.
               // An ordinary matched group gets one cheap declared-order
               // alternative; a complete first candidate still short-circuits
@@ -1955,13 +2228,56 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
                 ruleFor(batch.request, pair.positive).differential?.maxSkewMm !== undefined
                 || ruleFor(batch.request, pair.negative).differential?.maxSkewMm !== undefined
               )),
-            }, join(root, "special", tag))
+              enableNetRescue: false,
+              enableTerminalEscalation: false,
+              dynamicIterations: false,
+              maxIterations: 200_000,
+            }
+            const pureSingleEndedImpedance = Boolean(
+              batch.impedance
+              && !specialSpec.diffPairs.length
+              && !specialSpec.matchedGroups.length,
+            )
+            if (pureSingleEndedImpedance) specialSpec.remainingNets = batch.nets
+            const result = pureSingleEndedImpedance
+              ? await runKrtRemaining(current, output, specialSpec, join(root, "special", tag))
+              : await runKrtSpecial(current, output, specialSpec, join(root, "special", tag))
             specialResults.push(result)
-            const promoted = await promoteStageCandidate(`02-special-${tag}`, output, result)
+            // A hard-special candidate may temporarily open ordinary blocker
+            // victims.  Keep it only when weighted full-board connectivity
+            // improves; those exact victims then enter the one shared main /
+            // recovery transaction below.
+            const promoted = await promoteStageCandidate(
+              `02-special-${tag}`,
+              output,
+              result,
+              "ordinary",
+              false,
+              batch.impedance ? batch.nets : [],
+            )
+            if (promoted.accepted && pureSingleEndedImpedance
+              && promoted.impedanceVerifiedNets.length) {
+              result.protectedNets = promoted.impedanceVerifiedNets
+              try {
+                const persisted = await persistKrtProtectedNets(
+                  output,
+                  promoted.impedanceVerifiedNets,
+                  "workflow-impedance",
+                )
+                result.protectedNetsPath = persisted.path
+              } catch (error) {
+                diagnostics.push(diagnostic(
+                  "KRT_IMPEDANCE_PROTECTION_FAILED",
+                  "warning",
+                  "Verified impedance copper remains protected in memory, but its disk ledger could not be persisted.",
+                  { nets: promoted.impedanceVerifiedNets, error: error instanceof Error ? error.message : String(error) },
+                ))
+              }
+            }
             const disposition = krtSpecialBatchRecoveryDisposition(
               batch.nets,
               promoted.accepted,
-              result.protectedNets,
+              [...new Set([...(result.protectedNets ?? []), ...promoted.impedanceVerifiedNets])],
             )
             for (const net of disposition.verifiedNets) {
               verifiedSpecialNets.add(net)
@@ -1984,14 +2300,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             ))
           }
         }
-        // Differential custody and critical special intent remain first. Lower
-        // priority matched groups wait until critical ordinary nets have had a
-        // chance to claim scarce escape corridors.
+        // Impedance, differential and matched batches are already sorted by
+        // hard semantics and real native compatibility.
         await runSpecialBatches(leadingSpecialBatches)
 
         const preferredWidthNets = new Set([
           ...request.program.powerNets.map((intent) => intent.net),
-          ...request.program.signalNets.filter((intent) => intent.impedance).map((intent) => intent.net),
         ])
         const powerWidths = (nets: readonly string[]) => nets
           .filter((net) => preferredWidthNets.has(net))
@@ -2064,13 +2378,10 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           }
           return { batches, deferredNets }
         }
-        const criticalGroups = request.plan.groups
-          .filter((group) => group.kind === "critical")
-          .map((group) => krtOrdinaryRecoveryScope(
-            group.nets.filter((net) => routeScope.has(net)),
-            [...verifiedSpecialNets],
-          ))
-          .filter((nets) => nets.length)
+        // Priority is a lane inside the one main pass, not a separate
+        // critical subprocess. Generic critical copper remains editable so it
+        // can be selected as an exact blocker victim during final recovery.
+        const criticalGroups: readonly string[][] = []
         const criticalNets = new Set(criticalGroups.flat())
         const criticalResults: KrtProcessResult[] = []
         const criticalOpenNets = new Set<string>()
@@ -2142,17 +2453,17 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         }
 
         await runSpecialBatches(trailingSpecialBatches)
-        // Keep one disk-backed checkpoint before early/main fragmentation. If
-        // the staged route remains incomplete and all remaining hard policies
-        // are compatible, KRT gets one global original-order recovery attempt
-        // from this point. Verified special/critical copper stays protected.
-        const monolithicFallbackInput = current
-
         // High-priority and via-sensitive ordinary nets get an inexpensive
         // head start. They stay editable: only verified critical/special nets
         // are protected, so native blocker recovery may still move them.
+        const postEasyMainScope = workflowMode === "post-easy"
+          ? [...new Set([
+              ...krtPostEasyReservedNets(request),
+              ...initialConnectivity.openNets,
+            ])]
+          : routeScopeNets
         const plannedMain = krtOrdinaryRecoveryScope([
-          ...request.plan.mainNets,
+          ...postEasyMainScope,
           ...deferredSpecialNets,
           ...ordinaryFallbackSpecialNets,
         ], [...verifiedSpecialNets])
@@ -2160,10 +2471,9 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             routeScope.has(net)
             && !criticalNets.has(net)
           ))
-        const earlyNets = plannedMain.filter((net) => {
-          const policy = policies.get(net)
-          return policy?.priority === "high" || (policy?.viaPreference ?? "auto") !== "auto"
-        })
+        // High/via-sensitive nets are ordered first by the ordinary batch
+        // planner, so a separate early pass only duplicates work.
+        const earlyNets: string[] = []
         const earlySet = new Set(earlyNets)
         const earlyOpenNets = new Set<string>()
         const earlyResults: KrtProcessResult[] = []
@@ -2211,20 +2521,23 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         const auditedFinalEvidence = connectivityEvidence(finalAudit)
         if (auditedFinalEvidence) fallbackCheckpointConnectivityEvidence = auditedFinalEvidence
         const monolithicFallbackNets = krtOrdinaryRecoveryScope(
-          routeScopeNets,
+          finalAudit.openNets,
           [...protectedNets],
         )
         // Preserve the board/netclass order used by KRT's proven original-order
         // path. Connected protected nets and one-terminal assignments act only
         // as stable ordering placeholders; the protected ledger still forbids
         // their copper from being changed.
+        const recoverySet = new Set(monolithicFallbackNets)
         const monolithicFallbackSelectors = krtMonolithicFallbackSelectors(request)
+          .filter((net) => recoverySet.has(net))
         const monolithicFallbackBatch = krtMonolithicFallbackBatch(
           request,
           monolithicFallbackNets,
         )
         const fallbackCanImprove = !finalAudit.diagnostics.some((item) => item.severity === "error")
           && finalAudit.openNets.some((net) => monolithicFallbackNets.includes(net))
+        const recoveryResults: KrtProcessResult[] = []
         if (fallbackCanImprove && monolithicFallbackBatch) {
           const tag = "05-main-fallback-original"
           const output = join(root, `${tag}.kicad_pcb`)
@@ -2241,15 +2554,22 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             // It materially reduced gratuitous vias in the measured ICM20948
             // completion fallback while preserving full connectivity.
             viaCost: KRT_VIA_PREFERENCE_COSTS.avoid,
+            // This is the only workflow stage allowed to invoke KRT's
+            // expensive net_rescue ladder. The bundled patch bounds its grid,
+            // window cells, edges and iterations.
+            enableNetRescue: true,
+            enableTerminalEscalation: false,
+            dynamicIterations: false,
+            maxIterations: 200_000,
           }
           const beforeOpenNets = [...finalAudit.openNets]
           const result = await runKrtRemaining(
-            monolithicFallbackInput,
+            current,
             output,
             fallbackSpec,
             join(root, "main-fallback", "original-via-avoid"),
           )
-          mainResults.push(result)
+          recoveryResults.push(result)
           const promoted = await promoteStageCandidate(tag, output, result, "ordinary", true)
           if (promoted.accepted && promoted.connectivity) {
             finalAudit = promoted.connectivity
@@ -2342,7 +2662,10 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
             ),
           }))
         const terminalSpans = netTerminalSpansMm(request.board)
-        const shortViaNets = request.plan.netPolicies.map((policy) => policy.net)
+        const hasCriticalOpen = finalAudit.openNets.some((net) => (
+          policies.get(net)?.priority === "critical"
+        ))
+        const shortViaNets = (hasCriticalOpen ? [] : request.plan.netPolicies.map((policy) => policy.net))
           .filter((net) => routeScope.has(net))
           .filter((net) => {
             const policy = policies.get(net)
@@ -2393,9 +2716,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           ))
         const ordinaryElapsedMs = [...earlyResults, ...mainResults]
           .reduce((sum, result) => sum + result.elapsedMs, 0)
-        const repairBudgetMs = Math.max(
-          KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS,
-          ordinaryElapsedMs * KRT_POST_MAIN_REPAIR_BUDGET_RATIO,
+        const repairBudgetMs = Math.min(
+          KRT_MAX_POST_MAIN_REPAIR_BUDGET_MS,
+          Math.max(
+            KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS,
+            ordinaryElapsedMs * KRT_POST_MAIN_REPAIR_BUDGET_RATIO,
+          ),
         )
         const repairStartedAt = performance.now()
         const remainingRepairBudget = () => Math.max(
@@ -2417,7 +2743,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           "KRT_PROTECTED_COPPER_RIPPED",
           "KRT_RIP_VICTIM_INCOMPLETE",
         ])
-        for (const [jobIndex, job] of allRepairJobs.entries()) {
+        for (const job of allRepairJobs) {
           if (repairResults.length >= KRT_MAX_POST_MAIN_REPAIRS) break
           // Every native process, including the first, is bounded by the
           // measured post-main budget. Previously a hopeless first repair
@@ -2425,16 +2751,12 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
           const remainingRepairBudgetMs = remainingRepairBudget()
           if (remainingRepairBudgetMs < 1_000) break
           if (!baselineDrc || baselineDrc.failed) break
-          const remainingAttemptSlots = Math.max(1, Math.min(
-            KRT_MAX_POST_MAIN_REPAIRS - repairResults.length,
-            allRepairJobs.length - jobIndex,
-          ))
-          // Preserve the strict global deadline without letting one hopeless
-          // first open consume every later repair slot. Connectivity jobs keep
-          // their ordering advantage; this only bounds one route subprocess.
+          // Iteration/grid caps are the primary bound. The generous per-call
+          // watchdog is only a final safety net and never truncates a normal
+          // 200k-iteration repair merely because many jobs were queued.
           const routeAttemptBudgetMs = Math.max(
             1_000,
-            remainingRepairBudgetMs / remainingAttemptSlots,
+            Math.min(KRT_MAX_POST_MAIN_REPAIR_BUDGET_MS, remainingRepairBudgetMs),
           )
           const liveStats = incumbentCopper ? copperStatsByNet(incumbentCopper) : new Map()
           const beforeTargetVias = job.kind === "short-via"
@@ -2688,7 +3010,15 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
         const routed = await readKrtBoard(prepared.inputBoard, current, request.board)
         const ruleDiagnostics = krtRoutedCopperRuleDiagnostics(request, routed.copper)
         diagnostics.push(...ruleDiagnostics)
-        const stageResults = [...specialResults, ...criticalResults, ...earlyResults, ...mainResults]
+        const impedanceAudit = auditKrtImpedanceCopper(request, routed.copper, routeScopeNets)
+        diagnostics.push(...impedanceAudit.diagnostics)
+        const stageResults = [
+          ...specialResults,
+          ...criticalResults,
+          ...earlyResults,
+          ...mainResults,
+          ...recoveryResults,
+        ]
         const openNets = new Set(finalAudit.openNets)
         const finalConnectivityEvidence = connectivityEvidence(finalAudit)
         const status = krtNativeAutoResultStatus({
@@ -2723,6 +3053,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
                 cacheDirectory: managed.cacheDirectory,
               },
               policy: "native-auto",
+              workflowMode,
               initialConnectivity: initialConnectivityEvidence ?? { auditFailed: true },
               finalConnectivity: finalConnectivityEvidence ?? { auditFailed: true },
               protectedNets: [...protectedNets].sort(),
@@ -2740,6 +3071,13 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
               critical: criticalResults.map((result) => result.jsonSummary),
               early: earlyResults.map((result) => result.jsonSummary),
               main: mainResults.map((result) => result.jsonSummary),
+              recovery: recoveryResults.map((result) => result.jsonSummary),
+              impedance: {
+                stackupPresent: Boolean(request.board.stackup),
+                verifiedNets: impedanceAudit.verifiedNets,
+                reports: impedanceAudit.reports,
+                planeFillFieldSolverVerificationRequired: impedanceAudit.reports.length > 0,
+              },
               repairs: repairResults.map((attempt) => ({
                 kind: attempt.kind,
                 targetNet: attempt.targetNet,
@@ -2757,6 +3095,19 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
               })),
               repairBudgetMs,
               repairElapsedMs,
+              phaseTimings: {
+                fanoutMs: fanoutResults.reduce((sum, result) => sum + result.elapsedMs, 0),
+                specialMs: specialResults.reduce((sum, result) => sum + result.elapsedMs, 0),
+                mainMs: mainResults.reduce((sum, result) => sum + result.elapsedMs, 0),
+                rescueMs: recoveryResults.reduce((sum, result) => sum + result.elapsedMs, 0),
+                targetedRepairMs: repairElapsedMs,
+                auditMs: initialConnectivity.elapsedMs + finalAudit.elapsedMs + stageGateElapsedMs
+                  + (baselineDrc?.elapsedMs ?? 0),
+              },
+              routingSubprocessCount: stageResults.reduce((sum, result) => (
+                sum + (result.subcalls?.length ?? (result.attempted ? 1 : 0))
+              ), 0),
+              expensiveRescueCount: recoveryResults.filter((result) => result.attempted).length,
               ordinaryRouteBatchCount,
               ordinaryRouteBatchLimit: KRT_MAX_ORDINARY_ROUTE_BATCHES,
               finalConnectivityAuditMs: finalAudit.elapsedMs,
@@ -2833,4 +3184,14 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
     },
   }
   return adapter
+}
+
+/** Standalone/multilayer KRT workflow. */
+export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackendAdapter {
+  return createKrtWorkflowBackend(options, "full")
+}
+
+/** @internal Shared late KRT transaction used by the two-layer Hybrid backend. */
+export function createKrtPostEasyBackend(options: KrtBackendOptions = {}): RouterBackendAdapter {
+  return createKrtWorkflowBackend(options, "post-easy")
 }

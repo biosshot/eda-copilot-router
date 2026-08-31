@@ -54,6 +54,16 @@ function padShape(value: unknown) {
   return false
 }
 
+function padHole(value: unknown) {
+  if (!object(value) || !["round", "slot"].includes(String(value.shape))
+    || !positive(value.diameterMm) || typeof value.plated !== "boolean") return false
+  if (value.shape === "slot" && value.slotLengthMm !== undefined
+    && (!finite(value.slotLengthMm) || value.slotLengthMm < 0)) return false
+  if (value.offset !== undefined && !point(value.offset)) return false
+  if (value.rotationDeg !== undefined && !finite(value.rotationDeg)) return false
+  return true
+}
+
 function error(diagnostics: RoutingDiagnostic[], code: string, message: string, path?: string) {
   diagnostics.push({ code, severity: "error", message, ...(path ? { path } : {}) })
 }
@@ -269,6 +279,9 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
       || !padShape(item.shape)) {
       error(diagnostics, "ROUTING_PAD_INVALID", `${at} is invalid.`, at)
       return
+    }
+    if (item.hole !== undefined && !padHole(item.hole)) {
+      error(diagnostics, "ROUTING_PAD_HOLE_INVALID", `${at}.hole is invalid.`, `${at}.hole`)
     }
     if (typeof item.id === "string" && item.id) {
       if (padIds.has(item.id)) error(diagnostics, "ROUTING_PAD_ID_DUPLICATE", `Pad id ${item.id} is duplicated.`)

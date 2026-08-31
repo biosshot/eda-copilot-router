@@ -15,6 +15,7 @@ import {
   createLayerCatalog,
   type LayerCatalog,
 } from "../core/layers.js"
+import { stackupThicknessMm } from "../core/stackup.js"
 import {
   atom,
   findChild,
@@ -200,19 +201,18 @@ function zoneSource(zone: RoutingCopper["zones"][number], layer: string) {
   const padMode = zone.padConnection?.mode ?? zone.connection ?? "thermal"
   const thermalGap = zone.padConnection?.thermalGapMm ?? Math.max(clearance, 0.3)
   const spokeWidth = zone.padConnection?.spokeWidthMm ?? 0.3
-  const spokeCount = zone.padConnection?.spokeCount
-  const spokeAngle = zone.padConnection?.spokeAngleDeg
+  // KiCad stores thermal spoke count/angle as pad properties, not as members
+  // of a zone's `(fill ...)` block.  Emitting thermal_bridge_count or
+  // thermal_bridge_angle here makes KiCad 10 reject the whole board.  Keep
+  // these portable contract fields in RoutingCopper, but only serialize the
+  // zone-level thermal settings that the native file format supports.
   const fill = zone.fill?.style === "hatched"
     ? `(fill yes (mode hatch) (thermal_gap ${number(thermalGap)}) (thermal_bridge_width ${number(spokeWidth)})
-        ${spokeCount === undefined ? "" : `(thermal_bridge_count ${spokeCount})`}
-        ${spokeAngle === undefined ? "" : `(thermal_bridge_angle ${number(spokeAngle)})`}
         (island_removal_mode 1) (island_area_min ${number(zone.removeIslandsBelowMm2 ?? 0)})
         (hatch_thickness ${number(zone.fill.hatchThicknessMm ?? 0.5)})
         (hatch_gap ${number(zone.fill.hatchGapMm ?? 0.5)})
         (hatch_orientation ${number(zone.fill.hatchOrientationDeg ?? 0)}))`
     : `(fill yes (thermal_gap ${number(thermalGap)}) (thermal_bridge_width ${number(spokeWidth)})
-        ${spokeCount === undefined ? "" : `(thermal_bridge_count ${spokeCount})`}
-        ${spokeAngle === undefined ? "" : `(thermal_bridge_angle ${number(spokeAngle)})`}
         (island_removal_mode 1) (island_area_min ${number(zone.removeIslandsBelowMm2 ?? 0)}))`
   return `(zone
     ${zone.net ? `(net ${quote(zone.net)})` : ""}
@@ -253,15 +253,30 @@ function stackupSource(request: BackendRouteRequest, catalog: LayerCatalog) {
   if (!request.board.stackup) return ""
   let dielectricIndex = 0
   const layers = request.board.stackup.layers.map((layer) => {
-    if (layer.kind === "copper") return `(layer ${quote(catalog.kiCadName(layer.layer))} (type "copper") (thickness ${number(layer.thicknessMm)}))`
+    if (layer.kind === "copper") return `      (layer ${quote(catalog.kiCadName(layer.layer))} (type "copper") (thickness ${number(layer.thicknessMm)}))`
     dielectricIndex += 1
-    return `(layer ${quote(layer.name ?? `dielectric ${dielectricIndex}`)} (type "core") (thickness ${number(layer.thicknessMm)})${
+    return `      (layer ${quote(layer.name ?? `dielectric ${dielectricIndex}`)} (type "core") (thickness ${number(layer.thicknessMm)})${
       layer.material === undefined ? "" : ` (material ${quote(layer.material)})`
     }${layer.relativePermittivity === undefined ? "" : ` (epsilon_r ${number(layer.relativePermittivity)})`}${
       layer.lossTangent === undefined ? "" : ` (loss_tangent ${number(layer.lossTangent)})`
     })`
   })
-  return `(stackup ${layers.join(" ")})`
+  const mask = (
+    name: "F.Mask" | "B.Mask",
+    type: "Top Solder Mask" | "Bottom Solder Mask",
+    values: NonNullable<NonNullable<typeof request.board.stackup>["solderMask"]>["top"] | undefined,
+  ) => values === undefined ? undefined : `      (layer ${quote(name)} (type ${quote(type)})${
+    values.thicknessMm === undefined ? "" : ` (thickness ${number(values.thicknessMm)})`
+  }${values.relativePermittivity === undefined ? "" : ` (epsilon_r ${number(values.relativePermittivity)})`})`
+  const physicalLayers = [
+    mask("F.Mask", "Top Solder Mask", request.board.stackup.solderMask?.top),
+    ...layers,
+    mask("B.Mask", "Bottom Solder Mask", request.board.stackup.solderMask?.bottom),
+  ].filter((layer): layer is string => layer !== undefined)
+  // KRT 0.21.3's native stackup reader terminates the block at a closing
+  // parenthesis that starts on its own line.  KiCad also emits this multiline
+  // shape, so preserve it instead of serializing the whole stackup inline.
+  return `(stackup\n${physicalLayers.join("\n")}\n      )`
 }
 
 function boardSource(request: BackendRouteRequest) {
@@ -288,12 +303,16 @@ function boardSource(request: BackendRouteRequest) {
     keepoutSource(keepout, catalog.kiCadName(layer))
   ))).join("\n")
   const thicknessMm = request.board.stackup?.boardThicknessMm
-    ?? request.board.stackup?.layers.reduce((total, layer) => total + layer.thicknessMm, 0) ?? 1.6
+    ?? (request.board.stackup ? stackupThicknessMm(request.board.stackup) : 1.6)
   return `(kicad_pcb
     (version 20260206) (generator "copilot-router") (generator_version "0.1")
     (general (thickness ${number(thicknessMm)}) (legacy_teardrops no)) (paper "A4")
     (layers ${layerSource(request, catalog)})
-    (setup (pad_to_mask_clearance 0) (allow_soldermask_bridges_in_footprints no) ${stackupSource(request, catalog)})
+    (setup
+      (pad_to_mask_clearance 0)
+      (allow_soldermask_bridges_in_footprints no)
+      ${stackupSource(request, catalog)}
+    )
     ${footprintSource(request, catalog)}
     ${tracks}
     ${vias}
@@ -392,7 +411,9 @@ function parseCopper(source: string): RoutingCopper {
 }
 
 function rounded(value: number) {
-  return Number(value.toFixed(5))
+  // Match boardSource() exactly.  A 5-vs-6 decimal mismatch made immutable
+  // input tracks look like editable echoes after a KRT round trip.
+  return Number(value.toFixed(6))
 }
 
 function trackKey(track: RoutedTrack) {
@@ -482,6 +503,16 @@ function projectSource(rules: BackendRouteRequest["rules"]) {
   const holeToHoleClearances = values.flatMap((value) => (
     value.holeToHoleClearanceMm === undefined ? [] : [value.holeToHoleClearanceMm]
   ))
+  const impedanceSpecs = Object.fromEntries(rules.nets.flatMap(({ net, values }) => (
+    values.impedanceOhm === undefined
+      ? []
+      : [[net, {
+          ohms: values.impedanceOhm,
+          differential: Boolean(values.differential),
+          pair_gap: values.differential?.gapMm ?? 0,
+          coplanar_gap: values.impedanceCoplanarGapMm ?? 0,
+        }]]
+  )))
   return `${JSON.stringify({
     board: {
       design_settings: {
@@ -510,6 +541,9 @@ function projectSource(rules: BackendRouteRequest["rules"]) {
       netclass_assignments: netclassAssignments,
       netclass_patterns: [],
     },
+    ...(Object.keys(impedanceSpecs).length
+      ? { kicad_routing_tools: { net_impedance: impedanceSpecs } }
+      : {}),
   }, null, 2)}\n`
 }
 

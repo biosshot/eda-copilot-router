@@ -19,7 +19,12 @@ import {
   createBundledEasyEdaWasmBackend,
   type BundledEasyEdaWasmBackendOptions,
 } from "./easyeda-wasm.js"
-import { createKrtBackend, type KrtBackendOptions } from "./krt.js"
+import {
+  createKrtBackend,
+  createKrtPostEasyBackend,
+  krtPostEasyReservedNets,
+  type KrtBackendOptions,
+} from "./krt.js"
 
 export type HybridBackendOptions = Readonly<{
   krt?: KrtBackendOptions
@@ -28,6 +33,12 @@ export type HybridBackendOptions = Readonly<{
 
 export type HybridBackendDependencies = Readonly<{
   krt: RouterBackendAdapter
+  easyeda: RouterBackendAdapter
+}>
+
+type HybridRuntimeDependencies = Readonly<{
+  krtFull: RouterBackendAdapter
+  krtPostEasy: RouterBackendAdapter
   easyeda: RouterBackendAdapter
 }>
 
@@ -197,11 +208,7 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
     reasons.set(net, current)
   }
 
-  for (const group of request.plan.groups) for (const net of group.nets) claim(net, group.kind)
-  for (const pair of request.rules.differentialPairs ?? []) {
-    claim(pair.positive, "effective-differential-relation")
-    claim(pair.negative, "effective-differential-relation")
-  }
+  for (const group of request.program.matchedGroups) for (const net of group.nets) claim(net, "matched")
   for (const group of request.rules.matchedGroups ?? []) {
     for (const net of group.nets) claim(net, "effective-matched-relation")
   }
@@ -212,7 +219,6 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
     if (policy.priority === "critical") claim(policy.net, "critical")
     if (policy.viaPreference !== "auto") claim(policy.net, `via-${policy.viaPreference}`)
   }
-  if (request.program.busDetect) for (const net of routableNets) claim(net, "bus-detect")
   for (const fanout of request.program.fanouts) {
     for (const net of fanoutTargetNets(request, fanout)) claim(net, "fanout")
   }
@@ -220,9 +226,13 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
   const allLayers = request.board.layers.map((layer) => layer.name)
   for (const net of routableNets) {
     const rule = ruleFor(request, net)
-    if (rule.impedanceOhm !== undefined || rule.differential) claim(net, "compiled-special-rule")
+    if (rule.impedanceOhm !== undefined) claim(net, "compiled-impedance-rule")
     if (rule.allowedLayers && !sameStrings(rule.allowedLayers, allLayers)) claim(net, "per-net-layers")
   }
+
+  // Keep the shared KRT policy authoritative if a new internal hard intent is
+  // added later; Hybrid only supplies human-readable reasons.
+  for (const net of krtPostEasyReservedNets(request)) claim(net, "krt-dependent")
 
   return {
     routableNets,
@@ -300,7 +310,7 @@ function publicPreflightDiagnostics(plan: HybridExecutionPlan) {
 
 async function prepareExecution(
   request: BackendRouteRequest,
-  dependencies: HybridBackendDependencies,
+  dependencies: HybridRuntimeDependencies,
 ): Promise<HybridExecutionPlan> {
   const partition = partitionHybridRoute(request)
   if (!partition.routableNets.length) return {
@@ -312,7 +322,7 @@ async function prepareExecution(
 
   const easyFullRequest = scopeBackendRequest(request, partition.routableNets)
   if (request.board.layers.length > 2) {
-    const krt = await checkBackend(dependencies.krt, request, "krt-full")
+    const krt = await checkBackend(dependencies.krtFull, request, "krt-full")
     if (krt.ready) return {
       mode: "krt-full", partition, diagnostics: krt.diagnostics,
       krtRequest: request, fallback: false,
@@ -334,15 +344,19 @@ async function prepareExecution(
         }
   }
 
-  const krtScopedRequest = partition.krtNets.length
-    ? scopeBackendRequest(request, partition.krtNets)
-    : undefined
+  // Post-Easy KRT receives the whole request so its transaction can audit and
+  // repair exact EasyEDA victims. Its internal mode still routes only reserved
+  // constraints plus genuinely open nets.
+  // Even a board with no pre-reserved KRT nets may leave ordinary EasyEDA
+  // opens.  Keep one post-Easy KRT transaction available so it can route only
+  // those exact leftovers and run the shared bounded recovery stage.
+  const krtScopedRequest = request
   const easyScopedRequest = partition.easyedaNets.length
     ? scopeBackendRequest(request, partition.easyedaNets)
     : undefined
   const [krtScoped, easyScoped] = await Promise.all([
     krtScopedRequest
-      ? checkBackend(dependencies.krt, krtScopedRequest, "krt-constrained")
+      ? checkBackend(dependencies.krtPostEasy, krtScopedRequest, "krt-post-easy")
       : Promise.resolve(undefined),
     easyScopedRequest
       ? checkBackend(dependencies.easyeda, easyScopedRequest, "easyeda-remaining")
@@ -359,15 +373,17 @@ async function prepareExecution(
     easyedaRequest: easyScopedRequest,
     fallback: false,
   }
-  if (!krtScopedRequest && easyScoped?.ready) return {
-    mode: "easyeda-only", partition, diagnostics: scopedDiagnostics,
-    easyedaRequest: easyScopedRequest,
-    fallback: false,
-  }
   if (!easyScopedRequest && krtScoped?.ready) return {
     mode: "krt-scoped", partition, diagnostics: scopedDiagnostics,
     krtRequest: krtScopedRequest,
     fallback: false,
+  }
+
+  if (!partition.krtNets.length && easyScoped?.ready && !krtScoped?.ready) return {
+    mode: "easyeda-only", partition, diagnostics: scopedDiagnostics,
+    easyedaRequest: easyScopedRequest,
+    fallback: true,
+    reason: "KRT post-Easy completion/repair preflight failed.",
   }
 
   let easyedaFull: CheckedBackend | undefined
@@ -382,7 +398,7 @@ async function prepareExecution(
     }
   }
 
-  const krtFull = await checkBackend(dependencies.krt, request, "krt-full-fallback")
+  const krtFull = await checkBackend(dependencies.krtFull, request, "krt-full-fallback")
   if (krtFull.ready) return {
     mode: "krt-full", partition,
     diagnostics: [...scopedDiagnostics, ...krtFull.diagnostics],
@@ -547,51 +563,47 @@ function aggregateHybridResult(
   easyedaResult: BackendRouteResult,
   diagnostics: readonly RoutingDiagnostic[],
 ): BackendRouteResult {
-  const krtOpen = krtResult.metrics?.openNetCount ?? partition.krtNets.length
-  const easyedaOpen = easyedaResult.metrics?.openNetCount ?? partition.easyedaNets.length
-  const exactOpenNets = [
-    ...(krtResult.metrics?.openNets ?? []),
-    ...(easyedaResult.metrics?.openNets ?? []),
-  ]
-  const copper = easyedaResult.copper
+  // Post-Easy KRT audits the complete request, including ordinary EasyEDA
+  // copper and any victims it moved. Its final metrics are therefore the one
+  // authoritative connectivity snapshot; summing two scoped counters would
+  // double-count or miss cross-stage damage.
+  const finalOpen = krtResult.metrics?.openNetCount ?? partition.routableNets.length
+  const copper = krtResult.copper
   const mergedDiagnostics = [
     ...diagnostics,
-    ...(krtResult.diagnostics ?? []),
     ...(easyedaResult.diagnostics ?? []),
+    ...(krtResult.diagnostics ?? []),
   ]
   const partial = krtResult.status !== "complete"
     || easyedaResult.status !== "complete"
-    || krtOpen + easyedaOpen > 0
+    || finalOpen > 0
     || mergedDiagnostics.some((item) => item.severity === "error")
   return {
     status: partial ? "partial" : "complete",
     copper,
     diagnostics: mergedDiagnostics,
     metrics: {
+      ...(krtResult.metrics ?? {}),
       elapsedMs: (krtResult.metrics?.elapsedMs ?? 0) + (easyedaResult.metrics?.elapsedMs ?? 0),
-      routedNetCount: Math.max(0, partition.routableNets.length - krtOpen - easyedaOpen),
-      openNetCount: krtOpen + easyedaOpen,
-      ...(exactOpenNets.length || krtOpen + easyedaOpen === 0
-        ? { openNets: [...new Set(exactOpenNets)] }
-        : {}),
-      connectivityComponentCount:
-        (krtResult.metrics?.connectivityComponentCount ?? partition.krtNets.length + krtOpen)
-        + (easyedaResult.metrics?.connectivityComponentCount ?? partition.easyedaNets.length + easyedaOpen),
+      routedNetCount: krtResult.metrics?.routedNetCount
+        ?? Math.max(0, partition.routableNets.length - finalOpen),
+      openNetCount: finalOpen,
       trackLengthMm: trackLengthMm(copper),
       viaCount: copper.vias.length,
       backend: "hybrid",
       details: {
+        ...(krtResult.metrics?.details ?? {}),
         hybrid: {
           mode: "hybrid",
           krtNets: partition.krtNets,
           easyedaNets: partition.easyedaNets,
           reasons: partition.reasons,
           stages: {
-            krt: { status: krtResult.status, metrics: krtResult.metrics },
-            easyeda: { status: easyedaResult.status, metrics: easyedaResult.metrics },
+            easyedaBulk: { status: easyedaResult.status, metrics: easyedaResult.metrics },
+            krtPostEasy: { status: krtResult.status, metrics: krtResult.metrics },
           },
         },
-        initialConnectivity: {
+        hybridInput: {
           openNets: request.plan.scopeNets,
           connectivityComponentCount: baselineMetrics(request).connectivityComponentCount,
         },
@@ -600,18 +612,33 @@ function aggregateHybridResult(
   }
 }
 
-function retainedScopeCheckpoint(
+function conservativeEasyCheckpoint(
   request: BackendRouteRequest,
-  copper: RoutingCopper,
+  partition: HybridRoutePartition,
+  easyCheckpoint: BackendRouteResult,
 ): BackendRouteResult {
+  const reportedEasyOpen = easyCheckpoint.metrics?.openNets
+    ?? (easyCheckpoint.status === "complete" ? [] : partition.easyedaNets)
+  const openNets = [...new Set([
+    ...partition.krtNets,
+    ...reportedEasyOpen,
+  ])]
+  const easyComponents = easyCheckpoint.metrics?.connectivityComponentCount
+    ?? partition.easyedaNets.reduce((sum, net) => (
+      sum + Math.max(1, request.board.pads.filter((pad) => pad.net === net).length)
+    ), 0)
+  const reservedComponents = partition.krtNets.reduce((sum, net) => (
+    sum + Math.max(1, request.board.pads.filter((pad) => pad.net === net).length)
+  ), 0)
   return {
+    ...easyCheckpoint,
     status: "partial",
-    copper,
     metrics: {
-      ...baselineMetrics(request),
-      elapsedMs: 0,
-      trackLengthMm: trackLengthMm(copper),
-      viaCount: copper.vias.length,
+      ...(easyCheckpoint.metrics ?? {}),
+      openNetCount: openNets.length,
+      openNets,
+      connectivityComponentCount: easyComponents + reservedComponents,
+      routedNetCount: Math.max(0, partition.routableNets.length - openNets.length),
     },
   }
 }
@@ -658,9 +685,35 @@ async function recoverFromKrtFailure(
   partition: HybridRoutePartition,
   krtRecovery: BackendRouteResult,
   krtRecoveryMode: HybridExecutionMode,
-  dependencies: HybridBackendDependencies,
+  dependencies: HybridRuntimeDependencies,
   diagnostics: readonly RoutingDiagnostic[],
+  easyCheckpoint?: BackendRouteResult,
 ): Promise<BackendRouteResult> {
+  if (easyCheckpoint) {
+    // EasyEDA has already run once. Never start a second WASM route solely for
+    // hard-special opens: retain the richer of its checkpoint and KRT's last
+    // readable checkpoint, with every failure visible as partial diagnostics.
+    const easyFallback = conservativeEasyCheckpoint(request, partition, easyCheckpoint)
+    const recoveryCandidates = [easyFallback, krtRecovery]
+    const selected = richerResult(request, recoveryCandidates)
+    const recoveryMode = selected === krtRecovery ? krtRecoveryMode : "hybrid"
+    return enrichResult(selected, [
+      ...diagnostics,
+      ...unselectedDiagnostics(selected, recoveryCandidates),
+      diagnostic(
+        "HYBRID_KRT_CHECKPOINT_FALLBACK",
+        "warning",
+        "Late KRT routing failed; no second EasyEDA process was started and the best existing partial checkpoint was retained.",
+      ),
+    ], recoveryMode, partition, true, {
+      recoverySelected: recoveryMode,
+    })
+  }
+
+  // A KRT-only/full plan has not spent its EasyEDA attempt. If KRT passes
+  // preflight but then cannot start or fails before a useful checkpoint, keep
+  // the original last-resort contract: try EasyEDA exactly once on full
+  // routable scope and rank both partial checkpoints.
   const easyFullRequest = scopeBackendRequest(request, partition.routableNets)
   const easyFullCheck = await checkBackend(
     dependencies.easyeda,
@@ -673,22 +726,28 @@ async function recoverFromKrtFailure(
     diagnostic(
       "HYBRID_KRT_RUNTIME_FALLBACK_UNAVAILABLE",
       "warning",
-      "KRT failed during routing, and EasyEDA WASM did not pass full-scope fallback preflight.",
+      "KRT failed before an EasyEDA pass, and EasyEDA WASM did not pass full-scope fallback preflight.",
     ),
   ], krtRecoveryMode, partition, true, {
     recoverySelected: krtRecoveryMode,
   })
 
-  const easyFull = await safeRoute(
+  const easyFullResult = await safeRoute(
     dependencies.easyeda,
     easyFullRequest,
     "easyeda-full-runtime-fallback",
   )
-  const recoveryCandidates = [krtRecovery, easyFull]
+  const easyFallback = enrichResult(easyFullResult, partition.krtNets.length ? [diagnostic(
+    "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK",
+    "warning",
+    "EasyEDA full runtime fallback copper was retained, but matched-length and impedance/KRT-only semantics remain unverified.",
+    { nets: partition.krtNets },
+  )] : [], "easyeda-full", partition, true)
+  const recoveryCandidates = [krtRecovery, easyFallback]
   const selected = richerResult(request, recoveryCandidates)
-  const recoveryMode = selected === easyFull
-    ? "easyeda-full"
-    : selected === krtRecovery ? krtRecoveryMode : "none"
+  const recoveryMode = selected === krtRecovery
+    ? krtRecoveryMode
+    : selected === easyFallback ? "easyeda-full" : "none"
   return enrichResult(selected, [
     ...diagnostics,
     ...easyFullCheck.diagnostics,
@@ -696,7 +755,7 @@ async function recoverFromKrtFailure(
     diagnostic(
       "HYBRID_KRT_RUNTIME_FALLBACK",
       "warning",
-      "KRT failed during routing; EasyEDA WASM was retried on the full routable scope.",
+      "KRT failed before an EasyEDA pass; EasyEDA WASM was attempted once on the full routable scope.",
     ),
   ], recoveryMode, partition, true, {
     recoverySelected: recoveryMode,
@@ -708,15 +767,16 @@ async function recoverFromEasyEdaFailure(
   partition: HybridRoutePartition,
   easyedaRecovery: BackendRouteResult,
   easyedaRecoveryMode: HybridExecutionMode,
-  dependencies: HybridBackendDependencies,
+  dependencies: HybridRuntimeDependencies,
   diagnostics: readonly RoutingDiagnostic[],
 ): Promise<BackendRouteResult> {
+  const conservativeEasy = conservativeEasyCheckpoint(request, partition, easyedaRecovery)
   const krtFullCheck = await checkBackend(
-    dependencies.krt,
+    dependencies.krtFull,
     request,
     "krt-full-runtime-fallback",
   )
-  if (!krtFullCheck.ready) return enrichResult(easyedaRecovery, [
+  if (!krtFullCheck.ready) return enrichResult(conservativeEasy, [
     ...diagnostics,
     ...krtFullCheck.diagnostics,
     diagnostic(
@@ -730,12 +790,13 @@ async function recoverFromEasyEdaFailure(
 
   // The original request is intentional: KRT owns its complete native-auto
   // workflow and must not receive a reimplemented or widened Hybrid variant.
-  const krtFull = await safeRoute(dependencies.krt, request, "krt-full-runtime-fallback")
-  const recoveryCandidates = [easyedaRecovery, krtFull]
+  const krtInput = withEditableCopper(request, easyedaRecovery.copper)
+  const krtFull = await safeRoute(dependencies.krtFull, krtInput, "krt-full-runtime-fallback")
+  const recoveryCandidates = [conservativeEasy, krtFull]
   const selected = richerResult(request, recoveryCandidates)
   const recoveryMode = selected === krtFull
     ? "krt-full"
-    : selected === easyedaRecovery ? easyedaRecoveryMode : "none"
+    : selected === conservativeEasy ? easyedaRecoveryMode : "none"
   return enrichResult(selected, [
     ...diagnostics,
     ...krtFullCheck.diagnostics,
@@ -753,7 +814,7 @@ async function recoverFromEasyEdaFailure(
 async function executePlan(
   request: BackendRouteRequest,
   plan: HybridExecutionPlan,
-  dependencies: HybridBackendDependencies,
+  dependencies: HybridRuntimeDependencies,
 ): Promise<BackendRouteResult> {
   const selectedDiagnostic = diagnostic(
     "HYBRID_ROUTE_MODE_SELECTED",
@@ -800,7 +861,8 @@ async function executePlan(
   }
 
   if (plan.mode === "krt-full" || plan.mode === "krt-scoped") {
-    const result = await safeRoute(dependencies.krt, plan.krtRequest!, plan.mode)
+    const backend = plan.mode === "krt-full" ? dependencies.krtFull : dependencies.krtPostEasy
+    const result = await safeRoute(backend, plan.krtRequest!, plan.mode)
     if (!plan.fallback && stageFailed(result, "krt")) return recoverFromKrtFailure(
       request,
       plan.partition,
@@ -824,56 +886,42 @@ async function executePlan(
       dependencies,
       planDiagnostics,
     )
-    return enrichResult(result, planDiagnostics, plan.mode, plan.partition, plan.fallback, {
+    const fallbackDiagnostics = plan.mode === "easyeda-full" && plan.partition.krtNets.length
+      ? [diagnostic(
+          "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK",
+          "warning",
+          "EasyEDA full fallback copper was retained, but matched-length and impedance/KRT-only semantics remain unverified.",
+          { nets: plan.partition.krtNets },
+        )]
+      : []
+    return enrichResult(result, [...planDiagnostics, ...fallbackDiagnostics], plan.mode, plan.partition, plan.fallback, {
       fallbackReason: plan.reason,
     })
   }
 
-  const krtResult = await safeRoute(dependencies.krt, plan.krtRequest!, "krt-constrained")
-  if (stageFailed(krtResult, "krt")) {
-    const untouchedEasyScope = scopeBackendRequest(
-      withEditableCopper(request, krtResult.copper),
-      plan.partition.easyedaNets,
-    )
-    const krtRecovery = aggregateHybridResult(
+  const easyedaResult = await safeRoute(dependencies.easyeda, plan.easyedaRequest!, "easyeda-bulk")
+  if (stageFailed(easyedaResult, "easyeda")) {
+    return recoverFromEasyEdaFailure(
       request,
       plan.partition,
-      krtResult,
-      retainedScopeCheckpoint(untouchedEasyScope, krtResult.copper),
-      [],
-    )
-    return recoverFromKrtFailure(
-      request,
-      plan.partition,
-      krtRecovery,
+      easyedaResult,
       "hybrid",
       dependencies,
       planDiagnostics,
     )
   }
 
-  const stagedRequest = scopeBackendRequest(
-    withEditableCopper(request, krtResult.copper),
-    plan.partition.easyedaNets,
+  const stagedRequest = withEditableCopper(request, easyedaResult.copper)
+  const krtResult = await safeRoute(dependencies.krtPostEasy, stagedRequest, "krt-post-easy")
+  if (stageFailed(krtResult, "krt")) return recoverFromKrtFailure(
+    request,
+    plan.partition,
+    krtResult,
+    "hybrid",
+    dependencies,
+    planDiagnostics,
+    easyedaResult,
   )
-  const easyedaResult = await safeRoute(dependencies.easyeda, stagedRequest, "easyeda-remaining")
-  if (stageFailed(easyedaResult, "easyeda")) {
-    const stagedRecovery = aggregateHybridResult(
-      request,
-      plan.partition,
-      krtResult,
-      easyedaResult,
-      [],
-    )
-    return recoverFromEasyEdaFailure(
-      request,
-      plan.partition,
-      stagedRecovery,
-      "hybrid",
-      dependencies,
-      planDiagnostics,
-    )
-  }
 
   return aggregateHybridResult(request, plan.partition, krtResult, easyedaResult, planDiagnostics)
 }
@@ -886,10 +934,13 @@ export function createHybridBackend(
   options: HybridBackendOptions = {},
   injected?: HybridBackendDependencies,
 ): RouterBackendAdapter {
-  const dependencies: HybridBackendDependencies = injected ?? {
-    krt: createKrtBackend(options.krt),
-    easyeda: createBundledEasyEdaWasmBackend(options.easyeda),
-  }
+  const dependencies: HybridRuntimeDependencies = injected
+    ? { krtFull: injected.krt, krtPostEasy: injected.krt, easyeda: injected.easyeda }
+    : {
+        krtFull: createKrtBackend(options.krt),
+        krtPostEasy: createKrtPostEasyBackend(options.krt),
+        easyeda: createBundledEasyEdaWasmBackend(options.easyeda),
+      }
   const prepared = new WeakMap<BackendRouteRequest, Promise<HybridExecutionPlan>>()
   const execution = (request: BackendRouteRequest) => {
     let current = prepared.get(request)
@@ -920,7 +971,7 @@ export function createHybridBackend(
     id: "hybrid",
     // The production strategy satisfies the same semantic surface as KRT when
     // KRT is available. Runtime degradation is explicit and always partial.
-    capabilities: dependencies.krt.capabilities,
+    capabilities: dependencies.krtFull.capabilities,
     async preflight(request) {
       return publicPreflightDiagnostics(await execution(request))
     },

@@ -212,6 +212,15 @@ export type KrtStageSpec = {
   /** Re-route the explicitly scoped nets even when their current copper is connected. */
   forceReroute?: boolean
   powerNets?: readonly { net: string; width: number }[]
+  /**
+   * Native, stackup-aware impedance solve for this isolated invocation.
+   * This is an internal execution policy; the public board/DSL contracts stay
+   * unchanged and remain authoritative for the requested values.
+   */
+  impedance?: Readonly<{
+    targetOhm: number
+    coplanarGapMm?: number
+  }>
   /** Ordinary routing normally uses MPS; special candidates may vary ordering. */
   ordering?: KrtOrdering
   /** Reverse MPS rounds so the most-conflicting groups route first. */
@@ -1828,6 +1837,8 @@ async function commonPreflight(
   validatePositiveNumber(spec.rules.lengthMatchTolerance, "rules.lengthMatchTolerance", diagnostics)
   validatePositiveNumber(spec.rules.meanderAmplitude, "rules.meanderAmplitude", diagnostics)
   validatePositiveNumber(spec.rules.meanderSpacing, "rules.meanderSpacing", diagnostics)
+  validatePositiveNumber(spec.impedance?.targetOhm, "impedance.targetOhm", diagnostics)
+  validateNonNegativeNumber(spec.impedance?.coplanarGapMm, "impedance.coplanarGapMm", diagnostics)
   validateNonNegativeNumber(spec.neckdownLength, "neckdownLength", diagnostics)
   validateNonNegativeNumber(spec.neckdownTaperLength, "neckdownTaperLength", diagnostics)
   validatePositiveInteger(spec.maxIterations, "maxIterations", diagnostics)
@@ -2135,12 +2146,19 @@ function specialArgs(
   groups: NormalizedGroup[],
 ) {
   const args = commonArgs(inputBoard, outputBoard, spec)
-  args.push("--track-width", numberArg(spec.rules.trackWidth))
+  // route_diff.py treats an explicit width as the impedance-width floor.  A
+  // compiled preferred width would therefore defeat the native stackup solve
+  // whenever the two calculators differ slightly.  Impedance calls pass only
+  // the real fabrication floor; ordinary special calls keep their exact width.
+  args.push("--track-width", numberArg(
+    spec.impedance ? spec.rules.hardTrackWidth ?? spec.rules.trackWidth : spec.rules.trackWidth,
+  ))
   const nets = unique(pairs.flatMap((pair) => [pair.positive, pair.negative]))
   args.push("--nets", ...nets.map(krtLiteralNetFilterPattern))
   args.push("--diff-pair-gap", numberArg(spec.rules.diffPairGap!))
   if (spec.matchDifferentialPairLengths) args.push("--diff-pair-intra-match")
   if (spec.suppressGroundReturnVias) args.push("--no-gnd-vias")
+  appendImpedanceArgs(args, spec)
   for (const group of groups) args.push("--length-match-group", ...group.nets.map(krtLiteralGlobPattern))
   pushNumericArg(args, "--length-match-tolerance", spec.rules.lengthMatchTolerance)
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
@@ -2164,7 +2182,16 @@ function matchedOrdinaryArgs(
   pushNumericArg(args, "--meander-amplitude", spec.rules.meanderAmplitude)
   pushNumericArg(args, "--meander-spacing", spec.rules.meanderSpacing)
   appendRoutePyQualityArgs(args, spec)
+  appendImpedanceArgs(args, spec)
   return args
+}
+
+function appendImpedanceArgs(args: string[], spec: KrtStageSpec) {
+  if (!spec.impedance) return
+  args.push("--impedance", numberArg(spec.impedance.targetOhm))
+  if (spec.impedance.coplanarGapMm !== undefined) {
+    args.push("--coplanar-gap", numberArg(spec.impedance.coplanarGapMm))
+  }
 }
 
 function remainingArgs(
@@ -2191,6 +2218,7 @@ function remainingArgs(
   if (spec.forceReroute) args.push("--force-reroute")
   if (spec.collectStats) args.push("--stats")
   appendRoutePyQualityArgs(args, spec)
+  appendImpedanceArgs(args, spec)
   if (spec.powerNets?.length) {
     args.push("--power-nets", ...spec.powerNets.map((item) => krtLiteralGlobPattern(item.net)))
     args.push("--power-nets-widths", ...spec.powerNets.map((item) => numberArg(item.width)))
@@ -2266,6 +2294,22 @@ export function buildKrtNativeRecoveryEnvironment(spec: KrtStageSpec): Record<st
     KICAD_NET_RESCUE: spec.enableNetRescue === false ? "0" : "1",
     KICAD_TERMINAL_ESCALATION: spec.enableTerminalEscalation === false ? "0" : "1",
     KICAD_DYNAMIC_ITERATIONS: spec.dynamicIterations === false ? "0" : "1",
+    KICAD_DYNAMIC_ITERATIONS_CLAMP: "200000",
+    // Hybrid/KRT recovery must not silently turn into an implicit BGA
+    // fanout stage. Besides duplicating the explicit DSL fanout workflow,
+    // upstream's bare-pad rung can run the full BGA escape ladder several
+    // times per open net. On dense boards this dominated the entire repair
+    // while repeatedly producing no connectivity progress.
+    KICAD_BARE_PAD_ESCAPE: "0",
+    KICAD_RESCUE_CAP_MOVE: "0",
+    // The bundled patch applies these only to the one explicitly enabled
+    // final rescue.  They bound search work by cells/iterations/attempts, not
+    // by an unrealistically small wall-clock timeout.
+    COPILOT_ROUTER_RESCUE_GRID_STEP: "0.1",
+    COPILOT_ROUTER_RESCUE_CLEARANCE_STEPS: "1",
+    COPILOT_ROUTER_RESCUE_MAX_WINDOW_CELLS: "500000",
+    COPILOT_ROUTER_RESCUE_MAX_EDGES_PER_NET: "1",
+    COPILOT_ROUTER_RESCUE_MAX_ITERATIONS: "100000",
     KICAD_PLANE_FINALIZE: spec.planeFinalize ? "1" : "0",
     KICAD_FINALIZE_RIP: spec.finalizeRip === false ? "0" : "1",
   }

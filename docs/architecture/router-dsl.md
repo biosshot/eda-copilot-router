@@ -209,8 +209,11 @@ For coplanar structures the gap comes from the maximum applicable DRC and zone
 clearance, because that is the separation native refill will preserve. The
 compiler derives width unless `trackWidthMm` was explicitly supplied, in which
 case it verifies the achieved impedance and tolerance. It never guesses a
-dielectric thickness, relative permittivity, or reference net; incomplete or
-equally eligible reference geometry is a preflight error.
+dielectric constant or reference net. The only inferred physical thickness is
+the single unambiguous dielectric of a two-copper-layer board, as described
+below; because that inference supplies no relative permittivity, it is still
+insufficient for controlled-impedance routing. Incomplete or equally eligible
+reference geometry is a preflight error.
 
 ## Physical stack
 
@@ -229,7 +232,7 @@ stack({
     {
       name: "CORE",
       kind: "dielectric",
-      thicknessMm: 1.53,
+      thicknessMm: 1.49042,
       relativePermittivity: 4.3,
       lossTangent: 0.02,
       material: "FR4",
@@ -250,6 +253,14 @@ four-layer stack and route that effective four-layer board in the same
 `run(...)` call. `RoutingResult.stackup` asks the host to apply the identical
 physical stack before applying returned copper. Missing electrical properties
 are errors only when a requested calculation, such as impedance, requires them.
+
+If a board has exactly two copper layers and no dielectric entry, the compiler
+inserts the one possible dielectric between them. Its thickness is finished
+`boardThicknessMm` minus both copper thicknesses and any explicitly declared
+solder-mask thickness. This geometric completion does not invent material or
+permittivity. A board with more than two copper layers must explicitly provide
+one dielectric between every adjacent copper pair; otherwise preflight returns
+`DSL_STACK_DIELECTRIC_REQUIRED` and the routing backend is not started.
 
 The object fields use explicit unit suffixes where values would otherwise be
 ambiguous. Backend paths, presets, and search knobs remain outside the DSL.

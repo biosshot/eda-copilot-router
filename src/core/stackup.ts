@@ -1,7 +1,14 @@
-import type { RoutingBoard, RoutingLayer, RoutingRuleValues, RoutingStackup } from "./contracts.js"
+import type {
+  RoutingBoard,
+  RoutingDiagnostic,
+  RoutingLayer,
+  RoutingRuleValues,
+  RoutingStackup,
+} from "./contracts.js"
 import type { StackIntent } from "../intent/types.js"
 
 const COPPER_MM_PER_OZ = 0.03479
+const DEFAULT_BOARD_THICKNESS_MM = 1.6
 
 function physicalLayerName(board: RoutingBoard, canonical: string) {
   if (canonical === "TOP") return board.layers.find((layer) => layer.side === "top")?.name ?? canonical
@@ -29,6 +36,68 @@ function expandRuleLayers(values: RoutingRuleValues, board: RoutingBoard, layers
     : values
 }
 
+function maskThicknessMm(stackup: RoutingStackup) {
+  return (stackup.solderMask?.top?.thicknessMm ?? 0) + (stackup.solderMask?.bottom?.thicknessMm ?? 0)
+}
+
+/** Total serialized physical thickness, including solder mask when specified. */
+export function stackupThicknessMm(stackup: RoutingStackup) {
+  return stackup.layers.reduce((total, layer) => total + layer.thicknessMm, 0) + maskThicknessMm(stackup)
+}
+
+function completeTwoLayerDielectric(stackup: RoutingStackup): RoutingStackup {
+  const copper = stackup.layers.filter((layer) => layer.kind === "copper")
+  const dielectric = stackup.layers.filter((layer) => layer.kind === "dielectric")
+  if (copper.length !== 2 || dielectric.length !== 0 || stackup.layers.length !== 2) return stackup
+  const boardThicknessMm = stackup.boardThicknessMm ?? DEFAULT_BOARD_THICKNESS_MM
+  const dielectricThicknessMm = boardThicknessMm
+    - copper.reduce((total, layer) => total + layer.thicknessMm, 0)
+    - maskThicknessMm(stackup)
+  return {
+    ...stackup,
+    boardThicknessMm,
+    layers: [
+      copper[0],
+      { kind: "dielectric", name: "dielectric 1", thicknessMm: dielectricThicknessMm },
+      copper[1],
+    ],
+  }
+}
+
+/** Physical-stack errors that must stop a backend before it sees malformed geometry. */
+export function routingStackupDiagnostics(
+  stackup: RoutingStackup | undefined,
+  copperLayerCount: number,
+): readonly RoutingDiagnostic[] {
+  if (!stackup) return copperLayerCount > 2 ? [{
+    code: "DSL_STACK_DIELECTRIC_REQUIRED",
+    severity: "error",
+    message: "Boards with more than two copper layers require an explicit dielectric between every adjacent copper layer.",
+  }] : []
+  if (stackup.layers.some((layer) => !Number.isFinite(layer.thicknessMm) || layer.thicknessMm <= 0)) return [{
+    code: "DSL_STACK_INCOMPLETE",
+    severity: "error",
+    message: "Applied stackup needs a positive thickness for every copper and dielectric layer.",
+  }]
+  const copper = stackup.layers.filter((layer) => layer.kind === "copper")
+  if (copper.length !== copperLayerCount) return [{
+    code: "DSL_STACK_TOPOLOGY_INVALID",
+    severity: "error",
+    message: `Physical stackup has ${copper.length} copper layers, but the board has ${copperLayerCount}.`,
+  }]
+  const expectedLayerCount = Math.max(0, copper.length * 2 - 1)
+  const alternating = stackup.layers.length === expectedLayerCount
+    && stackup.layers.every((layer, index) => layer.kind === (index % 2 === 0 ? "copper" : "dielectric"))
+  if (!alternating) return [{
+    code: copper.length > 2 ? "DSL_STACK_DIELECTRIC_REQUIRED" : "DSL_STACK_TOPOLOGY_INVALID",
+    severity: "error",
+    message: copper.length > 2
+      ? "Boards with more than two copper layers require an explicit dielectric between every adjacent copper layer."
+      : "Physical stackup must alternate copper and dielectric layers, starting and ending with copper.",
+  }]
+  return []
+}
+
 function effectiveStackup(board: RoutingBoard, stack: StackIntent, layers: readonly RoutingLayer[]): RoutingStackup {
   const fallbackCopperThicknessOz = stack.fallbackCopperThicknessOz
     ?? board.stackup?.fallbackCopperThicknessOz ?? 1
@@ -38,7 +107,7 @@ function effectiveStackup(board: RoutingBoard, stack: StackIntent, layers: reado
     thicknessMm: fallbackCopperThicknessOz * COPPER_MM_PER_OZ,
   }))
   let copperIndex = 0
-  return {
+  return completeTwoLayerDielectric({
     ...(stack.boardThicknessMm === undefined
       ? board.stackup?.boardThicknessMm === undefined ? {} : { boardThicknessMm: board.stackup.boardThicknessMm }
       : { boardThicknessMm: stack.boardThicknessMm }),
@@ -77,12 +146,28 @@ function effectiveStackup(board: RoutingBoard, stack: StackIntent, layers: reado
     ...(stack.solderMask === undefined
       ? board.stackup?.solderMask === undefined ? {} : { solderMask: board.stackup.solderMask }
       : { solderMask: stack.solderMask }),
-  }
+  })
 }
 
 /** Build the physical board seen by planners and backends from stack(...). */
 export function materializeRoutingStackup(board: RoutingBoard, stack: StackIntent | undefined): RoutingBoard {
-  if (!stack) return board
+  if (!stack) {
+    if (board.stackup) return { ...board, stackup: completeTwoLayerDielectric(board.stackup) }
+    if (board.layers.length !== 2) return board
+    const fallbackCopperThicknessOz = 1
+    return {
+      ...board,
+      stackup: completeTwoLayerDielectric({
+        boardThicknessMm: DEFAULT_BOARD_THICKNESS_MM,
+        fallbackCopperThicknessOz,
+        layers: board.layers.map((layer) => ({
+          kind: "copper" as const,
+          layer: layer.name,
+          thicknessMm: fallbackCopperThicknessOz * COPPER_MM_PER_OZ,
+        })),
+      }),
+    }
+  }
   const copper = stack.layers?.filter((layer) => layer.kind === "copper")
   const layers: readonly RoutingLayer[] = copper?.length
     ? copper.map((layer, index) => ({

@@ -1,0 +1,1472 @@
+{
+  "board": {
+    "outline": [
+      {
+        "x": -15.400030480060963,
+        "y": -12.4000254000508
+      },
+      {
+        "x": -15.000030480060962,
+        "y": -12.5000254000508
+      },
+      {
+        "x": 15.000030480060962,
+        "y": -12.5000254000508
+      },
+      {
+        "x": 15.400030480060963,
+        "y": -12.4000254000508
+      },
+      {
+        "x": 15.800030480060961,
+        "y": -12.300025400050803
+      },
+      {
+        "x": 16.100033020066043,
+        "y": -12.100025400050802
+      },
+      {
+        "x": 16.300033020066042,
+        "y": -11.80002286004572
+      },
+      {
+        "x": 16.400033020066044,
+        "y": -11.400022860045722
+      },
+      {
+        "x": 16.500033020066045,
+        "y": -11.000022860045721
+      },
+      {
+        "x": 16.500033020066045,
+        "y": 11.000022860045721
+      },
+      {
+        "x": 16.400033020066044,
+        "y": 11.400022860045722
+      },
+      {
+        "x": 16.300033020066042,
+        "y": 11.70002286004572
+      },
+      {
+        "x": 16.100033020066043,
+        "y": 12.100025400050802
+      },
+      {
+        "x": 15.800030480060961,
+        "y": 12.300025400050803
+      },
+      {
+        "x": 15.400030480060963,
+        "y": 12.4000254000508
+      },
+      {
+        "x": 15.000030480060962,
+        "y": 12.5000254000508
+      },
+      {
+        "x": -15.000030480060962,
+        "y": 12.5000254000508
+      },
+      {
+        "x": -15.400030480060963,
+        "y": 12.4000254000508
+      },
+      {
+        "x": -15.700030480060962,
+        "y": 12.300025400050803
+      },
+      {
+        "x": -16.100033020066043,
+        "y": 12.100025400050802
+      },
+      {
+        "x": -16.300033020066042,
+        "y": 11.70002286004572
+      },
+      {
+        "x": -16.400033020066044,
+        "y": 11.400022860045722
+      },
+      {
+        "x": -16.500033020066045,
+        "y": 11.000022860045721
+      },
+      {
+        "x": -16.500033020066045,
+        "y": -11.000022860045721
+      },
+      {
+        "x": -16.400033020066044,
+        "y": -11.400022860045722
+      },
+      {
+        "x": -16.300033020066042,
+        "y": -11.80002286004572
+      },
+      {
+        "x": -16.100033020066043,
+        "y": -12.100025400050802
+      },
+      {
+        "x": -15.700030480060962,
+        "y": -12.300025400050803
+      }
+    ],
+    "cutouts": [],
+    "layers": [
+      {
+        "name": "TOP",
+        "index": 0,
+        "side": "top"
+      },
+      {
+        "name": "BOTTOM",
+        "index": 1,
+        "side": "bottom"
+      }
+    ],
+    "nets": [
+      {
+        "name": "GND"
+      },
+      {
+        "name": "LDO_BYP"
+      },
+      {
+        "name": "RF_IN"
+      },
+      {
+        "name": "RF_IN_IC"
+      },
+      {
+        "name": "RF_OUT"
+      },
+      {
+        "name": "RF_OUT_IC"
+      },
+      {
+        "name": "VCC_RF"
+      },
+      {
+        "name": "VRAW_6V_12V"
+      },
+      {
+        "name": "VREG5"
+      }
+    ],
+    "components": [
+      {
+        "designator": "C1",
+        "at": {
+          "x": 1.387,
+          "y": -8.8
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "C2",
+        "at": {
+          "x": -5.613,
+          "y": -8.8
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      },
+      {
+        "designator": "C3",
+        "at": {
+          "x": -7.113,
+          "y": -8.8
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "C4",
+        "at": {
+          "x": 2.601,
+          "y": 2.55
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "C5",
+        "at": {
+          "x": 3.999,
+          "y": 2.55
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "C6",
+        "at": {
+          "x": -3,
+          "y": 1.25
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "C7",
+        "at": {
+          "x": 3,
+          "y": -1.25
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "CN1",
+        "at": {
+          "x": 4.837,
+          "y": -8.8
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "L1",
+        "at": {
+          "x": 0,
+          "y": 2.6
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "RF1",
+        "at": {
+          "x": -14.859,
+          "y": 0
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      },
+      {
+        "designator": "RF2",
+        "at": {
+          "x": 14.859,
+          "y": 0
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "U1",
+        "at": {
+          "x": -2.613,
+          "y": -8.928
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "U2",
+        "at": {
+          "x": 0,
+          "y": 0
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      }
+    ],
+    "pads": [
+      {
+        "id": "C1:e14",
+        "component": "C1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 2.0869999999999997,
+          "y": -8.8
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C1:e15",
+        "component": "C1",
+        "number": "1",
+        "net": "VRAW_6V_12V",
+        "at": {
+          "x": 0.687,
+          "y": -8.8
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C2:e15",
+        "component": "C2",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -5.613,
+          "y": -9.2201
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C2:e16",
+        "component": "C2",
+        "number": "1",
+        "net": "VREG5",
+        "at": {
+          "x": -5.613,
+          "y": -8.379900000000001
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C3:e15",
+        "component": "C3",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -7.113,
+          "y": -8.379900000000001
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C3:e16",
+        "component": "C3",
+        "number": "1",
+        "net": "LDO_BYP",
+        "at": {
+          "x": -7.113,
+          "y": -9.2201
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C4:e15",
+        "component": "C4",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 2.601,
+          "y": 2.9701
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C4:e16",
+        "component": "C4",
+        "number": "1",
+        "net": "VCC_RF",
+        "at": {
+          "x": 2.601,
+          "y": 2.1298999999999997
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C5:e15",
+        "component": "C5",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 3.999,
+          "y": 2.9701
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C5:e16",
+        "component": "C5",
+        "number": "1",
+        "net": "VCC_RF",
+        "at": {
+          "x": 3.999,
+          "y": 2.1298999999999997
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C6:e15",
+        "component": "C6",
+        "number": "2",
+        "net": "RF_IN_IC",
+        "at": {
+          "x": -2.5799,
+          "y": 1.25
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C6:e16",
+        "component": "C6",
+        "number": "1",
+        "net": "RF_IN",
+        "at": {
+          "x": -3.4201,
+          "y": 1.25
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C7:e15",
+        "component": "C7",
+        "number": "2",
+        "net": "RF_OUT",
+        "at": {
+          "x": 3.4201,
+          "y": -1.25
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "C7:e16",
+        "component": "C7",
+        "number": "1",
+        "net": "RF_OUT_IC",
+        "at": {
+          "x": 2.5799,
+          "y": -1.25
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "CN1:e22",
+        "component": "CN1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 4.837,
+          "y": -9.8
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.6
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 0.8,
+          "plated": true
+        }
+      },
+      {
+        "id": "CN1:e23",
+        "component": "CN1",
+        "number": "1",
+        "net": "VRAW_6V_12V",
+        "at": {
+          "x": 4.837,
+          "y": -7.800000000000001
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.6
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 0.8,
+          "plated": true
+        }
+      },
+      {
+        "id": "L1:e5",
+        "component": "L1",
+        "number": "2",
+        "net": "VCC_RF",
+        "at": {
+          "x": 0.42,
+          "y": 2.6
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5400050800101601,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "L1:e6",
+        "component": "L1",
+        "number": "1",
+        "net": "VREG5",
+        "at": {
+          "x": -0.42,
+          "y": 2.6
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.5400050800101601,
+          "heightMm": 0.5400050800101601
+        }
+      },
+      {
+        "id": "RF1:e1",
+        "component": "RF1",
+        "number": "4",
+        "net": "GND",
+        "at": {
+          "x": -14.734,
+          "y": 2.77
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF1:e2",
+        "component": "RF1",
+        "number": "5",
+        "net": "GND",
+        "at": {
+          "x": -14.734,
+          "y": -2.77
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF1:e6",
+        "component": "RF1",
+        "number": "1",
+        "net": "RF_IN",
+        "at": {
+          "x": -14.984,
+          "y": 0
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.27000254000508,
+          "heightMm": 3.7000000000000006
+        }
+      },
+      {
+        "id": "RF1:e7",
+        "component": "RF1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -14.734,
+          "y": 2.77
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF1:e8",
+        "component": "RF1",
+        "number": "3",
+        "net": "GND",
+        "at": {
+          "x": -14.734,
+          "y": -2.77
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF2:e1",
+        "component": "RF2",
+        "number": "4",
+        "net": "GND",
+        "at": {
+          "x": 14.734,
+          "y": -2.77
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF2:e2",
+        "component": "RF2",
+        "number": "5",
+        "net": "GND",
+        "at": {
+          "x": 14.734,
+          "y": 2.77
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF2:e6",
+        "component": "RF2",
+        "number": "1",
+        "net": "RF_OUT",
+        "at": {
+          "x": 14.984,
+          "y": 0
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.27000254000508,
+          "heightMm": 3.7000000000000006
+        }
+      },
+      {
+        "id": "RF2:e7",
+        "component": "RF2",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 14.734,
+          "y": -2.77
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "RF2:e8",
+        "component": "RF2",
+        "number": "3",
+        "net": "GND",
+        "at": {
+          "x": 14.734,
+          "y": 2.77
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.3500127000253994,
+          "heightMm": 4.200000000000001
+        }
+      },
+      {
+        "id": "U1:e17",
+        "component": "U1",
+        "number": "5",
+        "net": "VREG5",
+        "at": {
+          "x": -3.8844000000000003,
+          "y": -7.977900000000001
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1,
+          "heightMm": 0.5500127000254001
+        }
+      },
+      {
+        "id": "U1:e18",
+        "component": "U1",
+        "number": "4",
+        "net": "LDO_BYP",
+        "at": {
+          "x": -3.8844000000000003,
+          "y": -9.8781
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0000000000000002,
+          "heightMm": 0.5500127000254004
+        }
+      },
+      {
+        "id": "U1:e19",
+        "component": "U1",
+        "number": "3",
+        "net": "VRAW_6V_12V",
+        "at": {
+          "x": -1.3416,
+          "y": -9.8781
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1,
+          "heightMm": 0.5500127000254001
+        }
+      },
+      {
+        "id": "U1:e20",
+        "component": "U1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -1.3416,
+          "y": -8.9281
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0000000000000002,
+          "heightMm": 0.5500127000254003
+        }
+      },
+      {
+        "id": "U1:e21",
+        "component": "U1",
+        "number": "1",
+        "net": "VRAW_6V_12V",
+        "at": {
+          "x": -1.3416,
+          "y": -7.977900000000001
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0000000000000002,
+          "heightMm": 0.5500127000254004
+        }
+      },
+      {
+        "id": "U2:e7",
+        "component": "U2",
+        "number": "1",
+        "net": "VCC_RF",
+        "at": {
+          "x": 0.9901,
+          "y": 0.65
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254002,
+          "heightMm": 0.7800101600203201
+        }
+      },
+      {
+        "id": "U2:e8",
+        "component": "U2",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 0.9901,
+          "y": 0
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254001,
+          "heightMm": 0.7800101600203201
+        }
+      },
+      {
+        "id": "U2:e9",
+        "component": "U2",
+        "number": "3",
+        "net": "RF_OUT_IC",
+        "at": {
+          "x": 0.9901,
+          "y": -0.65
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254002,
+          "heightMm": 0.7800101600203201
+        }
+      },
+      {
+        "id": "U2:e10",
+        "component": "U2",
+        "number": "4",
+        "net": "GND",
+        "at": {
+          "x": -0.9901,
+          "y": -0.65
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254002,
+          "heightMm": 0.7800101600203201
+        }
+      },
+      {
+        "id": "U2:e11",
+        "component": "U2",
+        "number": "5",
+        "net": "GND",
+        "at": {
+          "x": -0.9901,
+          "y": 0
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254001,
+          "heightMm": 0.7800101600203201
+        }
+      },
+      {
+        "id": "U2:e12",
+        "component": "U2",
+        "number": "6",
+        "net": "RF_IN_IC",
+        "at": {
+          "x": -0.9901,
+          "y": 0.65
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.3500127000254002,
+          "heightMm": 0.7800101600203201
+        }
+      }
+    ],
+    "keepouts": [],
+    "rules": {
+      "default": {
+        "clearanceMm": 0.2,
+        "edgeClearanceMm": 0.2,
+        "minTrackWidthMm": 0.127,
+        "preferredTrackWidthMm": 0.9,
+        "via": {
+          "minDiameterMm": 0.6,
+          "preferredDiameterMm": 0.6,
+          "minDrillMm": 0.3,
+          "preferredDrillMm": 0.3
+        }
+      },
+      "nets": [
+        {
+          "net": "GND",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.3,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "LDO_BYP",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.3,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "RF_IN",
+          "values": {
+            "clearanceMm": 0.2,
+            "edgeClearanceMm": 0.2,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.9,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "RF_IN_IC",
+          "values": {
+            "clearanceMm": 0.2,
+            "edgeClearanceMm": 0.2,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.9,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "RF_OUT",
+          "values": {
+            "clearanceMm": 0.2,
+            "edgeClearanceMm": 0.2,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.9,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "RF_OUT_IC",
+          "values": {
+            "clearanceMm": 0.2,
+            "edgeClearanceMm": 0.2,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.9,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "VCC_RF",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.3,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "VRAW_6V_12V",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.3,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "VREG5",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.3,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        }
+      ],
+      "netClasses": [
+        {
+          "name": "RF_50R",
+          "nets": [
+            "RF_IN_IC",
+            "RF_IN",
+            "RF_OUT",
+            "RF_OUT_IC"
+          ],
+          "values": {
+            "clearanceMm": 0.19999959999999997,
+            "edgeClearanceMm": 0.2,
+            "minTrackWidthMm": 0.127,
+            "preferredTrackWidthMm": 0.9000007400000001,
+            "via": {
+              "minDiameterMm": 0.49999899999999997,
+              "preferredDiameterMm": 0.5999987999999999,
+              "minDrillMm": 0.29999939999999997,
+              "preferredDrillMm": 0.29999939999999997
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        }
+      ]
+    },
+    "copper": {
+      "fixed": {
+        "tracks": [],
+        "vias": [],
+        "zones": []
+      },
+      "editable": {
+        "tracks": [],
+        "vias": [],
+        "zones": []
+      }
+    }
+  },
+  "dsl": {
+    "polygons": [],
+    "planes": [
+      {
+        "kind": "plane",
+        "net": "GND",
+        "layers": {
+          "kind": "all"
+        },
+        "region": {
+          "kind": "board"
+        },
+        "priority": 0,
+        "stitching": {
+          "gridMm": 4,
+          "maxPadViaDistanceMm": 4.5,
+          "via": "drc-min",
+          "viaInPad": false
+        },
+        "zone": {
+          "clearanceMm": 0.2,
+          "minThicknessMm": 0.15,
+          "fill": {
+            "style": "solid"
+          },
+          "padConnection": {
+            "mode": "solid"
+          },
+          "removeIslandsBelowMm2": 0.5
+        }
+      }
+    ],
+    "signalNets": [
+      {
+        "kind": "signal-net",
+        "net": "RF_IN",
+        "netClass": "RF_50R",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "impedance": {
+          "targetOhm": 50,
+          "tolerancePercent": 10,
+          "referenceNet": "GND"
+        }
+      },
+      {
+        "kind": "signal-net",
+        "net": "RF_IN_IC",
+        "netClass": "RF_50R",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "impedance": {
+          "targetOhm": 50,
+          "tolerancePercent": 10,
+          "referenceNet": "GND"
+        }
+      },
+      {
+        "kind": "signal-net",
+        "net": "RF_OUT_IC",
+        "netClass": "RF_50R",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "impedance": {
+          "targetOhm": 50,
+          "tolerancePercent": 10,
+          "referenceNet": "GND"
+        }
+      },
+      {
+        "kind": "signal-net",
+        "net": "RF_OUT",
+        "netClass": "RF_50R",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "impedance": {
+          "targetOhm": 50,
+          "tolerancePercent": 10,
+          "referenceNet": "GND"
+        }
+      },
+      {
+        "kind": "signal-net",
+        "net": "LDO_BYP",
+        "allowedLayers": {
+          "kind": "top"
+        }
+      }
+    ],
+    "powerNets": [
+      {
+        "kind": "power-net",
+        "net": "VRAW_6V_12V",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "maxCurrentA": 0.05,
+        "maxTempRiseC": 10
+      },
+      {
+        "kind": "power-net",
+        "net": "VREG5",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "maxCurrentA": 0.05,
+        "maxTempRiseC": 10
+      },
+      {
+        "kind": "power-net",
+        "net": "VCC_RF",
+        "allowedLayers": {
+          "kind": "top"
+        },
+        "maxCurrentA": 0.03,
+        "maxTempRiseC": 10
+      }
+    ],
+    "differentialPairs": [],
+    "matchedGroups": [],
+    "viaStitches": [],
+    "fanouts": [],
+    "fanoutExclusions": [],
+    "netClasses": [
+      {
+        "kind": "net-class",
+        "name": "RF_50R",
+        "nets": [
+          "RF_IN",
+          "RF_IN_IC",
+          "RF_OUT_IC",
+          "RF_OUT"
+        ],
+        "minTrackWidthMm": 0.127,
+        "clearanceMm": 0.2,
+        "edgeClearanceMm": 0.01,
+        "allowedLayers": {
+          "kind": "top"
+        }
+      }
+    ],
+    "relationEdits": [
+      {
+        "kind": "upsert-net-class",
+        "name": "RF_50R",
+        "nets": [
+          "RF_IN",
+          "RF_IN_IC",
+          "RF_OUT_IC",
+          "RF_OUT"
+        ]
+      }
+    ],
+    "drc": {
+      "trackWidthMm": 0.3,
+      "minTrackWidthMm": 0.127,
+      "clearanceMm": 0.15,
+      "edgeClearanceMm": 0.01,
+      "holeToHoleClearanceMm": 0.2,
+      "via": {
+        "diameterMm": 0.6,
+        "drillMm": 0.3,
+        "minDiameterMm": 0.5,
+        "minDrillMm": 0.3
+      }
+    },
+    "stack": {
+      "boardThicknessMm": 1.6,
+      "fallbackCopperThicknessOz": 1,
+      "viaPlatingThicknessUm": 20,
+      "layers": [
+        {
+          "kind": "copper",
+          "name": "TOP",
+          "thicknessOz": 1
+        },
+        {
+          "kind": "dielectric",
+          "name": "FR4_CORE",
+          "thicknessMm": 1.49042,
+          "relativePermittivity": 4.2,
+          "lossTangent": 0.02,
+          "material": "FR-4"
+        },
+        {
+          "kind": "copper",
+          "name": "BOTTOM",
+          "thicknessOz": 1
+        }
+      ],
+      "solderMask": {
+        "top": {
+          "thicknessMm": 0.02,
+          "relativePermittivity": 3.3
+        },
+        "bottom": {
+          "thicknessMm": 0.02,
+          "relativePermittivity": 3.3
+        }
+      }
+    },
+    "ignoreNets": [],
+    "clearRouting": {
+      "tracks": "all",
+      "vias": "all",
+      "zones": "all"
+    },
+    "operation": "all"
+  }
+}

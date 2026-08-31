@@ -16,6 +16,7 @@ import type {
 } from "../core/contracts.js"
 import { validateRoutingBoard } from "../core/validation.js"
 import { canonicalizeRoutingBoard } from "../core/layers.js"
+import { stackupThicknessMm } from "../core/stackup.js"
 import {
   atom,
   findChild,
@@ -653,25 +654,50 @@ function stackup(root: SExpression[], available: readonly string[]): RoutingBoar
     layers: available.map((layer) => ({ kind: "copper", layer, thicknessMm: 0.03479 })),
   }
   const layers: NonNullable<RoutingBoard["stackup"]>["layers"][number][] = []
+  let topMask: NonNullable<NonNullable<RoutingBoard["stackup"]>["solderMask"]>["top"]
+  let bottomMask: NonNullable<NonNullable<RoutingBoard["stackup"]>["solderMask"]>["bottom"]
   for (const item of listChildren(stack, "layer")) {
     const name = atom(item[1]) ?? ""
     const thicknessMm = numberAt(findChild(item, "thickness"), 1, name.endsWith(".Cu") ? 0.03479 : 0)
-    if (name.endsWith(".Cu")) layers.push({ kind: "copper", layer: name, thicknessMm })
-    else if (thicknessMm > 0) layers.push({
+    if (name === "F.Mask" || name === "B.Mask") {
+      const relativePermittivity = numberAt(findChild(item, "epsilon_r"), 1)
+      const value = {
+        ...(thicknessMm > 0 ? { thicknessMm } : {}),
+        ...(relativePermittivity > 0 ? { relativePermittivity } : {}),
+      }
+      if (name === "F.Mask") topMask = value
+      else bottomMask = value
+      continue
+    }
+    if (name.endsWith(".Cu")) {
+      layers.push({ kind: "copper", layer: name, thicknessMm })
+      continue
+    }
+    const type = childText(item, "type")
+    if ((type === "core" || type === "prepreg") && thicknessMm > 0) {
+      const relativePermittivity = numberAt(findChild(item, "epsilon_r"), 1)
+      layers.push({
       kind: "dielectric",
       ...(name ? { name } : {}),
       thicknessMm,
-      relativePermittivity: numberAt(findChild(item, "epsilon_r"), 1, 4.2),
+      ...(relativePermittivity > 0 ? { relativePermittivity } : {}),
       ...(numberAt(findChild(item, "loss_tangent"), 1) > 0
         ? { lossTangent: numberAt(findChild(item, "loss_tangent"), 1) }
         : {}),
       ...(childText(item, "material") ? { material: childText(item, "material") } : {}),
-    })
+      })
+    }
   }
   return layers.length ? {
     ...(boardThicknessMm > 0 ? { boardThicknessMm } : {}),
     fallbackCopperThicknessOz: 1,
     layers,
+    ...(topMask === undefined && bottomMask === undefined ? {} : {
+      solderMask: {
+        ...(topMask === undefined ? {} : { top: topMask }),
+        ...(bottomMask === undefined ? {} : { bottom: bottomMask }),
+      },
+    }),
   } : undefined
 }
 
@@ -894,6 +920,14 @@ function applyPhysicalStackup(root: SExpression[], stackup: NonNullable<RoutingR
   })
   replaceChild(root, "layers", [token("layers"), ...copperForms, ...nonCopper])
 
+  const setup = findChild(root, "setup") ?? (() => {
+    const value: SExpression[] = [token("setup")]
+    root.push(value)
+    return value
+  })()
+  const existingStack = findChild(setup, "stackup")
+  const existingSurfaceLayers = existingStack === undefined ? [] : listChildren(existingStack, "layer")
+  const namedSurfaceLayers = (names: readonly string[]) => existingSurfaceLayers.filter((item) => names.includes(atom(item[1]) ?? ""))
   let dielectricIndex = 0
   const stackForms = stackup.layers.map((layer): SExpression[] => {
     if (layer.kind === "copper") return [
@@ -911,14 +945,27 @@ function applyPhysicalStackup(root: SExpression[], stackup: NonNullable<RoutingR
       ...(layer.lossTangent === undefined ? [] : [[token("loss_tangent"), n(layer.lossTangent)] as SExpression[]]),
     ]
   })
-  const setup = findChild(root, "setup") ?? (() => {
-    const value: SExpression[] = [token("setup")]
-    root.push(value)
-    return value
-  })()
-  replaceChild(setup, "stackup", [token("stackup"), ...stackForms])
+  const maskForm = (
+    name: "F.Mask" | "B.Mask",
+    type: "Top Solder Mask" | "Bottom Solder Mask",
+    values: { thicknessMm?: number; relativePermittivity?: number } | undefined,
+  ): SExpression[] | undefined => values === undefined ? undefined : [
+    token("layer"), token(name, true), [token("type"), token(type, true)],
+    ...(values.thicknessMm === undefined ? [] : [[token("thickness"), n(values.thicknessMm)] as SExpression[]]),
+    ...(values.relativePermittivity === undefined ? [] : [[token("epsilon_r"), n(values.relativePermittivity)] as SExpression[]]),
+  ]
+  const topMask = maskForm("F.Mask", "Top Solder Mask", stackup.solderMask?.top)
+  const bottomMask = maskForm("B.Mask", "Bottom Solder Mask", stackup.solderMask?.bottom)
+  replaceChild(setup, "stackup", [
+    token("stackup"),
+    ...namedSurfaceLayers(["F.SilkS", "F.Paste"]),
+    ...(topMask === undefined ? [] : [topMask]),
+    ...stackForms,
+    ...(bottomMask === undefined ? [] : [bottomMask]),
+    ...namedSurfaceLayers(["B.Paste", "B.SilkS"]),
+  ])
 
-  const thicknessMm = stackup.boardThicknessMm ?? stackup.layers.reduce((total, layer) => total + layer.thicknessMm, 0)
+  const thicknessMm = stackup.boardThicknessMm ?? stackupThicknessMm(stackup)
   const general = findChild(root, "general") ?? (() => {
     const value: SExpression[] = [token("general")]
     root.push(value)

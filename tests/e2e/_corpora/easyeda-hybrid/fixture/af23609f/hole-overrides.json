@@ -1,0 +1,226 @@
+{
+  "source": "historical-footprint-normalization",
+  "fabricationAuthoritative": false,
+  "pads": [
+    {
+      "pad": "H1:e18",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e19",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e20",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e21",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e22",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e23",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e24",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e25",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e26",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H1:e27",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e18",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e19",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e20",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e21",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e22",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e23",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e24",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e25",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e26",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "H2:e27",
+      "footprint": "HDR-TH_10P-P2.54-V-M",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "USB1:e64",
+      "footprint": "TYPE-C-SMD_SBC-160S1A-20-S412",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "USB1:e65",
+      "footprint": "TYPE-C-SMD_SBC-160S1A-20-S412",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": false
+      }
+    },
+    {
+      "pad": "USB1:e66",
+      "footprint": "TYPE-C-SMD_SBC-160S1A-20-S412",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": false
+      }
+    },
+    {
+      "pad": "USB1:e67",
+      "footprint": "TYPE-C-SMD_SBC-160S1A-20-S412",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": false
+      }
+    }
+  ]
+}

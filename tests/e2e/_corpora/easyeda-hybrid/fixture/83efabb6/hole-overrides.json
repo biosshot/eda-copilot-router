@@ -1,0 +1,349 @@
+{
+  "source": "historical-footprint-normalization",
+  "fabricationAuthoritative": false,
+  "pads": [
+    {
+      "pad": "J1:e57",
+      "footprint": "USB-C_SMD-TYPE-C-31-M-12_1",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J1:e58",
+      "footprint": "USB-C_SMD-TYPE-C-31-M-12_1",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J1:e59",
+      "footprint": "USB-C_SMD-TYPE-C-31-M-12_1",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J1:e60",
+      "footprint": "USB-C_SMD-TYPE-C-31-M-12_1",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J2:e1",
+      "footprint": "CONN-TH_B4B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J2:e2",
+      "footprint": "CONN-TH_B4B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J2:e3",
+      "footprint": "CONN-TH_B4B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J2:e4",
+      "footprint": "CONN-TH_B4B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e26",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e27",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e28",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e29",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e30",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J3:e31",
+      "footprint": "CONN-TH_B6B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J4:e23",
+      "footprint": "CONN-TH_P5.08_KF128-5.08-2P",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "J4:e24",
+      "footprint": "CONN-TH_P5.08_KF128-5.08-2P",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e16",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e17",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e18",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e19",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e20",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e21",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW1:e22",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e16",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e17",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e18",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e19",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e20",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e21",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e22",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e16",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e17",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e18",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e19",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e20",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1.2,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e21",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW3:e22",
+      "footprint": "SW-TH_EC11XXXXXXXX",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 1,
+        "slotLengthMm": 0.6,
+        "plated": true
+      }
+    }
+  ]
+}

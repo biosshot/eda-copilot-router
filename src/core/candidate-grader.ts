@@ -35,6 +35,14 @@ const MATCHED_DIAGNOSTICS = new Set([
   "KRT_LENGTH_MATCH_INCOMPLETE",
 ])
 
+const IMPEDANCE_DIAGNOSTICS = new Set([
+  "KRT_IMPEDANCE_GEOMETRY_UNVERIFIED",
+  "IMPEDANCE_STACK_INCOMPLETE",
+  "IMPEDANCE_REFERENCE_AMBIGUOUS",
+  "IMPEDANCE_TOLERANCE_UNREACHABLE",
+  "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK",
+])
+
 // These diagnostics describe the same unresolved connectivity already carried
 // by openNetCount/openNets. Counting them again as generic engine damage makes
 // every useful partial KRT checkpoint lose to a synthetic diagnostic-free
@@ -84,6 +92,7 @@ export type RoutingCandidateGrade = Readonly<{
   connectivityComponentCount: number
   differentialViolationCount: number
   matchedViolationCount: number
+  impedanceViolationCount: number
   drcViolationCount: number
   errorCount: number
   forbiddenViaCount: number
@@ -260,6 +269,7 @@ export function gradeRoutingCandidate(
       connectivityComponentCount: unusable,
       differentialViolationCount: unusable,
       matchedViolationCount: unusable,
+      impedanceViolationCount: unusable,
       drcViolationCount: unusable,
       errorCount: unusable,
       forbiddenViaCount: unusable,
@@ -267,8 +277,7 @@ export function gradeRoutingCandidate(
       avoidViaPenalty: unusable,
       viaCount: unusable,
       trackLengthMm: unusable,
-      score: [1, unusable, unusable, unusable, unusable, unusable, unusable, unusable,
-        unusable, unusable, unusable, unusable, unusable, index],
+      score: [1, ...Array(14).fill(unusable), index],
     }
   }
   const diagnostics = result.diagnostics ?? []
@@ -358,6 +367,18 @@ export function gradeRoutingCandidate(
     diagnosticsMatching(diagnostics, MATCHED_DIAGNOSTICS),
   )
 
+  const impedanceNets = rules.nets
+    .filter((item) => item.values.impedanceOhm !== undefined)
+    .map((item) => item.net)
+  const reportedImpedanceFailures = details.filter((item) => (
+    typeof item.targetOhm === "number" && item.verified === false
+  )).length
+  const impedanceViolationCount = Math.max(
+    impedanceNets.filter((net) => open.has(net)).length,
+    reportedImpedanceFailures,
+    diagnosticsMatching(diagnostics, IMPEDANCE_DIAGNOSTICS),
+  )
+
   const criticalRegressionCount = diagnosticsMatching(diagnostics, CRITICAL_DIAGNOSTICS)
     + detailCount(details, [
       "criticalRegressions", "critical_regressions", "protectedCasualties", "protected_casualties",
@@ -389,6 +410,7 @@ export function gradeRoutingCandidate(
     connectivityComponentCount,
     differentialViolationCount,
     matchedViolationCount,
+    impedanceViolationCount,
     drcViolationCount,
     errorCount,
     forbiddenViaCount,
@@ -407,6 +429,7 @@ export function gradeRoutingCandidate(
     connectivityComponentCount,
     differentialViolationCount,
     matchedViolationCount,
+    impedanceViolationCount,
     drcViolationCount,
     errorCount,
     forbiddenViaCount,

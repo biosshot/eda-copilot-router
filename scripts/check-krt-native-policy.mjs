@@ -19,10 +19,11 @@ const rule = {
 assert.deepEqual(krt.KRT_NATIVE_AUTO_POLICY, {
   gridStep: 0.1,
   ordering: "mps",
-  enableNetRescue: true,
-  enableTerminalEscalation: true,
+  enableNetRescue: false,
+  enableTerminalEscalation: false,
   ripPreexisting: true,
-  dynamicIterations: true,
+  dynamicIterations: false,
+  maxIterations: 200_000,
   planeFinalize: false,
   finalizeRip: true,
   specialMaxCandidates: 1,
@@ -57,8 +58,9 @@ const explicitZeroPortfolio = krt.buildKrtSpecialCandidatePortfolio({
 assert.ok(explicitZeroPortfolio.every((candidate) => candidate.maxRipup === 0),
   "an explicitly configured zero rip-up limit must remain explicit")
 assert.equal(krt.KRT_MAX_OPEN_REPAIR_BLOCKER_VICTIMS, 3)
-assert.equal(krt.KRT_POST_MAIN_REPAIR_BUDGET_RATIO, 0.3)
-assert.equal(krt.KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS, 5_000)
+assert.equal(krt.KRT_POST_MAIN_REPAIR_BUDGET_RATIO, 1)
+assert.equal(krt.KRT_MIN_POST_MAIN_REPAIR_BUDGET_MS, 15_000)
+assert.equal(krt.KRT_MAX_POST_MAIN_REPAIR_BUDGET_MS, 60_000)
 assert.equal(krt.KRT_MAX_ORDINARY_ROUTE_BATCHES, 32)
 assert.equal(krt.KRT_ORDINARY_TRACK_WIDTH_BUCKET_MM, 0.05)
 assert.equal(krt.KRT_CAPTURED_LOG_TAIL_CHARS, 512 * 1024)
@@ -191,7 +193,7 @@ assert.equal(krt.krtStageConnectivityGatePasses({
   hardConnectivityNonRegressing: false,
   weightedConnectivityImproved: true,
   requireConnectivityImprovement: true,
-}), false, "a weighted trade must never open or fragment a critical/protected net")
+}), false, "a weighted trade must never open or fragment a verified protected net")
 assert.equal(krt.krtStageConnectivityGatePasses({
   connectivityNonRegressing: false,
   connectivityImproved: true,
@@ -251,8 +253,9 @@ const criticalRegressionTradeoff = krt.krtStageConnectivityTradeoff(
   [],
 )
 assert.equal(criticalRegressionTradeoff.weightedConnectivityImproved, true)
-assert.equal(criticalRegressionTradeoff.hardConnectivityNonRegressing, false,
-  "even a large aggregate gain must not reopen a critical net")
+assert.equal(criticalRegressionTradeoff.hardConnectivityNonRegressing, true,
+  "generic critical priority is a strong score but not immutable copper")
+assert.deepEqual(criticalRegressionTradeoff.newlyOpenedHardNets, [])
 
 const protectedRegressionTradeoff = krt.krtStageConnectivityTradeoff(
   stageAudit([...h743ClosedOrdinary, ...h743RetainedOrdinary]),
@@ -398,7 +401,7 @@ for (const blockedRetry of [
 ]) assert.equal(krt.krtOrdinaryMatchedCandidateRetryable(blockedRetry), false,
   "infrastructure/configuration failures must not spend the second matched candidate")
 for (const forbidden of [
-  "maxIterations", "maxProbeIterations", "maxRipup", "heuristicWeight",
+  "maxProbeIterations", "maxRipup", "heuristicWeight",
   "viaCost", "viaProximityCost", "turnCost", "directionPreferenceCost",
   "ripupBlockerSelect", "ripupAbandonMetric",
 ]) assert.ok(!(forbidden in krt.KRT_NATIVE_AUTO_POLICY), `${forbidden} must remain a native KRT default`)
@@ -408,9 +411,33 @@ assert.deepEqual(krt.buildKrtNativeRecoveryEnvironment({}), {
   KICAD_NET_RESCUE: "1",
   KICAD_TERMINAL_ESCALATION: "1",
   KICAD_DYNAMIC_ITERATIONS: "1",
+  KICAD_DYNAMIC_ITERATIONS_CLAMP: "200000",
+  KICAD_BARE_PAD_ESCAPE: "0",
+  KICAD_RESCUE_CAP_MOVE: "0",
+  COPILOT_ROUTER_RESCUE_GRID_STEP: "0.1",
+  COPILOT_ROUTER_RESCUE_CLEARANCE_STEPS: "1",
+  COPILOT_ROUTER_RESCUE_MAX_WINDOW_CELLS: "500000",
+  COPILOT_ROUTER_RESCUE_MAX_EDGES_PER_NET: "1",
+  COPILOT_ROUTER_RESCUE_MAX_ITERATIONS: "100000",
   KICAD_PLANE_FINALIZE: "0",
   KICAD_FINALIZE_RIP: "1",
 })
+assert.deepEqual(krt.buildKrtNativeRecoveryEnvironment(krt.KRT_NATIVE_AUTO_POLICY), {
+  KICAD_RIP_PREEXISTING: "1",
+  KICAD_NET_RESCUE: "0",
+  KICAD_TERMINAL_ESCALATION: "0",
+  KICAD_DYNAMIC_ITERATIONS: "0",
+  KICAD_DYNAMIC_ITERATIONS_CLAMP: "200000",
+  KICAD_BARE_PAD_ESCAPE: "0",
+  KICAD_RESCUE_CAP_MOVE: "0",
+  COPILOT_ROUTER_RESCUE_GRID_STEP: "0.1",
+  COPILOT_ROUTER_RESCUE_CLEARANCE_STEPS: "1",
+  COPILOT_ROUTER_RESCUE_MAX_WINDOW_CELLS: "500000",
+  COPILOT_ROUTER_RESCUE_MAX_EDGES_PER_NET: "1",
+  COPILOT_ROUTER_RESCUE_MAX_ITERATIONS: "100000",
+  KICAD_PLANE_FINALIZE: "0",
+  KICAD_FINALIZE_RIP: "1",
+}, "ordinary/intermediate calls must explicitly suppress every expensive rescue amplifier")
 
 const baseRequest = {
   board: {
@@ -546,8 +573,73 @@ assert.equal(krt.krtSpecialBatchRunsBeforeCritical(diffSpecial), true,
   "differential routing must preserve its special-before-ordinary custody boundary")
 assert.equal(criticalSpecial.priorityWeight, 64)
 assert.equal(krt.krtSpecialBatchRunsBeforeCritical(criticalSpecial), true)
-assert.equal(krt.krtSpecialBatchRunsBeforeCritical(normalHeader), false,
-  "normal matched headers must wait until critical ordinary nets have routed")
+assert.equal(krt.krtSpecialBatchRunsBeforeCritical(normalHeader), true,
+  "all hard-special batches must run before the one ordinary pass")
+
+const impedanceNets = ["Z0_A", "Z0_B"]
+const impedanceRule = {
+  ...rule,
+  preferredTrackWidthMm: 0.84,
+  impedanceOhm: 50,
+  calculatedImpedanceOhm: 49.7,
+  impedanceTolerancePercent: 10,
+  impedanceReferenceNet: "GND",
+  impedanceReferenceLayers: ["BOTTOM"],
+  impedanceCoplanarGapMm: 0.2,
+  allowedLayers: ["TOP"],
+}
+const impedanceRequest = {
+  ...baseRequest,
+  board: {
+    ...baseRequest.board,
+    nets: impedanceNets.map((name) => ({ name })),
+    stackup: {
+      boardThicknessMm: 1.6,
+      layers: [
+        { kind: "copper", layer: "TOP", thicknessMm: 0.035 },
+        { kind: "dielectric", name: "CORE", thicknessMm: 1.53, relativePermittivity: 4.2 },
+        { kind: "copper", layer: "BOTTOM", thicknessMm: 0.035 },
+      ],
+    },
+    rules: {
+      default: rule,
+      nets: impedanceNets.map((net) => ({ net, values: impedanceRule })),
+    },
+  },
+  rules: {
+    default: rule,
+    nets: impedanceNets.map((net) => ({ net, values: impedanceRule })),
+  },
+  program: {
+    ...baseRequest.program,
+    differentialPairs: [],
+    matchedGroups: [],
+  },
+  plan: {
+    scopeNets: impedanceNets,
+    netPolicies: impedanceNets.map((net) => ({ net, priorityWeight: 4, viaPreference: "auto" })),
+  },
+}
+const impedancePlan = krt.planKrtSpecialBatches(impedanceRequest, impedanceNets, 0.1)
+assert.equal(impedancePlan.batches.length, 1,
+  "compatible single-ended impedance nets should share one native solve")
+assert.deepEqual(impedancePlan.batches[0].impedance, {
+  targetOhm: 50,
+  coplanarGapMm: 0.2,
+  differential: false,
+})
+const impedanceAudit = krt.auditKrtImpedanceCopper(impedanceRequest, {
+  tracks: [
+    { net: "Z0_A", layer: "TOP", widthMm: 0.84, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] },
+    { net: "Z0_A", layer: "TOP", widthMm: 0.2, points: [{ x: 10, y: 0 }, { x: 12, y: 0 }] },
+  ],
+  vias: [],
+  zones: [],
+}, ["Z0_A"])
+assert.deepEqual(impedanceAudit.verifiedNets, ["Z0_A"])
+assert.equal(impedanceAudit.reports[0].stackupAware, true)
+assert.equal(impedanceAudit.reports[0].offWidthLengthMm, 2,
+  "bounded terminal neck-down must not invalidate an otherwise controlled trunk")
 
 const rejectedSpecialDisposition = krt.krtSpecialBatchRecoveryDisposition(
   ["HDR_A", "HDR_B"],
@@ -946,6 +1038,32 @@ for (const flag of [
   "--via-cost", "--via-proximity-cost", "--turn-cost", "--direction-preference-cost",
   "--ripup-blocker-select", "--ripup-abandon-metric",
 ]) assert.ok(!args.includes(flag), `${flag} must be owned by native KRT defaults`)
+
+const impedanceArgs = krt.buildKrtRemainingArgs("in.kicad_pcb", "out.kicad_pcb", {
+  pythonPath: "python",
+  krtDirectory: ".",
+  layers: ["F.Cu"],
+  rules: { trackWidth: 0.84, hardTrackWidth: 0.127, clearance: 0.2, viaSize: 0.5, viaDrill: 0.25, gridStep: 0.1 },
+  fabOverridesPath: "fab.txt",
+  diffPairs: [],
+  matchedGroups: [],
+  remainingNets: ["Z0_A"],
+  impedance: { targetOhm: 50, coplanarGapMm: 0.2 },
+  neckdownLength: 0.5,
+  neckdownTaperLength: 1,
+}, ["Z0_A"])
+assert.deepEqual(
+  impedanceArgs.slice(impedanceArgs.indexOf("--impedance"), impedanceArgs.indexOf("--impedance") + 2),
+  ["--impedance", "50"],
+)
+assert.deepEqual(
+  impedanceArgs.slice(impedanceArgs.indexOf("--coplanar-gap"), impedanceArgs.indexOf("--coplanar-gap") + 2),
+  ["--coplanar-gap", "0.2"],
+)
+assert.deepEqual(
+  impedanceArgs.slice(impedanceArgs.indexOf("--neckdown-length"), impedanceArgs.indexOf("--neckdown-length") + 2),
+  ["--neckdown-length", "0.5"],
+)
 
 const avoidArgs = krt.buildKrtRemainingArgs("in.kicad_pcb", "out.kicad_pcb", {
   pythonPath: "python",

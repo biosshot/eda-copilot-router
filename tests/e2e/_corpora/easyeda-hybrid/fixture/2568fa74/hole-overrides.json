@@ -1,0 +1,24 @@
+{
+  "source": "historical-footprint-normalization",
+  "fabricationAuthoritative": false,
+  "pads": [
+    {
+      "pad": "CN1:e22",
+      "footprint": "CONN-TH_B2B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "CN1:e23",
+      "footprint": "CONN-TH_B2B-PH-K-S",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    }
+  ]
+}

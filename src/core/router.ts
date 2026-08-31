@@ -510,6 +510,7 @@ export async function run(request: RunRequest): Promise<RoutingResult> {
     connectivityComponentCount: candidate.grade.connectivityComponentCount,
     differentialViolationCount: candidate.grade.differentialViolationCount,
     matchedViolationCount: candidate.grade.matchedViolationCount,
+    impedanceViolationCount: candidate.grade.impedanceViolationCount,
     drcViolationCount: candidate.grade.drcViolationCount,
     errorCount: candidate.grade.errorCount,
     forbiddenViaCount: candidate.grade.forbiddenViaCount,

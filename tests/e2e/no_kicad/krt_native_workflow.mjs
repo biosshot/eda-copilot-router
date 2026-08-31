@@ -65,10 +65,10 @@ try {
   })
   assert.notEqual(result.status, "error", JSON.stringify(result.diagnostics))
   assert.deepEqual(result.metrics?.openNets, [], JSON.stringify(result.diagnostics))
-  assert.ok(result.metrics?.details?.critical?.some((summary) => (
-    summary?.critical_verified_nets?.includes("DATA[0]")
-  )), "critical DATA[0] must be selected literally, geometry/DRC verified, and protected")
-  assert.ok(result.metrics?.details?.protectedNets?.includes("DATA[0]"))
+  assert.deepEqual(result.metrics?.details?.critical, [],
+    "priority must be an ordering weight inside the single main pass, not a duplicate critical process")
+  assert.ok(!result.metrics?.details?.protectedNets?.includes("DATA[0]"),
+    "generic critical copper must remain movable unless a semantic special stage verifies it")
   assert.ok(result.copper.tracks.some((track) => track.net === "DATA[0]"),
     "literal critical selector must route DATA[0], not its fnmatch neighbor DATA0")
   assert.equal(result.copper.vias.filter((via) => via.net === "DATA[0]").length, 0)
@@ -79,13 +79,15 @@ try {
   const manifests = (await readdir(artifacts, { recursive: true }))
     .filter((path) => path.endsWith("-manifest.json"))
   assert.ok(manifests.length >= 2, "every attempted native stage must persist an authoritative manifest")
-  const criticalManifestPath = manifests.find((path) => path.includes("critical"))
-  assert.ok(criticalManifestPath)
-  const manifest = JSON.parse(await readFile(join(artifacts, criticalManifestPath), "utf8"))
+  assert.ok(!manifests.some((path) => path.includes("critical")),
+    "the simplified workflow must not spawn a critical subprocess")
+  const mainManifestPath = manifests.find((path) => path.replaceAll("\\", "/").includes("/main/"))
+  assert.ok(mainManifestPath)
+  const manifest = JSON.parse(await readFile(join(artifacts, mainManifestPath), "utf8"))
   assert.equal(manifest.recovery.ripPreexisting, true)
-  assert.equal(manifest.recovery.netRescue, true)
-  assert.equal(manifest.recovery.terminalEscalation, true)
-  assert.equal(manifest.recovery.dynamicIterations, true)
+  assert.equal(manifest.recovery.netRescue, false)
+  assert.equal(manifest.recovery.terminalEscalation, false)
+  assert.equal(manifest.recovery.dynamicIterations, false)
   assert.ok(manifest.files.some((file) => file.path.endsWith(".kicad_pro") && file.sha256))
 
   const generatedPaths = await readdir(artifacts, { recursive: true })
@@ -397,8 +399,8 @@ try {
   assert.equal(viaRepair.accepted, true, JSON.stringify(viaRepairResult.diagnostics))
   assert.equal(viaRepair.beforeTargetVias, 2)
   assert.equal(viaRepair.afterTargetVias, 0)
-  assert.ok(viaRepairResult.metrics?.details?.protectedNets?.includes("!OSC[0]"),
-    "critical !OSC[0] must remain in the protection ledger after exact force-reroute repair")
+  assert.ok(!viaRepairResult.metrics?.details?.protectedNets?.includes("!OSC[0]"),
+    "an ordinary critical+avoid net must stay movable after exact force-reroute repair")
 } finally {
   if (!process.env.KEEP_KRT_E2E_ARTIFACTS) await rm(artifacts, { recursive: true, force: true })
   else console.error(`KRT_E2E_ARTIFACTS=${artifacts}`)

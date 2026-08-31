@@ -1,0 +1,4693 @@
+{
+  "board": {
+    "outline": [
+      {
+        "x": -17.500035560071122,
+        "y": -16.00003302006604
+      },
+      {
+        "x": 17.500035560071122,
+        "y": -16.00003302006604
+      },
+      {
+        "x": 17.88803657607315,
+        "y": -15.94903225806452
+      },
+      {
+        "x": 18.250035560071122,
+        "y": -15.799032258064518
+      },
+      {
+        "x": 18.56103632207265,
+        "y": -15.561031242062485
+      },
+      {
+        "x": 18.799037338074676,
+        "y": -15.250030480060962
+      },
+      {
+        "x": 18.949037338074678,
+        "y": -14.888028956057914
+      },
+      {
+        "x": 19.000038100076203,
+        "y": -14.50002794005588
+      },
+      {
+        "x": 19.000038100076203,
+        "y": 14.50002794005588
+      },
+      {
+        "x": 18.949037338074678,
+        "y": 14.888028956057914
+      },
+      {
+        "x": 18.799037338074676,
+        "y": 15.250030480060962
+      },
+      {
+        "x": 18.56103632207265,
+        "y": 15.561031242062485
+      },
+      {
+        "x": 18.250035560071122,
+        "y": 15.799032258064518
+      },
+      {
+        "x": 17.88803657607315,
+        "y": 15.94903225806452
+      },
+      {
+        "x": 17.500035560071122,
+        "y": 16.00003302006604
+      },
+      {
+        "x": -17.500035560071122,
+        "y": 16.00003302006604
+      },
+      {
+        "x": -17.88803657607315,
+        "y": 15.94903225806452
+      },
+      {
+        "x": -18.250035560071122,
+        "y": 15.799032258064518
+      },
+      {
+        "x": -18.56103632207265,
+        "y": 15.561031242062485
+      },
+      {
+        "x": -18.799037338074676,
+        "y": 15.250030480060962
+      },
+      {
+        "x": -18.949037338074678,
+        "y": 14.888028956057914
+      },
+      {
+        "x": -19.000038100076203,
+        "y": 14.50002794005588
+      },
+      {
+        "x": -19.000038100076203,
+        "y": -14.50002794005588
+      },
+      {
+        "x": -18.949037338074678,
+        "y": -14.888028956057914
+      },
+      {
+        "x": -18.799037338074676,
+        "y": -15.250030480060962
+      },
+      {
+        "x": -18.56103632207265,
+        "y": -15.561031242062485
+      },
+      {
+        "x": -18.250035560071122,
+        "y": -15.799032258064518
+      },
+      {
+        "x": -17.88803657607315,
+        "y": -15.94903225806452
+      }
+    ],
+    "cutouts": [],
+    "layers": [
+      {
+        "name": "TOP",
+        "index": 0,
+        "side": "top"
+      },
+      {
+        "name": "BOTTOM",
+        "index": 1,
+        "side": "bottom"
+      }
+    ],
+    "nets": [
+      {
+        "name": "+3V3"
+      },
+      {
+        "name": "BOOT"
+      },
+      {
+        "name": "EN"
+      },
+      {
+        "name": "GND"
+      },
+      {
+        "name": "GPIO0"
+      },
+      {
+        "name": "GPIO1"
+      },
+      {
+        "name": "GPIO10"
+      },
+      {
+        "name": "GPIO2"
+      },
+      {
+        "name": "GPIO3"
+      },
+      {
+        "name": "GPIO4"
+      },
+      {
+        "name": "GPIO5"
+      },
+      {
+        "name": "GPIO6"
+      },
+      {
+        "name": "GPIO7"
+      },
+      {
+        "name": "GPIO8"
+      },
+      {
+        "name": "UART_RX"
+      },
+      {
+        "name": "UART_TX"
+      },
+      {
+        "name": "USB_CC1"
+      },
+      {
+        "name": "USB_CC2"
+      },
+      {
+        "name": "USB_DM"
+      },
+      {
+        "name": "USB_DM_CONN"
+      },
+      {
+        "name": "USB_DM_ESD"
+      },
+      {
+        "name": "USB_DP"
+      },
+      {
+        "name": "USB_DP_CONN"
+      },
+      {
+        "name": "USB_DP_ESD"
+      },
+      {
+        "name": "VBUS"
+      }
+    ],
+    "components": [
+      {
+        "designator": "C1",
+        "at": {
+          "x": -7.75,
+          "y": 10
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "C2",
+        "at": {
+          "x": -6.09,
+          "y": 2.5
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      },
+      {
+        "designator": "C3",
+        "at": {
+          "x": -7.91,
+          "y": 2.5
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "C4",
+        "at": {
+          "x": -7.118,
+          "y": -14.21
+        },
+        "rotationDeg": -270,
+        "side": "bottom"
+      },
+      {
+        "designator": "C5",
+        "at": {
+          "x": -5.298,
+          "y": -14.21
+        },
+        "rotationDeg": -270,
+        "side": "bottom"
+      },
+      {
+        "designator": "C6",
+        "at": {
+          "x": -11.664,
+          "y": -11.138
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "D1",
+        "at": {
+          "x": -0.115,
+          "y": 5.079
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "H1",
+        "at": {
+          "x": 17.25,
+          "y": 0.027
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      },
+      {
+        "designator": "H2",
+        "at": {
+          "x": -17.25,
+          "y": -0.027
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "R2",
+        "at": {
+          "x": -2.708,
+          "y": 7.869
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "R3",
+        "at": {
+          "x": 2.455,
+          "y": 7.144
+        },
+        "rotationDeg": -90,
+        "side": "top"
+      },
+      {
+        "designator": "R4",
+        "at": {
+          "x": 12.5,
+          "y": -5.878
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "R5",
+        "at": {
+          "x": 12.5,
+          "y": -7.5
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "R6",
+        "at": {
+          "x": -11.664,
+          "y": -14.189
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "R7",
+        "at": {
+          "x": -11.664,
+          "y": -8.087
+        },
+        "rotationDeg": 90,
+        "side": "top"
+      },
+      {
+        "designator": "SW1",
+        "at": {
+          "x": -9.5,
+          "y": 13.321
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "SW2",
+        "at": {
+          "x": 9.5,
+          "y": 13.321
+        },
+        "rotationDeg": -180,
+        "side": "top"
+      },
+      {
+        "designator": "U1",
+        "at": {
+          "x": -6.868,
+          "y": 6.247
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "U2",
+        "at": {
+          "x": 0.012,
+          "y": -8.888
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      },
+      {
+        "designator": "USB1",
+        "at": {
+          "x": 0,
+          "y": 12.008
+        },
+        "rotationDeg": 0,
+        "side": "top"
+      }
+    ],
+    "pads": [
+      {
+        "id": "C1:e14",
+        "component": "C1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -7.75,
+          "y": 10.7
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C1:e15",
+        "component": "C1",
+        "number": "1",
+        "net": "VBUS",
+        "at": {
+          "x": -7.75,
+          "y": 9.3
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C2:e14",
+        "component": "C2",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -6.09,
+          "y": 1.8
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C2:e15",
+        "component": "C2",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -6.09,
+          "y": 3.2
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C3:e14",
+        "component": "C3",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -7.91,
+          "y": 3.2
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C3:e15",
+        "component": "C3",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -7.91,
+          "y": 1.8
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C4:e14",
+        "component": "C4",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -7.118,
+          "y": -13.510000000000002
+        },
+        "rotationDeg": -270,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C4:e15",
+        "component": "C4",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -7.118,
+          "y": -14.91
+        },
+        "rotationDeg": -270,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C5:e14",
+        "component": "C5",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -5.298,
+          "y": -13.510000000000002
+        },
+        "rotationDeg": -270,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C5:e15",
+        "component": "C5",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -5.298,
+          "y": -14.91
+        },
+        "rotationDeg": -270,
+        "layers": [
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C6:e14",
+        "component": "C6",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -11.664,
+          "y": -10.438
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "C6:e15",
+        "component": "C6",
+        "number": "1",
+        "net": "EN",
+        "at": {
+          "x": -11.664,
+          "y": -11.838
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8000000000000003,
+          "heightMm": 0.9000000000000001
+        }
+      },
+      {
+        "id": "D1:e3",
+        "component": "D1",
+        "number": "1",
+        "net": "USB_DM_CONN",
+        "at": {
+          "x": -1.065,
+          "y": 6.279
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.5320040640081283
+        }
+      },
+      {
+        "id": "D1:e4",
+        "component": "D1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -0.115,
+          "y": 6.279
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.532004064008128
+        }
+      },
+      {
+        "id": "D1:e5",
+        "component": "D1",
+        "number": "3",
+        "net": "USB_DP_CONN",
+        "at": {
+          "x": 0.835,
+          "y": 6.279
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.5320040640081283
+        }
+      },
+      {
+        "id": "D1:e6",
+        "component": "D1",
+        "number": "4",
+        "net": "USB_DP_ESD",
+        "at": {
+          "x": 0.835,
+          "y": 3.8789999999999996
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.5320040640081283
+        }
+      },
+      {
+        "id": "D1:e7",
+        "component": "D1",
+        "number": "5",
+        "net": "VBUS",
+        "at": {
+          "x": -0.115,
+          "y": 3.8789999999999996
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.532004064008128
+        }
+      },
+      {
+        "id": "D1:e8",
+        "component": "D1",
+        "number": "6",
+        "net": "USB_DM_ESD",
+        "at": {
+          "x": -1.065,
+          "y": 3.8789999999999996
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.8,
+          "heightMm": 0.5320040640081283
+        }
+      },
+      {
+        "id": "H1:e18",
+        "component": "H1",
+        "number": "10",
+        "net": "GPIO4",
+        "at": {
+          "x": 17.25,
+          "y": -11.403
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e19",
+        "component": "H1",
+        "number": "9",
+        "net": "GPIO3",
+        "at": {
+          "x": 17.25,
+          "y": -8.863000000000001
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e20",
+        "component": "H1",
+        "number": "8",
+        "net": "GPIO2",
+        "at": {
+          "x": 17.25,
+          "y": -6.3229999999999995
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e21",
+        "component": "H1",
+        "number": "7",
+        "net": "GPIO1",
+        "at": {
+          "x": 17.25,
+          "y": -3.783
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e22",
+        "component": "H1",
+        "number": "6",
+        "net": "GPIO0",
+        "at": {
+          "x": 17.25,
+          "y": -1.243
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e23",
+        "component": "H1",
+        "number": "5",
+        "net": "BOOT",
+        "at": {
+          "x": 17.25,
+          "y": 1.297
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e24",
+        "component": "H1",
+        "number": "4",
+        "net": "EN",
+        "at": {
+          "x": 17.25,
+          "y": 3.837
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e25",
+        "component": "H1",
+        "number": "3",
+        "net": "VBUS",
+        "at": {
+          "x": 17.25,
+          "y": 6.377
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e26",
+        "component": "H1",
+        "number": "2",
+        "net": "+3V3",
+        "at": {
+          "x": 17.25,
+          "y": 8.917
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H1:e27",
+        "component": "H1",
+        "number": "1",
+        "net": "GND",
+        "at": {
+          "x": 17.25,
+          "y": 11.456999999999999
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.5748031496063,
+          "heightMm": 1.7000000000000002
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e18",
+        "component": "H2",
+        "number": "10",
+        "net": "GND",
+        "at": {
+          "x": -17.25,
+          "y": 11.403
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e19",
+        "component": "H2",
+        "number": "9",
+        "net": "UART_TX",
+        "at": {
+          "x": -17.25,
+          "y": 8.863000000000001
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e20",
+        "component": "H2",
+        "number": "8",
+        "net": "UART_RX",
+        "at": {
+          "x": -17.25,
+          "y": 6.3229999999999995
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e21",
+        "component": "H2",
+        "number": "7",
+        "net": "GPIO10",
+        "at": {
+          "x": -17.25,
+          "y": 3.783
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e22",
+        "component": "H2",
+        "number": "6",
+        "net": "GPIO8",
+        "at": {
+          "x": -17.25,
+          "y": 1.243
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e23",
+        "component": "H2",
+        "number": "5",
+        "net": "GPIO7",
+        "at": {
+          "x": -17.25,
+          "y": -1.297
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e24",
+        "component": "H2",
+        "number": "4",
+        "net": "GPIO6",
+        "at": {
+          "x": -17.25,
+          "y": -3.837
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e25",
+        "component": "H2",
+        "number": "3",
+        "net": "GPIO5",
+        "at": {
+          "x": -17.25,
+          "y": -6.377
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e26",
+        "component": "H2",
+        "number": "2",
+        "net": "+3V3",
+        "at": {
+          "x": -17.25,
+          "y": -8.917
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "circle",
+          "diameterMm": 1.7
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "H2:e27",
+        "component": "H2",
+        "number": "1",
+        "net": "GND",
+        "at": {
+          "x": -17.25,
+          "y": -11.456999999999999
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.5748031496063,
+          "heightMm": 1.7000000000000002
+        },
+        "hole": {
+          "shape": "round",
+          "diameterMm": 1,
+          "plated": true
+        }
+      },
+      {
+        "id": "R2:e7",
+        "component": "R2",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -3.4614000000000003,
+          "y": 7.869
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R2:e8",
+        "component": "R2",
+        "number": "1",
+        "net": "USB_CC1",
+        "at": {
+          "x": -1.9546000000000001,
+          "y": 7.869
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R3:e7",
+        "component": "R3",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": 2.455,
+          "y": 6.3906
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R3:e8",
+        "component": "R3",
+        "number": "1",
+        "net": "USB_CC2",
+        "at": {
+          "x": 2.455,
+          "y": 7.8974
+        },
+        "rotationDeg": -90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R4:e7",
+        "component": "R4",
+        "number": "2",
+        "net": "USB_DM",
+        "at": {
+          "x": 11.7466,
+          "y": -5.878
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R4:e8",
+        "component": "R4",
+        "number": "1",
+        "net": "USB_DM_ESD",
+        "at": {
+          "x": 13.2534,
+          "y": -5.878
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R5:e7",
+        "component": "R5",
+        "number": "2",
+        "net": "USB_DP",
+        "at": {
+          "x": 11.7466,
+          "y": -7.5
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R5:e8",
+        "component": "R5",
+        "number": "1",
+        "net": "USB_DP_ESD",
+        "at": {
+          "x": 13.2534,
+          "y": -7.5
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R6:e7",
+        "component": "R6",
+        "number": "2",
+        "net": "EN",
+        "at": {
+          "x": -11.664,
+          "y": -13.4356
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R6:e8",
+        "component": "R6",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -11.664,
+          "y": -14.9424
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R7:e7",
+        "component": "R7",
+        "number": "2",
+        "net": "BOOT",
+        "at": {
+          "x": -11.664,
+          "y": -7.3336
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "R7:e8",
+        "component": "R7",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -11.664,
+          "y": -8.840399999999999
+        },
+        "rotationDeg": 90,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.806477012954026,
+          "heightMm": 0.864008128016256
+        }
+      },
+      {
+        "id": "SW1:e11",
+        "component": "SW1",
+        "number": "1",
+        "net": "EN",
+        "at": {
+          "x": -7.399900000000001,
+          "y": 14.3959
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW1:e12",
+        "component": "SW1",
+        "number": "2",
+        "net": "EN",
+        "at": {
+          "x": -11.6001,
+          "y": 14.3959
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW1:e13",
+        "component": "SW1",
+        "number": "3",
+        "net": "GND",
+        "at": {
+          "x": -7.399900000000001,
+          "y": 12.2461
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW1:e14",
+        "component": "SW1",
+        "number": "4",
+        "net": "GND",
+        "at": {
+          "x": -11.6001,
+          "y": 12.2461
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW2:e11",
+        "component": "SW2",
+        "number": "1",
+        "net": "BOOT",
+        "at": {
+          "x": 11.6001,
+          "y": 14.3959
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW2:e12",
+        "component": "SW2",
+        "number": "2",
+        "net": "BOOT",
+        "at": {
+          "x": 7.399900000000001,
+          "y": 14.3959
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW2:e13",
+        "component": "SW2",
+        "number": "3",
+        "net": "GND",
+        "at": {
+          "x": 11.6001,
+          "y": 12.2461
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "SW2:e14",
+        "component": "SW2",
+        "number": "4",
+        "net": "GND",
+        "at": {
+          "x": 7.399900000000001,
+          "y": 12.2461
+        },
+        "rotationDeg": -180,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 1.0500127000254003,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U1:e13",
+        "component": "U1",
+        "number": "4",
+        "at": {
+          "x": -5.9183,
+          "y": 4.947
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.6223012446024894,
+          "heightMm": 1.1049022098044197
+        }
+      },
+      {
+        "id": "U1:e14",
+        "component": "U1",
+        "number": "5",
+        "net": "+3V3",
+        "at": {
+          "x": -7.8177,
+          "y": 4.947
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.6223012446024895,
+          "heightMm": 1.1049022098044197
+        }
+      },
+      {
+        "id": "U1:e15",
+        "component": "U1",
+        "number": "1",
+        "net": "VBUS",
+        "at": {
+          "x": -7.8177,
+          "y": 7.547
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.6223012446024895,
+          "heightMm": 1.1049022098044197
+        }
+      },
+      {
+        "id": "U1:e16",
+        "component": "U1",
+        "number": "2",
+        "net": "GND",
+        "at": {
+          "x": -6.8685,
+          "y": 7.547
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.6223012446024894,
+          "heightMm": 1.1049022098044197
+        }
+      },
+      {
+        "id": "U1:e17",
+        "component": "U1",
+        "number": "3",
+        "net": "VBUS",
+        "at": {
+          "x": -5.9183,
+          "y": 7.547
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.6223012446024894,
+          "heightMm": 1.1049022098044197
+        }
+      },
+      {
+        "id": "U2:e55",
+        "component": "U2",
+        "number": "1",
+        "net": "+3V3",
+        "at": {
+          "x": -8.7381,
+          "y": -14.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e56",
+        "component": "U2",
+        "number": "2",
+        "net": "EN",
+        "at": {
+          "x": -8.7381,
+          "y": -13.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e57",
+        "component": "U2",
+        "number": "3",
+        "net": "GPIO4",
+        "at": {
+          "x": -8.7381,
+          "y": -11.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e58",
+        "component": "U2",
+        "number": "4",
+        "net": "GPIO5",
+        "at": {
+          "x": -8.7381,
+          "y": -10.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e59",
+        "component": "U2",
+        "number": "5",
+        "net": "GPIO6",
+        "at": {
+          "x": -8.7381,
+          "y": -8.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e60",
+        "component": "U2",
+        "number": "6",
+        "net": "GPIO7",
+        "at": {
+          "x": -8.7381,
+          "y": -7.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 0.9999999999999999
+        }
+      },
+      {
+        "id": "U2:e61",
+        "component": "U2",
+        "number": "7",
+        "net": "GPIO8",
+        "at": {
+          "x": -8.7381,
+          "y": -5.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e62",
+        "component": "U2",
+        "number": "8",
+        "net": "BOOT",
+        "at": {
+          "x": -8.7381,
+          "y": -4.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e63",
+        "component": "U2",
+        "number": "9",
+        "net": "GND",
+        "at": {
+          "x": -8.7381,
+          "y": -2.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e64",
+        "component": "U2",
+        "number": "10",
+        "net": "GPIO10",
+        "at": {
+          "x": 8.7621,
+          "y": -2.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e65",
+        "component": "U2",
+        "number": "11",
+        "net": "UART_RX",
+        "at": {
+          "x": 8.7621,
+          "y": -4.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e66",
+        "component": "U2",
+        "number": "12",
+        "net": "UART_TX",
+        "at": {
+          "x": 8.7621,
+          "y": -5.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e67",
+        "component": "U2",
+        "number": "13",
+        "net": "USB_DM",
+        "at": {
+          "x": 8.7621,
+          "y": -7.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 0.9999999999999999
+        }
+      },
+      {
+        "id": "U2:e68",
+        "component": "U2",
+        "number": "14",
+        "net": "USB_DP",
+        "at": {
+          "x": 8.7621,
+          "y": -8.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e69",
+        "component": "U2",
+        "number": "15",
+        "net": "GPIO3",
+        "at": {
+          "x": 8.7621,
+          "y": -10.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e70",
+        "component": "U2",
+        "number": "16",
+        "net": "GPIO2",
+        "at": {
+          "x": 8.7621,
+          "y": -11.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1.0000000000000004
+        }
+      },
+      {
+        "id": "U2:e71",
+        "component": "U2",
+        "number": "17",
+        "net": "GPIO1",
+        "at": {
+          "x": 8.7621,
+          "y": -13.3881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e72",
+        "component": "U2",
+        "number": "18",
+        "net": "GPIO0",
+        "at": {
+          "x": 8.7621,
+          "y": -14.888
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 2,
+          "heightMm": 1
+        }
+      },
+      {
+        "id": "U2:e73",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": -0.128,
+          "y": -9.7882
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U2:e74",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": -0.128,
+          "y": -8.6881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U2:e75",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": -0.128,
+          "y": -7.588
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000001
+        }
+      },
+      {
+        "id": "U2:e76",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 0.9719,
+          "y": -9.7882
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U2:e77",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 0.9719,
+          "y": -8.6881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U2:e78",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 0.9719,
+          "y": -7.588
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000002,
+          "heightMm": 0.7000000000000001
+        }
+      },
+      {
+        "id": "U2:e79",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 2.0719,
+          "y": -7.588
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000004,
+          "heightMm": 0.7000000000000001
+        }
+      },
+      {
+        "id": "U2:e80",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 2.0719,
+          "y": -8.6881
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000004,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "U2:e81",
+        "component": "U2",
+        "number": "19",
+        "net": "GND",
+        "at": {
+          "x": 2.0719,
+          "y": -9.7882
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.7000000000000004,
+          "heightMm": 0.7000000000000002
+        }
+      },
+      {
+        "id": "USB1:e41",
+        "component": "USB1",
+        "number": "A12",
+        "net": "GND",
+        "at": {
+          "x": 3.35,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e42",
+        "component": "USB1",
+        "number": "B1",
+        "net": "GND",
+        "at": {
+          "x": 3.05,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e43",
+        "component": "USB1",
+        "number": "A9",
+        "net": "VBUS",
+        "at": {
+          "x": 2.5499,
+          "y": 9.6356
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254
+        }
+      },
+      {
+        "id": "USB1:e44",
+        "component": "USB1",
+        "number": "B4",
+        "net": "VBUS",
+        "at": {
+          "x": 2.2499,
+          "y": 9.6356
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254
+        }
+      },
+      {
+        "id": "USB1:e45",
+        "component": "USB1",
+        "number": "B5",
+        "net": "USB_CC2",
+        "at": {
+          "x": 1.7501,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e46",
+        "component": "USB1",
+        "number": "A8",
+        "at": {
+          "x": 1.2497,
+          "y": 9.634899999999998
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254
+        }
+      },
+      {
+        "id": "USB1:e47",
+        "component": "USB1",
+        "number": "B6",
+        "net": "USB_DP_CONN",
+        "at": {
+          "x": 0.7501,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000004,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e48",
+        "component": "USB1",
+        "number": "A7",
+        "net": "USB_DM_CONN",
+        "at": {
+          "x": 0.2499,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000004,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e49",
+        "component": "USB1",
+        "number": "A6",
+        "net": "USB_DP_CONN",
+        "at": {
+          "x": -0.2499,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000004,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e50",
+        "component": "USB1",
+        "number": "B7",
+        "net": "USB_DM_CONN",
+        "at": {
+          "x": -0.7501,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000004,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e51",
+        "component": "USB1",
+        "number": "A5",
+        "net": "USB_CC1",
+        "at": {
+          "x": -1.2499,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e52",
+        "component": "USB1",
+        "number": "B8",
+        "at": {
+          "x": -1.7501,
+          "y": 9.634899999999998
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254
+        }
+      },
+      {
+        "id": "USB1:e53",
+        "component": "USB1",
+        "number": "B9",
+        "net": "VBUS",
+        "at": {
+          "x": -2.2499,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e54",
+        "component": "USB1",
+        "number": "A4",
+        "net": "VBUS",
+        "at": {
+          "x": -2.5499,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e55",
+        "component": "USB1",
+        "number": "B12",
+        "net": "GND",
+        "at": {
+          "x": -3.05,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e56",
+        "component": "USB1",
+        "number": "A1",
+        "net": "GND",
+        "at": {
+          "x": -3.35,
+          "y": 9.6359
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP"
+        ],
+        "shape": {
+          "kind": "rect",
+          "widthMm": 0.30000000000000027,
+          "heightMm": 1.1500127000254001
+        }
+      },
+      {
+        "id": "USB1:e64",
+        "component": "USB1",
+        "number": "1",
+        "net": "GND",
+        "at": {
+          "x": -4.32,
+          "y": 10.200999999999999
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "polygon",
+          "polygon": {
+            "outer": [
+              {
+                "x": 0.5499593599187191,
+                "y": 0.5000403860807721
+              },
+              {
+                "x": 0.546240456676788,
+                "y": 0.5638914888496487
+              },
+              {
+                "x": 0.5351340387376227,
+                "y": 0.6268791149891142
+              },
+              {
+                "x": 0.5167903013509694,
+                "y": 0.6881514649098899
+              },
+              {
+                "x": 0.49145731209659616,
+                "y": 0.7468799351910265
+              },
+              {
+                "x": 0.4594776561958347,
+                "y": 0.8022703240197155
+              },
+              {
+                "x": 0.4212838036341573,
+                "y": 0.8535735714083688
+              },
+              {
+                "x": 0.377392260746523,
+                "y": 0.900095888945949
+              },
+              {
+                "x": 0.32839658535525196,
+                "y": 0.9412081420960463
+              },
+              {
+                "x": 0.27495935991871967,
+                "y": 0.9763543581622135
+              },
+              {
+                "x": 0.21780323124025536,
+                "y": 1.0050592448649232
+              },
+              {
+                "x": 0.157701137909819,
+                "y": 1.026934617854291
+              },
+              {
+                "x": 0.09546585763553139,
+                "y": 1.0416846502374866
+              },
+              {
+                "x": 0.03193901581948122,
+                "y": 1.0491098731299697
+              },
+              {
+                "x": -0.03202029598204259,
+                "y": 1.0491098731299697
+              },
+              {
+                "x": -0.09554713779809187,
+                "y": 1.0416846502374868
+              },
+              {
+                "x": -0.15778241807238036,
+                "y": 1.026934617854291
+              },
+              {
+                "x": -0.21788451140281673,
+                "y": 1.0050592448649232
+              },
+              {
+                "x": -0.27504064008128104,
+                "y": 0.9763543581622136
+              },
+              {
+                "x": -0.32847786551781333,
+                "y": 0.9412081420960465
+              },
+              {
+                "x": -0.3774735409090839,
+                "y": 0.9000958889459492
+              },
+              {
+                "x": -0.42136508379671866,
+                "y": 0.8535735714083688
+              },
+              {
+                "x": -0.4595589363583956,
+                "y": 0.8022703240197155
+              },
+              {
+                "x": -0.4915385922591575,
+                "y": 0.7468799351910265
+              },
+              {
+                "x": -0.5168715815135307,
+                "y": 0.6881514649098901
+              },
+              {
+                "x": -0.5352153189001836,
+                "y": 0.6268791149891144
+              },
+              {
+                "x": -0.5463217368393494,
+                "y": 0.5638914888496485
+              },
+              {
+                "x": -0.5500406400812814,
+                "y": 0.5000403860807721
+              },
+              {
+                "x": -0.5500406400812814,
+                "y": -0.49995961391922794
+              },
+              {
+                "x": -0.5463217368393494,
+                "y": -0.5638107166881046
+              },
+              {
+                "x": -0.5352153189001836,
+                "y": -0.6267983428275699
+              },
+              {
+                "x": -0.5168715815135307,
+                "y": -0.688070692748346
+              },
+              {
+                "x": -0.4915385922591575,
+                "y": -0.7467991630294821
+              },
+              {
+                "x": -0.4595589363583956,
+                "y": -0.8021895518581714
+              },
+              {
+                "x": -0.42136508379671866,
+                "y": -0.8534927992468249
+              },
+              {
+                "x": -0.3774735409090848,
+                "y": -0.900015116784405
+              },
+              {
+                "x": -0.32847786551781333,
+                "y": -0.941127369934502
+              },
+              {
+                "x": -0.27504064008128104,
+                "y": -0.9762735860006693
+              },
+              {
+                "x": -0.21788451140281673,
+                "y": -1.004978472703379
+              },
+              {
+                "x": -0.15778241807238036,
+                "y": -1.026853845692747
+              },
+              {
+                "x": -0.09554713779809276,
+                "y": -1.0416038780759425
+              },
+              {
+                "x": -0.0320202959820417,
+                "y": -1.0490291009684256
+              },
+              {
+                "x": 0.03193901581948122,
+                "y": -1.0490291009684256
+              },
+              {
+                "x": 0.0954658576355305,
+                "y": -1.0416038780759425
+              },
+              {
+                "x": 0.157701137909819,
+                "y": -1.026853845692747
+              },
+              {
+                "x": 0.21780323124025536,
+                "y": -1.004978472703379
+              },
+              {
+                "x": 0.2749593599187188,
+                "y": -0.9762735860006697
+              },
+              {
+                "x": 0.3283965853552515,
+                "y": -0.9411273699345024
+              },
+              {
+                "x": 0.377392260746523,
+                "y": -0.900015116784405
+              },
+              {
+                "x": 0.42128380363415774,
+                "y": -0.8534927992468244
+              },
+              {
+                "x": 0.45947765619583425,
+                "y": -0.8021895518581719
+              },
+              {
+                "x": 0.49145731209659616,
+                "y": -0.7467991630294826
+              },
+              {
+                "x": 0.5167903013509694,
+                "y": -0.688070692748346
+              },
+              {
+                "x": 0.5351340387376227,
+                "y": -0.6267983428275703
+              },
+              {
+                "x": 0.546240456676788,
+                "y": -0.5638107166881046
+              },
+              {
+                "x": 0.5499593599187191,
+                "y": -0.49995961391922794
+              }
+            ]
+          }
+        },
+        "hole": {
+          "shape": "slot",
+          "diameterMm": 0.6,
+          "slotLengthMm": 0.4,
+          "plated": true
+        }
+      },
+      {
+        "id": "USB1:e65",
+        "component": "USB1",
+        "number": "2",
+        "at": {
+          "x": 4.32,
+          "y": 10.200999999999999
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "polygon",
+          "polygon": {
+            "outer": [
+              {
+                "x": 0.5500406400812814,
+                "y": 0.5000403860807721
+              },
+              {
+                "x": 0.5463217368393494,
+                "y": 0.5638914888496487
+              },
+              {
+                "x": 0.5352153189001836,
+                "y": 0.6268791149891142
+              },
+              {
+                "x": 0.5168715815135307,
+                "y": 0.6881514649098899
+              },
+              {
+                "x": 0.4915385922591575,
+                "y": 0.7468799351910265
+              },
+              {
+                "x": 0.4595589363583956,
+                "y": 0.8022703240197155
+              },
+              {
+                "x": 0.42136508379671866,
+                "y": 0.8535735714083688
+              },
+              {
+                "x": 0.3774735409090848,
+                "y": 0.900095888945949
+              },
+              {
+                "x": 0.32847786551781333,
+                "y": 0.9412081420960463
+              },
+              {
+                "x": 0.27504064008128104,
+                "y": 0.9763543581622135
+              },
+              {
+                "x": 0.21788451140281673,
+                "y": 1.0050592448649232
+              },
+              {
+                "x": 0.15778241807238036,
+                "y": 1.026934617854291
+              },
+              {
+                "x": 0.09554713779809276,
+                "y": 1.0416846502374866
+              },
+              {
+                "x": 0.03202029598204259,
+                "y": 1.0491098731299697
+              },
+              {
+                "x": -0.03193901581948122,
+                "y": 1.0491098731299697
+              },
+              {
+                "x": -0.0954658576355305,
+                "y": 1.0416846502374868
+              },
+              {
+                "x": -0.157701137909819,
+                "y": 1.026934617854291
+              },
+              {
+                "x": -0.21780323124025536,
+                "y": 1.0050592448649232
+              },
+              {
+                "x": -0.27495935991871967,
+                "y": 0.9763543581622136
+              },
+              {
+                "x": -0.32839658535525196,
+                "y": 0.9412081420960465
+              },
+              {
+                "x": -0.377392260746523,
+                "y": 0.9000958889459492
+              },
+              {
+                "x": -0.42128380363415774,
+                "y": 0.8535735714083688
+              },
+              {
+                "x": -0.45947765619583425,
+                "y": 0.8022703240197155
+              },
+              {
+                "x": -0.49145731209659616,
+                "y": 0.7468799351910265
+              },
+              {
+                "x": -0.5167903013509694,
+                "y": 0.6881514649098901
+              },
+              {
+                "x": -0.5351340387376227,
+                "y": 0.6268791149891144
+              },
+              {
+                "x": -0.546240456676788,
+                "y": 0.5638914888496485
+              },
+              {
+                "x": -0.5499593599187191,
+                "y": 0.5000403860807721
+              },
+              {
+                "x": -0.5499593599187191,
+                "y": -0.49995961391922794
+              },
+              {
+                "x": -0.546240456676788,
+                "y": -0.5638107166881046
+              },
+              {
+                "x": -0.5351340387376227,
+                "y": -0.6267983428275699
+              },
+              {
+                "x": -0.5167903013509694,
+                "y": -0.688070692748346
+              },
+              {
+                "x": -0.49145731209659616,
+                "y": -0.7467991630294821
+              },
+              {
+                "x": -0.4594776561958347,
+                "y": -0.8021895518581714
+              },
+              {
+                "x": -0.4212838036341573,
+                "y": -0.8534927992468249
+              },
+              {
+                "x": -0.377392260746523,
+                "y": -0.900015116784405
+              },
+              {
+                "x": -0.32839658535525196,
+                "y": -0.941127369934502
+              },
+              {
+                "x": -0.27495935991871967,
+                "y": -0.9762735860006693
+              },
+              {
+                "x": -0.21780323124025536,
+                "y": -1.004978472703379
+              },
+              {
+                "x": -0.157701137909819,
+                "y": -1.026853845692747
+              },
+              {
+                "x": -0.09546585763553139,
+                "y": -1.0416038780759425
+              },
+              {
+                "x": -0.03193901581948033,
+                "y": -1.0490291009684256
+              },
+              {
+                "x": 0.03202029598204259,
+                "y": -1.0490291009684256
+              },
+              {
+                "x": 0.09554713779809187,
+                "y": -1.0416038780759425
+              },
+              {
+                "x": 0.15778241807238036,
+                "y": -1.026853845692747
+              },
+              {
+                "x": 0.21788451140281673,
+                "y": -1.004978472703379
+              },
+              {
+                "x": 0.27504064008128015,
+                "y": -0.9762735860006697
+              },
+              {
+                "x": 0.32847786551781333,
+                "y": -0.9411273699345024
+              },
+              {
+                "x": 0.3774735409090848,
+                "y": -0.900015116784405
+              },
+              {
+                "x": 0.42136508379671866,
+                "y": -0.8534927992468244
+              },
+              {
+                "x": 0.4595589363583956,
+                "y": -0.8021895518581719
+              },
+              {
+                "x": 0.4915385922591575,
+                "y": -0.7467991630294826
+              },
+              {
+                "x": 0.5168715815135307,
+                "y": -0.688070692748346
+              },
+              {
+                "x": 0.5352153189001836,
+                "y": -0.6267983428275703
+              },
+              {
+                "x": 0.5463217368393494,
+                "y": -0.5638107166881046
+              },
+              {
+                "x": 0.5500406400812814,
+                "y": -0.49995961391922794
+              }
+            ]
+          }
+        },
+        "hole": {
+          "shape": "slot",
+          "diameterMm": 0.6,
+          "slotLengthMm": 0.4,
+          "plated": false
+        }
+      },
+      {
+        "id": "USB1:e66",
+        "component": "USB1",
+        "number": "3",
+        "at": {
+          "x": 4.32,
+          "y": 14.3811
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "polygon",
+          "polygon": {
+            "outer": [
+              {
+                "x": 0.5500406400812814,
+                "y": 0.35002674625349295
+              },
+              {
+                "x": 0.5463217368393494,
+                "y": 0.41387784902236957
+              },
+              {
+                "x": 0.5352153189001836,
+                "y": 0.4768654751618353
+              },
+              {
+                "x": 0.5168715815135307,
+                "y": 0.538137825082611
+              },
+              {
+                "x": 0.4915385922591575,
+                "y": 0.5968662953637471
+              },
+              {
+                "x": 0.4595589363583956,
+                "y": 0.6522566841924364
+              },
+              {
+                "x": 0.42136508379671866,
+                "y": 0.7035599315810899
+              },
+              {
+                "x": 0.3774735409090848,
+                "y": 0.75008224911867
+              },
+              {
+                "x": 0.32847786551781333,
+                "y": 0.791194502268767
+              },
+              {
+                "x": 0.27504064008128104,
+                "y": 0.8263407183349343
+              },
+              {
+                "x": 0.21788451140281673,
+                "y": 0.855045605037644
+              },
+              {
+                "x": 0.15778241807238036,
+                "y": 0.876920978027012
+              },
+              {
+                "x": 0.09554713779809276,
+                "y": 0.8916710104102075
+              },
+              {
+                "x": 0.03202029598204259,
+                "y": 0.8990962333026906
+              },
+              {
+                "x": -0.03193901581948122,
+                "y": 0.8990962333026906
+              },
+              {
+                "x": -0.0954658576355305,
+                "y": 0.8916710104102075
+              },
+              {
+                "x": -0.157701137909819,
+                "y": 0.876920978027012
+              },
+              {
+                "x": -0.21780323124025536,
+                "y": 0.855045605037644
+              },
+              {
+                "x": -0.27495935991871967,
+                "y": 0.8263407183349343
+              },
+              {
+                "x": -0.32839658535525196,
+                "y": 0.7911945022687674
+              },
+              {
+                "x": -0.377392260746523,
+                "y": 0.75008224911867
+              },
+              {
+                "x": -0.42128380363415774,
+                "y": 0.7035599315810899
+              },
+              {
+                "x": -0.45947765619583425,
+                "y": 0.6522566841924364
+              },
+              {
+                "x": -0.49145731209659616,
+                "y": 0.5968662953637471
+              },
+              {
+                "x": -0.5167903013509694,
+                "y": 0.538137825082611
+              },
+              {
+                "x": -0.5351340387376227,
+                "y": 0.4768654751618353
+              },
+              {
+                "x": -0.546240456676788,
+                "y": 0.41387784902236957
+              },
+              {
+                "x": -0.5499593599187191,
+                "y": 0.35002674625349295
+              },
+              {
+                "x": -0.5499593599187191,
+                "y": -0.34997325374650723
+              },
+              {
+                "x": -0.546240456676788,
+                "y": -0.41382435651538385
+              },
+              {
+                "x": -0.5351340387376227,
+                "y": -0.47681198265484936
+              },
+              {
+                "x": -0.5167903013509694,
+                "y": -0.538084332575625
+              },
+              {
+                "x": -0.49145731209659616,
+                "y": -0.5968128028567614
+              },
+              {
+                "x": -0.4594776561958347,
+                "y": -0.6522031916854507
+              },
+              {
+                "x": -0.4212838036341573,
+                "y": -0.7035064390741039
+              },
+              {
+                "x": -0.377392260746523,
+                "y": -0.7500287566116843
+              },
+              {
+                "x": -0.32839658535525196,
+                "y": -0.7911410097617815
+              },
+              {
+                "x": -0.27495935991871967,
+                "y": -0.8262872258279486
+              },
+              {
+                "x": -0.21780323124025536,
+                "y": -0.8549921125306583
+              },
+              {
+                "x": -0.157701137909819,
+                "y": -0.8768674855200262
+              },
+              {
+                "x": -0.09546585763553139,
+                "y": -0.8916175179032217
+              },
+              {
+                "x": -0.03193901581948033,
+                "y": -0.8990427407957049
+              },
+              {
+                "x": 0.03202029598204259,
+                "y": -0.8990427407957049
+              },
+              {
+                "x": 0.09554713779809187,
+                "y": -0.891617517903222
+              },
+              {
+                "x": 0.15778241807238036,
+                "y": -0.8768674855200262
+              },
+              {
+                "x": 0.21788451140281673,
+                "y": -0.8549921125306583
+              },
+              {
+                "x": 0.27504064008128015,
+                "y": -0.826287225827949
+              },
+              {
+                "x": 0.32847786551781333,
+                "y": -0.7911410097617817
+              },
+              {
+                "x": 0.3774735409090848,
+                "y": -0.7500287566116841
+              },
+              {
+                "x": 0.42136508379671866,
+                "y": -0.7035064390741037
+              },
+              {
+                "x": 0.4595589363583956,
+                "y": -0.6522031916854512
+              },
+              {
+                "x": 0.4915385922591575,
+                "y": -0.5968128028567616
+              },
+              {
+                "x": 0.5168715815135307,
+                "y": -0.538084332575625
+              },
+              {
+                "x": 0.5352153189001836,
+                "y": -0.4768119826548496
+              },
+              {
+                "x": 0.5463217368393494,
+                "y": -0.41382435651538385
+              },
+              {
+                "x": 0.5500406400812814,
+                "y": -0.34997325374650723
+              }
+            ]
+          }
+        },
+        "hole": {
+          "shape": "slot",
+          "diameterMm": 0.6,
+          "slotLengthMm": 0.4,
+          "plated": false
+        }
+      },
+      {
+        "id": "USB1:e67",
+        "component": "USB1",
+        "number": "4",
+        "at": {
+          "x": -4.32,
+          "y": 14.3811
+        },
+        "rotationDeg": 0,
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "shape": {
+          "kind": "polygon",
+          "polygon": {
+            "outer": [
+              {
+                "x": 0.5499593599187191,
+                "y": 0.35002674625349295
+              },
+              {
+                "x": 0.546240456676788,
+                "y": 0.41387784902236957
+              },
+              {
+                "x": 0.5351340387376227,
+                "y": 0.4768654751618353
+              },
+              {
+                "x": 0.5167903013509694,
+                "y": 0.538137825082611
+              },
+              {
+                "x": 0.49145731209659616,
+                "y": 0.5968662953637471
+              },
+              {
+                "x": 0.4594776561958347,
+                "y": 0.6522566841924364
+              },
+              {
+                "x": 0.4212838036341573,
+                "y": 0.7035599315810899
+              },
+              {
+                "x": 0.377392260746523,
+                "y": 0.75008224911867
+              },
+              {
+                "x": 0.32839658535525196,
+                "y": 0.791194502268767
+              },
+              {
+                "x": 0.27495935991871967,
+                "y": 0.8263407183349343
+              },
+              {
+                "x": 0.21780323124025536,
+                "y": 0.855045605037644
+              },
+              {
+                "x": 0.157701137909819,
+                "y": 0.876920978027012
+              },
+              {
+                "x": 0.09546585763553139,
+                "y": 0.8916710104102075
+              },
+              {
+                "x": 0.03193901581948122,
+                "y": 0.8990962333026906
+              },
+              {
+                "x": -0.03202029598204259,
+                "y": 0.8990962333026906
+              },
+              {
+                "x": -0.09554713779809187,
+                "y": 0.8916710104102075
+              },
+              {
+                "x": -0.15778241807238036,
+                "y": 0.876920978027012
+              },
+              {
+                "x": -0.21788451140281673,
+                "y": 0.855045605037644
+              },
+              {
+                "x": -0.27504064008128104,
+                "y": 0.8263407183349343
+              },
+              {
+                "x": -0.32847786551781333,
+                "y": 0.7911945022687674
+              },
+              {
+                "x": -0.3774735409090839,
+                "y": 0.75008224911867
+              },
+              {
+                "x": -0.42136508379671866,
+                "y": 0.7035599315810899
+              },
+              {
+                "x": -0.4595589363583956,
+                "y": 0.6522566841924364
+              },
+              {
+                "x": -0.4915385922591575,
+                "y": 0.5968662953637471
+              },
+              {
+                "x": -0.5168715815135307,
+                "y": 0.538137825082611
+              },
+              {
+                "x": -0.5352153189001836,
+                "y": 0.4768654751618353
+              },
+              {
+                "x": -0.5463217368393494,
+                "y": 0.41387784902236957
+              },
+              {
+                "x": -0.5500406400812814,
+                "y": 0.35002674625349295
+              },
+              {
+                "x": -0.5500406400812814,
+                "y": -0.34997325374650723
+              },
+              {
+                "x": -0.5463217368393494,
+                "y": -0.41382435651538385
+              },
+              {
+                "x": -0.5352153189001836,
+                "y": -0.47681198265484936
+              },
+              {
+                "x": -0.5168715815135307,
+                "y": -0.538084332575625
+              },
+              {
+                "x": -0.4915385922591575,
+                "y": -0.5968128028567614
+              },
+              {
+                "x": -0.4595589363583956,
+                "y": -0.6522031916854507
+              },
+              {
+                "x": -0.42136508379671866,
+                "y": -0.7035064390741039
+              },
+              {
+                "x": -0.3774735409090848,
+                "y": -0.7500287566116843
+              },
+              {
+                "x": -0.32847786551781333,
+                "y": -0.7911410097617815
+              },
+              {
+                "x": -0.27504064008128104,
+                "y": -0.8262872258279486
+              },
+              {
+                "x": -0.21788451140281673,
+                "y": -0.8549921125306583
+              },
+              {
+                "x": -0.15778241807238036,
+                "y": -0.8768674855200262
+              },
+              {
+                "x": -0.09554713779809276,
+                "y": -0.8916175179032217
+              },
+              {
+                "x": -0.0320202959820417,
+                "y": -0.8990427407957049
+              },
+              {
+                "x": 0.03193901581948122,
+                "y": -0.8990427407957049
+              },
+              {
+                "x": 0.0954658576355305,
+                "y": -0.891617517903222
+              },
+              {
+                "x": 0.157701137909819,
+                "y": -0.8768674855200262
+              },
+              {
+                "x": 0.21780323124025536,
+                "y": -0.8549921125306583
+              },
+              {
+                "x": 0.2749593599187188,
+                "y": -0.826287225827949
+              },
+              {
+                "x": 0.3283965853552515,
+                "y": -0.7911410097617817
+              },
+              {
+                "x": 0.377392260746523,
+                "y": -0.7500287566116841
+              },
+              {
+                "x": 0.42128380363415774,
+                "y": -0.7035064390741037
+              },
+              {
+                "x": 0.45947765619583425,
+                "y": -0.6522031916854512
+              },
+              {
+                "x": 0.49145731209659616,
+                "y": -0.5968128028567616
+              },
+              {
+                "x": 0.5167903013509694,
+                "y": -0.538084332575625
+              },
+              {
+                "x": 0.5351340387376227,
+                "y": -0.4768119826548496
+              },
+              {
+                "x": 0.546240456676788,
+                "y": -0.41382435651538385
+              },
+              {
+                "x": 0.5499593599187191,
+                "y": -0.34997325374650723
+              }
+            ]
+          }
+        },
+        "hole": {
+          "shape": "slot",
+          "diameterMm": 0.6,
+          "slotLengthMm": 0.4,
+          "plated": false
+        }
+      }
+    ],
+    "keepouts": [
+      {
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "polygon": {
+          "outer": [
+            {
+              "x": 3.2150114300228605,
+              "y": 10.680871221742445
+            },
+            {
+              "x": 3.2113815194704225,
+              "y": 10.632433431655471
+            },
+            {
+              "x": 3.2005728740166037,
+              "y": 10.585077661758001
+            },
+            {
+              "x": 3.1828269409400933,
+              "y": 10.539861761696493
+            },
+            {
+              "x": 3.1585401350615485,
+              "y": 10.49779577996129
+            },
+            {
+              "x": 3.128254983491558,
+              "y": 10.45981940107242
+            },
+            {
+              "x": 3.0926480064714887,
+              "y": 10.426780954580178
+            },
+            {
+              "x": 3.0525146050292107,
+              "y": 10.399418464784814
+            },
+            {
+              "x": 3.008751293034494,
+              "y": 10.378343164493204
+            },
+            {
+              "x": 2.962335670560606,
+              "y": 10.364025841087976
+            },
+            {
+              "x": 2.914304585914105,
+              "y": 10.356786319915338
+            },
+            {
+              "x": 2.865730974157016,
+              "y": 10.356786319915338
+            },
+            {
+              "x": 2.8176998895105148,
+              "y": 10.364025841087976
+            },
+            {
+              "x": 2.7712842670366267,
+              "y": 10.378343164493204
+            },
+            {
+              "x": 2.7275209550419106,
+              "y": 10.399418464784814
+            },
+            {
+              "x": 2.687387553599632,
+              "y": 10.426780954580178
+            },
+            {
+              "x": 2.651780576579563,
+              "y": 10.45981940107242
+            },
+            {
+              "x": 2.621495425009572,
+              "y": 10.49779577996129
+            },
+            {
+              "x": 2.5972086191310275,
+              "y": 10.539861761696493
+            },
+            {
+              "x": 2.579462686054517,
+              "y": 10.585077661758001
+            },
+            {
+              "x": 2.5686540406006984,
+              "y": 10.632433431655471
+            },
+            {
+              "x": 2.5650241300482604,
+              "y": 10.680871221742445
+            },
+            {
+              "x": 2.5686540406006984,
+              "y": 10.729309011829418
+            },
+            {
+              "x": 2.579462686054517,
+              "y": 10.776664781726888
+            },
+            {
+              "x": 2.5972086191310275,
+              "y": 10.821880681788397
+            },
+            {
+              "x": 2.6214954250095723,
+              "y": 10.863946663523599
+            },
+            {
+              "x": 2.651780576579563,
+              "y": 10.90192304241247
+            },
+            {
+              "x": 2.687387553599632,
+              "y": 10.934961488904712
+            },
+            {
+              "x": 2.72752095504191,
+              "y": 10.962323978700075
+            },
+            {
+              "x": 2.7712842670366267,
+              "y": 10.983399278991685
+            },
+            {
+              "x": 2.8176998895105148,
+              "y": 10.997716602396913
+            },
+            {
+              "x": 2.865730974157016,
+              "y": 11.004956123569551
+            },
+            {
+              "x": 2.914304585914105,
+              "y": 11.004956123569551
+            },
+            {
+              "x": 2.962335670560606,
+              "y": 10.997716602396913
+            },
+            {
+              "x": 3.008751293034494,
+              "y": 10.983399278991685
+            },
+            {
+              "x": 3.0525146050292102,
+              "y": 10.962323978700075
+            },
+            {
+              "x": 3.0926480064714887,
+              "y": 10.934961488904712
+            },
+            {
+              "x": 3.128254983491558,
+              "y": 10.90192304241247
+            },
+            {
+              "x": 3.158540135061549,
+              "y": 10.863946663523599
+            },
+            {
+              "x": 3.1828269409400933,
+              "y": 10.821880681788397
+            },
+            {
+              "x": 3.2005728740166037,
+              "y": 10.776664781726888
+            },
+            {
+              "x": 3.2113815194704225,
+              "y": 10.729309011829418
+            }
+          ]
+        },
+        "forbid": {
+          "tracks": true,
+          "vias": true,
+          "zones": true
+        }
+      },
+      {
+        "layers": [
+          "TOP",
+          "BOTTOM"
+        ],
+        "polygon": {
+          "outer": [
+            {
+              "x": -2.5650241300482604,
+              "y": 10.680871221742445
+            },
+            {
+              "x": -2.5686540406006984,
+              "y": 10.632433431655471
+            },
+            {
+              "x": -2.579462686054517,
+              "y": 10.585077661758001
+            },
+            {
+              "x": -2.5972086191310275,
+              "y": 10.539861761696493
+            },
+            {
+              "x": -2.6214954250095723,
+              "y": 10.49779577996129
+            },
+            {
+              "x": -2.651780576579563,
+              "y": 10.45981940107242
+            },
+            {
+              "x": -2.687387553599632,
+              "y": 10.426780954580178
+            },
+            {
+              "x": -2.72752095504191,
+              "y": 10.399418464784814
+            },
+            {
+              "x": -2.7712842670366267,
+              "y": 10.378343164493204
+            },
+            {
+              "x": -2.8176998895105148,
+              "y": 10.364025841087976
+            },
+            {
+              "x": -2.865730974157016,
+              "y": 10.356786319915338
+            },
+            {
+              "x": -2.914304585914105,
+              "y": 10.356786319915338
+            },
+            {
+              "x": -2.962335670560606,
+              "y": 10.364025841087976
+            },
+            {
+              "x": -3.008751293034494,
+              "y": 10.378343164493204
+            },
+            {
+              "x": -3.0525146050292102,
+              "y": 10.399418464784814
+            },
+            {
+              "x": -3.0926480064714887,
+              "y": 10.426780954580178
+            },
+            {
+              "x": -3.128254983491558,
+              "y": 10.45981940107242
+            },
+            {
+              "x": -3.158540135061549,
+              "y": 10.49779577996129
+            },
+            {
+              "x": -3.1828269409400933,
+              "y": 10.539861761696493
+            },
+            {
+              "x": -3.2005728740166037,
+              "y": 10.585077661758001
+            },
+            {
+              "x": -3.2113815194704225,
+              "y": 10.632433431655471
+            },
+            {
+              "x": -3.2150114300228605,
+              "y": 10.680871221742445
+            },
+            {
+              "x": -3.2113815194704225,
+              "y": 10.729309011829418
+            },
+            {
+              "x": -3.2005728740166037,
+              "y": 10.776664781726888
+            },
+            {
+              "x": -3.1828269409400933,
+              "y": 10.821880681788397
+            },
+            {
+              "x": -3.1585401350615485,
+              "y": 10.863946663523599
+            },
+            {
+              "x": -3.128254983491558,
+              "y": 10.90192304241247
+            },
+            {
+              "x": -3.0926480064714887,
+              "y": 10.934961488904712
+            },
+            {
+              "x": -3.0525146050292107,
+              "y": 10.962323978700075
+            },
+            {
+              "x": -3.008751293034494,
+              "y": 10.983399278991685
+            },
+            {
+              "x": -2.962335670560606,
+              "y": 10.997716602396913
+            },
+            {
+              "x": -2.914304585914105,
+              "y": 11.004956123569551
+            },
+            {
+              "x": -2.865730974157016,
+              "y": 11.004956123569551
+            },
+            {
+              "x": -2.8176998895105148,
+              "y": 10.997716602396913
+            },
+            {
+              "x": -2.7712842670366267,
+              "y": 10.983399278991685
+            },
+            {
+              "x": -2.7275209550419106,
+              "y": 10.962323978700075
+            },
+            {
+              "x": -2.687387553599632,
+              "y": 10.934961488904712
+            },
+            {
+              "x": -2.651780576579563,
+              "y": 10.90192304241247
+            },
+            {
+              "x": -2.621495425009572,
+              "y": 10.863946663523599
+            },
+            {
+              "x": -2.5972086191310275,
+              "y": 10.821880681788397
+            },
+            {
+              "x": -2.579462686054517,
+              "y": 10.776664781726888
+            },
+            {
+              "x": -2.5686540406006984,
+              "y": 10.729309011829418
+            }
+          ]
+        },
+        "forbid": {
+          "tracks": true,
+          "vias": true,
+          "zones": true
+        }
+      }
+    ],
+    "rules": {
+      "default": {
+        "clearanceMm": 0.15,
+        "edgeClearanceMm": 0.15,
+        "minTrackWidthMm": 0.15,
+        "preferredTrackWidthMm": 0.2,
+        "via": {
+          "minDiameterMm": 0.6,
+          "preferredDiameterMm": 0.6,
+          "minDrillMm": 0.3,
+          "preferredDrillMm": 0.3
+        }
+      },
+      "nets": [
+        {
+          "net": "+3V3",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "BOOT",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "EN",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GND",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO0",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO1",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO10",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO2",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO3",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO4",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO5",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO6",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO7",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "GPIO8",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "UART_RX",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "UART_TX",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "USB_CC1",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "USB_CC2",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        },
+        {
+          "net": "USB_DM",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "USB_DM_CONN",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "USB_DM_ESD",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "USB_DP",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "USB_DP_CONN",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "USB_DP_ESD",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        },
+        {
+          "net": "VBUS",
+          "values": {
+            "clearanceMm": 0.15,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.15,
+            "preferredTrackWidthMm": 0.2,
+            "via": {
+              "minDiameterMm": 0.6,
+              "preferredDiameterMm": 0.6,
+              "minDrillMm": 0.3,
+              "preferredDrillMm": 0.3
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ]
+          }
+        }
+      ],
+      "netClasses": [
+        {
+          "name": "USB_FS",
+          "nets": [
+            "USB_DM_CONN",
+            "USB_DP_CONN",
+            "USB_DP_ESD",
+            "USB_DM_ESD",
+            "USB_DM",
+            "USB_DP"
+          ],
+          "values": {
+            "clearanceMm": 0.14999969999999999,
+            "edgeClearanceMm": 0.15,
+            "minTrackWidthMm": 0.14999969999999999,
+            "preferredTrackWidthMm": 0.19999959999999997,
+            "via": {
+              "minDiameterMm": 0.49999899999999997,
+              "preferredDiameterMm": 0.5999987999999999,
+              "minDrillMm": 0.29999939999999997,
+              "preferredDrillMm": 0.29999939999999997
+            },
+            "allowedLayers": [
+              "TOP",
+              "BOTTOM"
+            ],
+            "differential": {
+              "trackWidthMm": 0.254,
+              "gapMm": 0.152,
+              "maxSkewMm": 0.254
+            }
+          }
+        }
+      ],
+      "differentialPairs": [
+        {
+          "id": "USB_CONNECTOR_PAIR",
+          "positive": "USB_DP_CONN",
+          "negative": "USB_DM_CONN"
+        },
+        {
+          "id": "USB_ESD_PAIR",
+          "positive": "USB_DP_ESD",
+          "negative": "USB_DM_ESD"
+        },
+        {
+          "id": "USB_MCU_PAIR",
+          "positive": "USB_DP",
+          "negative": "USB_DM"
+        }
+      ]
+    },
+    "copper": {
+      "fixed": {
+        "tracks": [],
+        "vias": [],
+        "zones": []
+      },
+      "editable": {
+        "tracks": [],
+        "vias": [],
+        "zones": []
+      }
+    }
+  },
+  "dsl": {
+    "polygons": [
+      {
+        "kind": "polygon",
+        "net": "GND",
+        "targets": [
+          {
+            "kind": "net",
+            "net": "GND"
+          }
+        ],
+        "layers": {
+          "kind": "top"
+        },
+        "mode": "compact",
+        "priority": 0,
+        "maxPadFreeGapWidths": 3,
+        "zone": {
+          "clearanceMm": 0.2,
+          "minThicknessMm": 0.2,
+          "padConnection": {
+            "mode": "thermal",
+            "thermalGapMm": 0.2,
+            "spokeWidthMm": 0.25,
+            "spokeCount": 4
+          },
+          "removeIslandsBelowMm2": 1
+        }
+      }
+    ],
+    "planes": [
+      {
+        "kind": "plane",
+        "net": "GND",
+        "layers": {
+          "kind": "bottom"
+        },
+        "region": {
+          "kind": "board"
+        },
+        "priority": 0,
+        "stitching": {
+          "gridMm": 6,
+          "maxPadViaDistanceMm": 8,
+          "via": "drc-min",
+          "viaInPad": false
+        },
+        "zone": {
+          "clearanceMm": 0.2,
+          "minThicknessMm": 0.2,
+          "padConnection": {
+            "mode": "thermal",
+            "thermalGapMm": 0.2,
+            "spokeWidthMm": 0.25,
+            "spokeCount": 4
+          },
+          "removeIslandsBelowMm2": 1
+        }
+      }
+    ],
+    "signalNets": [],
+    "powerNets": [
+      {
+        "kind": "power-net",
+        "net": "VBUS",
+        "allowedLayers": {
+          "kind": "outer"
+        },
+        "maxCurrentA": 0.6,
+        "maxTempRiseC": 10,
+        "maxTrackWidthMm": 1
+      },
+      {
+        "kind": "power-net",
+        "net": "+3V3",
+        "allowedLayers": {
+          "kind": "outer"
+        },
+        "maxCurrentA": 0.6,
+        "maxTempRiseC": 10,
+        "maxTrackWidthMm": 1
+      }
+    ],
+    "differentialPairs": [],
+    "matchedGroups": [
+      {
+        "kind": "matched-group",
+        "id": "USB_CONNECTOR_MATCH",
+        "nets": [
+          "USB_DP_CONN",
+          "USB_DM_CONN"
+        ],
+        "toleranceMm": 0.5
+      },
+      {
+        "kind": "matched-group",
+        "id": "USB_ESD_MATCH",
+        "nets": [
+          "USB_DP_ESD",
+          "USB_DM_ESD"
+        ],
+        "toleranceMm": 0.5
+      },
+      {
+        "kind": "matched-group",
+        "id": "USB_MCU_MATCH",
+        "nets": [
+          "USB_DP",
+          "USB_DM"
+        ],
+        "toleranceMm": 0.5
+      }
+    ],
+    "viaStitches": [
+      {
+        "kind": "via-stitch",
+        "id": "USB_RETURN",
+        "via": "drc-min",
+        "mode": "return",
+        "referenceNet": "GND",
+        "forNets": [
+          "USB_DP_CONN",
+          "USB_DM_CONN",
+          "USB_DP_ESD",
+          "USB_DM_ESD",
+          "USB_DP",
+          "USB_DM"
+        ],
+        "maxDistanceMm": 3
+      }
+    ],
+    "fanouts": [],
+    "fanoutExclusions": [
+      {
+        "kind": "component",
+        "component": "USB1"
+      }
+    ],
+    "netClasses": [
+      {
+        "kind": "net-class",
+        "name": "USB_FS",
+        "nets": [
+          "USB_DP_CONN",
+          "USB_DM_CONN",
+          "USB_DP_ESD",
+          "USB_DM_ESD",
+          "USB_DP",
+          "USB_DM"
+        ],
+        "trackWidthMm": 0.2,
+        "minTrackWidthMm": 0.15,
+        "clearanceMm": 0.15,
+        "allowedLayers": {
+          "kind": "outer"
+        }
+      }
+    ],
+    "relationEdits": [
+      {
+        "kind": "upsert-net-class",
+        "name": "USB_FS",
+        "nets": [
+          "USB_DP_CONN",
+          "USB_DM_CONN",
+          "USB_DP_ESD",
+          "USB_DM_ESD",
+          "USB_DP",
+          "USB_DM"
+        ]
+      },
+      {
+        "kind": "upsert-matched-group",
+        "id": "USB_CONNECTOR_MATCH",
+        "nets": [
+          "USB_DP_CONN",
+          "USB_DM_CONN"
+        ]
+      },
+      {
+        "kind": "upsert-matched-group",
+        "id": "USB_ESD_MATCH",
+        "nets": [
+          "USB_DP_ESD",
+          "USB_DM_ESD"
+        ]
+      },
+      {
+        "kind": "upsert-matched-group",
+        "id": "USB_MCU_MATCH",
+        "nets": [
+          "USB_DP",
+          "USB_DM"
+        ]
+      }
+    ],
+    "drc": {
+      "trackWidthMm": 0.2,
+      "minTrackWidthMm": 0.15,
+      "clearanceMm": 0.15,
+      "edgeClearanceMm": 0.25,
+      "holeToHoleClearanceMm": 0.25,
+      "allowedLayers": {
+        "kind": "outer"
+      },
+      "via": {
+        "diameterMm": 0.6,
+        "drillMm": 0.3,
+        "minDiameterMm": 0.5,
+        "minDrillMm": 0.3
+      }
+    },
+    "stack": {
+      "boardThicknessMm": 1.6,
+      "fallbackCopperThicknessOz": 1,
+      "layers": [
+        {
+          "kind": "copper",
+          "name": "TOP",
+          "thicknessOz": 1
+        },
+        {
+          "kind": "copper",
+          "name": "BOTTOM",
+          "thicknessOz": 1
+        }
+      ]
+    },
+    "ignoreNets": [],
+    "operation": "all"
+  }
+}

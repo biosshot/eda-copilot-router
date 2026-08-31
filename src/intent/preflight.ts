@@ -13,7 +13,7 @@ import type {
   RoutingProgram,
 } from "./types.js"
 import { validateRoutingProgram } from "./validation.js"
-import { materializeRoutingStackup } from "../core/stackup.js"
+import { materializeRoutingStackup, routingStackupDiagnostics } from "../core/stackup.js"
 import {
   calculateImpedanceOhm,
   solveImpedanceWidthMm,
@@ -677,12 +677,7 @@ export function compileRoutingRules(
   if (program.operation === "apply-stackup" && !program.stack) diagnostics.push(diagnostic(
     "DSL_STACK_REQUIRED", "applyStackup() requires stack(...).",
   ))
-  if (program.stack && board.stackup?.layers.some((layer) => !Number.isFinite(layer.thicknessMm) || layer.thicknessMm <= 0)) {
-    diagnostics.push(diagnostic(
-      "DSL_STACK_INCOMPLETE",
-      "Applied stackup needs a positive thickness for every new copper and dielectric layer.",
-    ))
-  }
+  diagnostics.push(...routingStackupDiagnostics(board.stackup, board.layers.length))
   // runAll() persists the universal KRT neckdown floor without weakening a
   // stricter imported or DSL hard minimum.
   if (program.operation === "all") for (const { name } of board.nets) {

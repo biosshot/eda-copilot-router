@@ -22,6 +22,15 @@ const defaultValues = {
 const powerValues = {
   ...values, preferredTrackWidthMm: 0.4,
 }
+const impedanceValues = {
+  ...values,
+  impedanceOhm: 50,
+  calculatedImpedanceOhm: 49.8,
+  impedanceTolerancePercent: 10,
+  impedanceReferenceNet: "GND",
+  impedanceReferenceLayers: ["INNER_1"],
+  impedanceCoplanarGapMm: 0.2,
+}
 assert.deepEqual(krtProjectNetOrder({
   default: defaultValues,
   nets: [
@@ -47,6 +56,22 @@ const board = {
     { name: "TOP", index: 0, side: "top" }, { name: "INNER_1", index: 1, side: "inner" },
     { name: "INNER_2", index: 2, side: "inner" }, { name: "BOTTOM", index: 3, side: "bottom" },
   ],
+  stackup: {
+    boardThicknessMm: 1.6,
+    layers: [
+      { kind: "copper", layer: "TOP", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "PP_TOP", thicknessMm: 0.18, relativePermittivity: 4.2, material: "FR-4" },
+      { kind: "copper", layer: "INNER_1", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "CORE", thicknessMm: 1.08, relativePermittivity: 4.2, material: "FR-4" },
+      { kind: "copper", layer: "INNER_2", thicknessMm: 0.035 },
+      { kind: "dielectric", name: "PP_BOTTOM", thicknessMm: 0.18, relativePermittivity: 4.2, material: "FR-4" },
+      { kind: "copper", layer: "BOTTOM", thicknessMm: 0.035 },
+    ],
+    solderMask: {
+      top: { thicknessMm: 0.01, relativePermittivity: 3.3 },
+      bottom: { thicknessMm: 0.01, relativePermittivity: 3.3 },
+    },
+  },
   nets: [{ name: "N" }], components: [
     { designator: "J1", at: { x: 5, y: 5 }, rotationDeg: 0, side: "top" },
     { designator: "U2", at: { x: 5, y: 5 }, rotationDeg: 90, side: "top" },
@@ -61,7 +86,7 @@ const board = {
     { component: "B1", number: "3", net: "N", at: { x: 14, y: 5 }, rotationDeg: 90, layers: ["BOTTOM"], shape: { kind: "rect", widthMm: 2, heightMm: 1 } },
   ],
   keepouts: [{ layers: ["TOP"], polygon: { outer: [{ x: 10, y: 10 }, { x: 15, y: 10 }, { x: 15, y: 15 }, { x: 10, y: 15 }], holes: [[{ x: 11, y: 11 }, { x: 12, y: 11 }, { x: 12, y: 12 }, { x: 11, y: 12 }]] }, forbid: { tracks: true, vias: true, zones: true } }],
-  rules: { default: defaultValues, nets: [{ net: "N", values }] },
+  rules: { default: defaultValues, nets: [{ net: "N", values: impedanceValues }] },
   copper: { fixed: {
     tracks: [{ net: "N", layer: "TOP", widthMm: 0.2, points: [{ x: 1, y: 18 }, { x: 4, y: 18 }, { x: 7, y: 18 }] }],
     vias: [
@@ -69,7 +94,7 @@ const board = {
       { net: "N", at: { x: 6, y: 18 }, diameterMm: 0.3, drillMm: 0.1, fromLayer: "TOP", toLayer: "INNER_1", type: "micro" },
     ],
     zones: [
-      { net: "N", layers: ["INNER_1"], outline: { outer: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }], holes: [[{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }, { x: 2, y: 3 }]] }, fill: { style: "solid" }, padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.25 }, removeIslandsBelowMm2: 1 },
+      { net: "N", layers: ["INNER_1"], outline: { outer: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 4 }, { x: 1, y: 4 }], holes: [[{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }, { x: 2, y: 3 }]] }, fill: { style: "solid" }, padConnection: { mode: "thermal", thermalGapMm: 0.2, spokeWidthMm: 0.25, spokeCount: 4, spokeAngleDeg: 45 }, removeIslandsBelowMm2: 1 },
       { layers: ["TOP"], outline: { outer: [{ x: 16, y: 1 }, { x: 19, y: 1 }, { x: 19, y: 4 }, { x: 16, y: 4 }] } },
     ],
   }, editable: {
@@ -101,6 +126,13 @@ try {
     },
   ])
   assert.deepEqual(project.net_settings.netclass_assignments, { N: "Router_1" })
+  assert.deepEqual(project.kicad_routing_tools.net_impedance, {
+    N: { ohms: 50, differential: false, pair_gap: 0, coplanar_gap: 0.2 },
+  }, "the project sidecar must retain native KRT impedance custody")
+  assert.match(source, /\(stackup\r?\n[\s\S]*?\r?\n      \)\r?\n    \)/,
+    "KRT 0.21.3 requires the physical stackup and setup closings on separate lines")
+  assert.match(source, /\(layer "F\.Mask" \(type "Top Solder Mask"\) \(thickness 0\.01\) \(epsilon_r 3\.3\)\)/)
+  assert.match(source, /\(layer "B\.Mask" \(type "Bottom Solder Mask"\) \(thickness 0\.01\) \(epsilon_r 3\.3\)\)/)
   assert.match(source, /\(0 "F\.Cu" signal\)[\s\S]*\(4 "In1\.Cu" signal\)[\s\S]*\(6 "In2\.Cu" signal\)[\s\S]*\(2 "B\.Cu" signal\)/)
   assert.match(source, /\(pad "" np_thru_hole circle[\s\S]*\(drill 0\.5 \(offset 0\.1 -0\.1\)\)/)
   assert.match(source, /\(drill oval 1\.3 0\.5\)/)
@@ -110,6 +142,12 @@ try {
     "KRT board files keep bottom pad coordinates pre-mirrored and must not receive another X reflection")
   const roundTrip = await importKiCadRoutingBoard(inputBoard)
   assert.ok(roundTrip.board, JSON.stringify(roundTrip.diagnostics))
+  assert.equal(roundTrip.board.stackup.layers.length, 7,
+    "solder mask must not be imported as a dielectric layer")
+  assert.deepEqual(roundTrip.board.stackup.solderMask, board.stackup.solderMask)
+  assert.ok(Math.abs(roundTrip.board.stackup.layers.reduce((sum, layer) => sum + layer.thicknessMm, 0)
+    + roundTrip.board.stackup.solderMask.top.thicknessMm
+    + roundTrip.board.stackup.solderMask.bottom.thicknessMm - 1.6) < 1e-9)
   assert.deepEqual(roundTrip.board.pads.filter((pad) => pad.component === "B1").map((pad) => ({
     number: pad.number, at: pad.at, rotationDeg: pad.rotationDeg, layers: pad.layers,
   })), [
@@ -118,6 +156,8 @@ try {
     { number: "3", at: { x: 14, y: 5 }, rotationDeg: 90, layers: ["BOTTOM"] },
   ])
   assert.match(source, /\(zone \(layer "F\.Cu"\)[\s\S]*?\(keepout \(tracks not_allowed\)/)
+  assert.doesNotMatch(source, /thermal_bridge_(?:count|angle)/,
+    "zone-only spoke metadata must not be written as invalid KiCad fill members")
   assert.match(source, /\(start 1 18\) \(end 4 18\)[\s\S]*?\(locked yes\)/,
     "fixed copper must remain immutable")
   assert.match(source, /\(start 1 17\) \(end 4 17\)[\s\S]*?\(net "N"\)\s+\(uuid/,

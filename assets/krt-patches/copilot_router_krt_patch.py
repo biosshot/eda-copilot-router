@@ -24,6 +24,7 @@ import kicad_exact_fill
 import obstacle_cache
 import obstacle_map
 import single_ended_routing
+import routing_defaults
 from routing_config import DiffPairNet, GridCoord
 from routing_utils import build_layer_map
 
@@ -41,6 +42,27 @@ _ZONE_NAME_RE = re.compile(r'\(name\s+"((?:[^"\\]|\\.)*)"\)')
 # neck-down pass keeps dense pad escapes narrow and restores the requested
 # width everywhere the wide swept-copper check succeeds.
 single_ended_routing.SHORT_POWER_EDGE_MM = 0.0
+
+
+def _bounded_rescue_default(name, cast, minimum):
+    """Apply a host-owned rescue bound without patching the managed KRT tree."""
+    raw = os.environ.get(f"COPILOT_ROUTER_{name}")
+    if raw is None:
+        return
+    try:
+        value = cast(raw)
+    except (TypeError, ValueError) as error:
+        raise RuntimeError(f"COPILOT_ROUTER_{name} is invalid: {raw!r}") from error
+    if value < minimum:
+        raise RuntimeError(f"COPILOT_ROUTER_{name} must be >= {minimum}")
+    setattr(routing_defaults, name, value)
+
+
+_bounded_rescue_default("RESCUE_GRID_STEP", float, 0.01)
+_bounded_rescue_default("RESCUE_CLEARANCE_STEPS", int, 1)
+_bounded_rescue_default("RESCUE_MAX_WINDOW_CELLS", int, 10_000)
+_bounded_rescue_default("RESCUE_MAX_EDGES_PER_NET", int, 1)
+_bounded_rescue_default("RESCUE_MAX_ITERATIONS", int, 1_000)
 
 _ORIGINAL_APPLY_NECKDOWN = single_ended_routing._apply_neckdown_widths
 _NECKDOWN_CHECK_INTERVAL_MM = 0.5
@@ -529,15 +551,25 @@ def _install_explicit_diff_pairs():
             return
         explicit_pairs = _parse_explicit_diff_pairs(raw)
         source = _EXPLICIT_DIFF_PAIRS_ENV
-    explicit_members = {name for pair in explicit_pairs for name in pair}
     import net_queries
 
     original = net_queries.find_differential_pairs
 
     def find_differential_pairs(pcb_data, patterns):
         selected = {str(pattern) for pattern in (patterns or [])}
-        if not explicit_members.issubset(selected):
+        # One invocation may legitimately select only one unrelated matched or
+        # repair member while the authoritative sidecar describes every pair
+        # in the full workflow.  Apply only complete pairs present in this
+        # invocation; absence from a scoped membership query is not malformed
+        # input and must not force all global pair members into the call.
+        applicable_pairs = [
+            pair for pair in explicit_pairs
+            if pair[0] in selected and pair[1] in selected
+        ]
+        if not applicable_pairs:
             return original(pcb_data, patterns)
+
+        explicit_members = {name for pair in applicable_pairs for name in pair}
 
         ids_by_name = {
             str(net.name): int(net_id)
@@ -552,7 +584,7 @@ def _install_explicit_diff_pairs():
             )
 
         output = {}
-        for index, (positive, negative) in enumerate(explicit_pairs, start=1):
+        for index, (positive, negative) in enumerate(applicable_pairs, start=1):
             pair_name = f"COPILOT_EXPLICIT_{index}"
             output[pair_name] = DiffPairNet(
                 base_name=pair_name,

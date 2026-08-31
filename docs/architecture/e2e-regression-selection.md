@@ -1,36 +1,53 @@
 # E2E regression selection
 
-Status: accepted test selection; fixture normalization and DSL migration may
-still be pending
+Status: measured and filtered on 2026-08-31.
 
-The focused cross-feature regression set is intentionally small enough for
-frequent local runs while covering the routing contracts currently under
-design.
+The repository keeps every reproducible fixture, but does not pretend that
+every process exit `0` is a passing board. Default tests must be bounded and
+must state what they prove.
 
-## Fast
+## Default/frequent
 
-- `cap_chain`: basic ordinary routing and connectivity;
-- `qfn_diffpair_escape`: dense-package escape plus differential routing;
-- `band_amp`: controlled-impedance declarations and explicit `viaStitch(...)` mode `along`.
+- `cap_chain`: ordinary routing, native connectivity `3 -> 0`, no DRC delta;
+- `qfn_diffpair_escape`: dense escape and preservation of the fixture's
+  pre-existing `FOREIGN` open/DRC fingerprint;
+- EasyEDA hybrid corpus `stable` tier:
+  - `2568fa74`: stackup-aware impedance verification;
+  - `2a52a7eb`: four-layer pure KRT plus a verified ESD differential pair.
 
-`band_amp` replaces `flat_hierarchy` in the focused set. It is a four-copper-
-layer, initially unrouted RF chain. Its native project does not provide a
-complete dielectric stack, so its DSL fixture must declare the missing stack
-properties before an impedance result can be accepted. The along-stitch test uses
-the actual routed RF-chain tracks and does not require a GND plane.
+Run the two real EasyEDA/KRT stable boards with:
 
-## Medium
+```text
+npm run e2e:easyeda-hybrid-corpus
+```
 
-- `powerbank`: compact power polygons, power/sense pad roles, multiple USB
-  differential pairs, DRC inheritance, remaining routing, and GND plane work;
-- `splitflap_driver`: a larger ordinary/multipoint routing case.
+## Diagnostic/manual
 
-## Slow or nightly
+- `band_amp`: impedance declarations and along-track stitching; currently two
+  RF nets remain open, with no native DRC regression;
+- `powerbank`: broad power/polygon/USB coverage; improves 27 non-GND open nets
+  to 11 but adds one warning;
+- `splitflap_driver`: closes all 82 non-GND nets but adds one warning;
+- EasyEDA `8dcca4bc`: closes every net, but only its five-net QSPI matched
+  group passes; the fourteen-net GPIO group measures 9.808 mm spread against
+  an 8 mm tolerance, reproducibly across two reruns;
+- EasyEDA hybrid corpus cases marked `diagnostic`: bounded, useful partial
+  outcomes whose measured upper bounds are stored in the manifest.
 
-- `routed_output`: preservation and cleanup behavior on a board that already
-  contains routing.
+These fixtures stay because they catch regressions, but they are not zero-open
+green-board claims.
 
-`flat_hierarchy` remains a reserve fixture rather than part of the focused six.
-The selection defines coverage, not an instruction to commit or rewrite local
-fixture data. Every runnable fixture remains immutable and writes results only
-to its own ignored results directory.
+## Archive/nightly
+
+- `83efabb6` and `4a770e3e`: expensive, largely duplicate dense-board
+  checkpoints. They remain in the EasyEDA corpus as `archive` and run only
+  when selected explicitly or through `--all`;
+- `routed_output`: currently blocked. Its first differential special candidate
+  exceeded 615 seconds and was aborted. Do not put it in regular CI until the
+  differential search path has its own iteration budget and the runner has a
+  hard timeout.
+
+`flat_hierarchy` and the other standalone fixtures remain reserve inputs. They
+have contract coverage and can be selected for targeted work, but were not
+promoted into the measured default set merely because a runnable directory
+exists.

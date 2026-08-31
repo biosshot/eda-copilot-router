@@ -30,7 +30,7 @@ const board = {
   nets: ["A", "B", "GND"].map((name) => ({ name })),
   components: [
     { designator: "J1", at: { x: 2, y: 2 }, rotationDeg: 0, side: "top" },
-    { designator: "J2", at: { x: 18, y: 8 }, rotationDeg: 0, side: "top" },
+    { designator: "J2", at: { x: 18, y: 8 }, rotationDeg: 0, side: "bottom" },
   ],
   pads: ["A", "B", "GND"].flatMap((net, index) => [
     {
@@ -40,7 +40,7 @@ const board = {
     },
     {
       component: "J2", number: String(index + 1), net,
-      at: { x: 18, y: 2 + index * 2 }, rotationDeg: 0, layers: ["TOP"],
+      at: { x: 18, y: 2 + index * 2 }, rotationDeg: 0, layers: ["BOTTOM"],
       shape: { kind: "circle", diameterMm: 0.8 },
     },
   ]),
@@ -87,6 +87,10 @@ assert.deepEqual(
 )
 assert.equal(capturedInput.nets.find((item) => item.net === "B").routing, false)
 assert.equal(capturedInput.nets.find((item) => item.net === "GND").routing, false)
+assert.equal(capturedInput.components.routing_pad_1.layer, 1,
+  "synthetic pad carriers must stay on the front side so physical pad layers are not mirrored twice")
+assert.deepEqual(capturedInput.footprints.routing_footprint_1.pads.p0.layers, [2],
+  "a physical bottom pad must remain layer 2 in the EasyEDA footprint")
 assert.equal(result.metrics.openNetCount, 0)
 assert.deepEqual(result.metrics.openNets, [])
 assert.ok(result.copper.tracks.some((track) => track.id === "retained"), "incoming editable copper must survive")

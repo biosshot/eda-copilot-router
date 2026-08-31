@@ -83,6 +83,41 @@ const matched = candidate("matched", 1, result({
 }))
 assert.equal(core.retainRoutingChampion(unmatched, matched), matched, "matched-length failures must outrank raw via count")
 
+const impedanceRules = {
+  ...board.rules,
+  nets: [{ net: "OSC", values: { ...values, impedanceOhm: 50 } }],
+}
+const unverifiedImpedance = core.gradeRoutingCandidate(board, program, impedanceRules, result({
+  metrics: {
+    openNetCount: 0,
+    openNets: [],
+    connectivityComponentCount: 1,
+    details: {
+      impedance: {
+        reports: [{ net: "OSC", targetOhm: 50, verified: false }],
+      },
+    },
+  },
+}))
+const verifiedImpedance = core.gradeRoutingCandidate(board, program, impedanceRules, result({
+  copper: { tracks: [], vias: [via("AUX", 3.5)], zones: [] },
+  metrics: {
+    openNetCount: 0,
+    openNets: [],
+    connectivityComponentCount: 1,
+    details: {
+      impedance: {
+        reports: [{ net: "OSC", targetOhm: 50, verified: true }],
+      },
+    },
+  },
+}), 1)
+assert.equal(unverifiedImpedance.impedanceViolationCount, 1,
+  "a connected net without verified impedance geometry must remain a semantic violation")
+assert.equal(verifiedImpedance.impedanceViolationCount, 0)
+assert.ok(core.compareRoutingCandidateGrades(verifiedImpedance, unverifiedImpedance) < 0,
+  "verified impedance must outrank raw via minimization")
+
 const drcRegression = candidate("drc-regression", 0, result({
   diagnostics: [{ code: "KRT_SPECIAL_DRC_REGRESSION", severity: "error", message: "one new violation" }],
 }))

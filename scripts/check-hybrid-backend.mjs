@@ -87,12 +87,13 @@ const request = {
 }
 
 const partition = partitionHybridRoute(request)
-assert.deepEqual(partition.easyedaNets, ["ORD"])
+assert.deepEqual(partition.easyedaNets, ["DP_P", "DP_N", "ORD"])
 assert.deepEqual(partition.krtNets, [
-  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "LAYER", "IMP", "FAN", "HIGH",
+  "POWER", "MATCH_A", "MATCH_B", "CRIT", "VIA", "LAYER", "IMP", "FAN", "HIGH",
 ])
 assert.ok(partition.reasons.POWER.includes("power"))
-assert.ok(partition.reasons.DP_P.includes("differential"))
+assert.equal(partition.reasons.DP_P, undefined,
+  "ordinary differential pairs belong to EasyEDA's native bulk pass")
 assert.ok(partition.reasons.MATCH_A.includes("matched"))
 assert.ok(partition.reasons.CRIT.includes("critical"))
 assert.ok(partition.reasons.FAN.includes("fanout"))
@@ -108,13 +109,13 @@ const inheritedRelationRequest = {
   program: inheritedRelationProgram,
   plan: resolveRoutePlan(board, inheritedRelationProgram, board.rules),
 }
-assert.deepEqual(partitionHybridRoute(inheritedRelationRequest).easyedaNets, [],
-  "effective imported differential/matched relations must remain in the KRT scope")
+assert.deepEqual(partitionHybridRoute(inheritedRelationRequest).easyedaNets, ["DP_P", "DP_N"],
+  "effective matched relations stay in KRT while ordinary differential pairs stay in EasyEDA")
 
 const busProgram = { ...program, busDetect: true }
 const busRequest = { ...request, program: busProgram, plan: resolveRoutePlan(board, busProgram, board.rules) }
-assert.deepEqual(partitionHybridRoute(busRequest).easyedaNets, [],
-  "busDetect is a KRT-native routing intent and must keep the full scope in KRT")
+assert.deepEqual(partitionHybridRoute(busRequest).easyedaNets, ["DP_P", "DP_N", "ORD"],
+  "bus detection must not turn the Hybrid partition into an all-KRT workflow")
 
 const scoped = scopeBackendRequest(request, ["DP_P", "DP_N", "ORD"])
 assert.deepEqual(scoped.plan.scopeNets, ["DP_P", "DP_N", "ORD"])
@@ -164,6 +165,8 @@ const krt = {
   preflight() { return [] },
   async route(routeRequest) {
     krtCalls.push(routeRequest)
+    assert.ok(routeRequest.board.copper.editable.tracks.some((track) => track.id?.startsWith("easyeda-")),
+      "EasyEDA bulk copper must become the incoming KRT checkpoint")
     return successfulResult(routeRequest, "krt")
   },
 }
@@ -173,8 +176,8 @@ const easyeda = {
   preflight() { return [] },
   async route(routeRequest) {
     easyedaCalls.push(routeRequest)
-    assert.ok(routeRequest.board.copper.editable.tracks.some((track) => track.id?.startsWith("krt-")),
-      "KRT constrained copper must become the incoming editable checkpoint")
+    assert.equal(routeRequest.board.copper.editable.tracks.some((track) => track.id?.startsWith("krt-")), false,
+      "EasyEDA must be the first routing process on a two-layer Hybrid board")
     return successfulResult(routeRequest, "easyeda")
   },
 }
@@ -185,8 +188,9 @@ const hybridResult = await hybrid.route(request)
 assert.equal(hybridResult.status, "complete", JSON.stringify(hybridResult.diagnostics))
 assert.equal(krtCalls.length, 1)
 assert.equal(easyedaCalls.length, 1)
-assert.deepEqual(krtCalls[0].plan.scopeNets, partition.krtNets)
-assert.deepEqual(easyedaCalls[0].plan.scopeNets, ["ORD"])
+assert.deepEqual(krtCalls[0].plan.scopeNets, request.plan.scopeNets,
+  "post-Easy KRT audits the full request while internally routing reserved and open nets")
+assert.deepEqual(easyedaCalls[0].plan.scopeNets, ["DP_P", "DP_N", "ORD"])
 assert.equal(hybridResult.metrics.openNetCount, 0)
 assert.ok(hybridResult.copper.tracks.some((track) => track.id === "easyeda-ORD"))
 assert.ok(hybridResult.copper.tracks.some((track) => track.id === "krt-POWER"))
@@ -235,7 +239,7 @@ const runtimeKrt = {
   ...krt,
   async route(routeRequest) {
     runtimeKrtCalls += 1
-    return successfulResult(routeRequest, runtimeKrtCalls === 1 ? "krt-constrained" : "krt-full")
+    return successfulResult(routeRequest, "krt-full")
   },
 }
 const runtimeEasy = {
@@ -246,7 +250,7 @@ const runtimeFallback = createHybridBackend({}, { krt: runtimeKrt, easyeda: runt
 await runtimeFallback.preflight(request)
 const runtimeResult = await runtimeFallback.route(request)
 assert.equal(runtimeResult.status, "partial")
-assert.equal(runtimeKrtCalls, 2, "EasyEDA runtime failure must retry the unchanged full KRT backend")
+assert.equal(runtimeKrtCalls, 1, "EasyEDA-first failure must invoke the unchanged full KRT backend exactly once")
 assert.ok(runtimeResult.copper.tracks.some((track) => track.id === "krt-full-ORD"))
 assert.ok(runtimeResult.diagnostics.some((item) => item.code === "HYBRID_STAGE_ROUTE_EXCEPTION"))
 assert.ok(runtimeResult.diagnostics.some((item) => item.code === "HYBRID_EASYEDA_RUNTIME_FALLBACK"))
@@ -258,12 +262,13 @@ const failedEasyCode = "EASYEDA_FIXTURE_ROUTE_FAILED"
 const partialKrt = {
   ...krt,
   async route(routeRequest) {
-    const completed = routeRequest.plan.scopeNets[0]
-    const openNets = routeRequest.plan.scopeNets.slice(1)
+    const nonGround = routeRequest.plan.scopeNets.filter((net) => net !== "GND")
+    const completedNets = nonGround.slice(0, -1)
+    const openNets = nonGround.slice(-1)
     return {
       status: "partial",
       copper: {
-        tracks: [trackFor(completed, 0, "retained-krt")],
+        tracks: completedNets.map((net, index) => trackFor(net, index, "retained-krt")),
         vias: [],
         zones: [],
       },
@@ -271,7 +276,7 @@ const partialKrt = {
       metrics: {
         openNetCount: openNets.length,
         openNets,
-        connectivityComponentCount: routeRequest.plan.scopeNets.length + openNets.length,
+        connectivityComponentCount: nonGround.length + openNets.length,
       },
     }
   },
@@ -296,8 +301,8 @@ await doubleRuntimeFailure.preflight(request)
 const retainedPartial = await doubleRuntimeFailure.route(request)
 assert.equal(retainedPartial.status, "partial")
 assert.ok(retainedPartial.copper.tracks.some((track) => track.id?.startsWith("retained-krt-")),
-  "a useful KRT checkpoint must survive even when both runtime attempts report errors")
-for (const code of [partialKrtCode, failedEasyCode, "HYBRID_KRT_RUNTIME_FALLBACK"]) {
+  `a useful KRT checkpoint must survive even when both runtime attempts report errors: ${JSON.stringify(retainedPartial)}`)
+for (const code of [partialKrtCode, failedEasyCode, "HYBRID_EASYEDA_RUNTIME_FALLBACK"]) {
   assert.equal(retainedPartial.diagnostics.filter((item) => item.code === code).length, 1,
     `${code} must survive fallback exactly once`)
 }
@@ -326,8 +331,9 @@ const ordinaryRuntimeFallback = createHybridBackend({}, {
 await ordinaryRuntimeFallback.preflight(ordinaryRequest)
 const ordinaryRecovered = await ordinaryRuntimeFallback.route(ordinaryRequest)
 assert.equal(ordinaryRecovered.status, "partial")
-assert.equal(ordinaryFallbackRequest, ordinaryRequest,
-  "an EasyEDA-only runtime failure must retry KRT with the exact original request")
+assert.deepEqual(ordinaryFallbackRequest.plan.scopeNets, ordinaryRequest.plan.scopeNets,
+  "an ordinary EasyEDA runtime failure must retry KRT with the full original scope")
+assert.deepEqual(ordinaryFallbackRequest.board.copper.editable, ordinaryRequest.board.copper.editable)
 assert.ok(ordinaryRecovered.diagnostics.some((item) => item.code === "HYBRID_EASYEDA_RUNTIME_FALLBACK"))
 
 let busEasyFallbackCalls = 0
@@ -363,9 +369,61 @@ await busRuntimeFallback.preflight(busRequest)
 const busRecovered = await busRuntimeFallback.route(busRequest)
 assert.equal(busRecovered.status, "partial")
 assert.equal(busEasyFallbackCalls, 1,
-  "a KRT-only runtime failure must retry EasyEDA on the full routable scope")
+  "a late KRT failure must retain the already-run EasyEDA checkpoint without starting a second WASM route")
 assert.ok(busRecovered.diagnostics.some((item) => item.code === "KRT_BACKEND_FAILED_AFTER_CHECKPOINT"))
-assert.ok(busRecovered.diagnostics.some((item) => item.code === "HYBRID_KRT_RUNTIME_FALLBACK"))
+assert.ok(busRecovered.diagnostics.some((item) => item.code === "HYBRID_KRT_CHECKPOINT_FALLBACK"))
+
+const krtOnlyProgram = {
+  ...base,
+  onlyNets: ["IMP"],
+  signalNets: [{ kind: "signal-net", net: "IMP", impedance: { targetOhm: 50 } }],
+}
+const krtOnlyRequest = {
+  ...request,
+  program: krtOnlyProgram,
+  plan: resolveRoutePlan(board, krtOnlyProgram, board.rules),
+}
+assert.deepEqual(partitionHybridRoute(krtOnlyRequest).easyedaNets, [])
+let krtOnlyEasyCalls = 0
+let krtOnlyEasyRequest
+const krtOnlyRuntimeFallback = createHybridBackend({}, {
+  krt: {
+    ...krt,
+    async route(routeRequest) {
+      return {
+        status: "partial",
+        copper: routeRequest.board.copper.editable,
+        diagnostics: [{
+          code: "KRT_BACKEND_FAILED_AFTER_CHECKPOINT",
+          severity: "error",
+          message: "KRT failed before producing useful copper",
+        }],
+        metrics: {
+          openNetCount: 1,
+          openNets: ["IMP"],
+          connectivityComponentCount: 2,
+        },
+      }
+    },
+  },
+  easyeda: {
+    ...easyeda,
+    async route(routeRequest) {
+      krtOnlyEasyCalls += 1
+      krtOnlyEasyRequest = routeRequest
+      return successfulResult(routeRequest, "krt-only-easy-fallback")
+    },
+  },
+})
+await krtOnlyRuntimeFallback.preflight(krtOnlyRequest)
+const krtOnlyRecovered = await krtOnlyRuntimeFallback.route(krtOnlyRequest)
+assert.equal(krtOnlyRecovered.status, "partial")
+assert.equal(krtOnlyEasyCalls, 1,
+  "a KRT-only runtime failure must retain the one still-unused EasyEDA full fallback attempt")
+assert.deepEqual(krtOnlyEasyRequest.plan.scopeNets, ["IMP"])
+assert.ok(krtOnlyRecovered.copper.tracks.some((track) => track.id === "krt-only-easy-fallback-IMP"))
+assert.ok(krtOnlyRecovered.diagnostics.some((item) => item.code === "HYBRID_KRT_RUNTIME_FALLBACK"))
+assert.ok(krtOnlyRecovered.diagnostics.some((item) => item.code === "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK"))
 
 const bothUnavailable = createHybridBackend({}, {
   krt: krtUnavailable,

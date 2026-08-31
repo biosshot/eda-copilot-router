@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "description": "Real EasyEDA routing captures used to validate the hybrid and native KRT workflows.",
+  "cases": [
+    {
+      "id": "f841a674",
+      "sourceBoard": "espower",
+      "workflow": "hybrid",
+      "tier": "diagnostic",
+      "focus": "two differential pairs and ordinary two-layer routing",
+      "expectedHolePads": 17,
+      "expect": {
+        "maxOpenNetCount": 3,
+        "maxElapsedMs": 240000,
+        "maxFinalDrcViolationCount": 3
+      }
+    },
+    {
+      "id": "af23609f",
+      "sourceBoard": "esp32c3",
+      "workflow": "hybrid",
+      "tier": "diagnostic",
+      "focus": "three matched groups, USB return stitching, and two-layer routing",
+      "expectedHolePads": 24,
+      "expect": {
+        "maxOpenNetCount": 0,
+        "maxElapsedMs": 180000,
+        "maxFinalDrcViolationCount": 0
+      }
+    },
+    {
+      "id": "8dcca4bc",
+      "sourceBoard": "icm20948",
+      "workflow": "hybrid",
+      "tier": "diagnostic",
+      "focus": "matched groups, differential routing, power nets, and ordinary completion",
+      "expectedHolePads": 30,
+      "expect": {
+        "maxOpenNetCount": 0,
+        "maxElapsedMs": 240000,
+        "maxFinalDrcViolationCount": 0,
+        "minMatchedVerifiedNetCount": 5,
+        "hybridMode": "hybrid"
+      }
+    },
+    {
+      "id": "83efabb6",
+      "sourceBoard": "dense-power-controller",
+      "workflow": "hybrid",
+      "tier": "archive",
+      "focus": "dense two-layer mixed-signal and power routing from an unrouted checkpoint",
+      "expectedHolePads": 37,
+      "expect": {
+        "maxOpenNetCount": 35,
+        "maxElapsedMs": 480000
+      }
+    },
+    {
+      "id": "2568fa74",
+      "sourceBoard": "rf-impedance",
+      "workflow": "hybrid",
+      "tier": "stable",
+      "focus": "stackup-aware grounded-coplanar 50-ohm routing",
+      "expectedHolePads": 2,
+      "expect": {
+        "maxOpenNetCount": 0,
+        "maxElapsedMs": 120000,
+        "maxFinalDrcViolationCount": 0,
+        "requiredVerifiedImpedanceNets": ["RF_IN", "RF_OUT"],
+        "hybridMode": "krt-scoped"
+      }
+    },
+    {
+      "id": "2a52a7eb",
+      "sourceBoard": "esp32c3-four-layer",
+      "workflow": "krt",
+      "tier": "stable",
+      "focus": "pure KRT routing on a four-layer board",
+      "expectedHolePads": 24,
+      "expect": {
+        "maxOpenNetCount": 0,
+        "maxElapsedMs": 180000,
+        "maxFinalDrcViolationCount": 0,
+        "requiredVerifiedDifferentialNets": ["USB_DP_ESD", "USB_DM_ESD"]
+      }
+    },
+    {
+      "id": "c6a5bead",
+      "sourceBoard": "espower",
+      "workflow": "hybrid",
+      "tier": "diagnostic",
+      "focus": "two-layer power and ordinary routing",
+      "expectedHolePads": 17,
+      "expect": {
+        "maxOpenNetCount": 1,
+        "maxElapsedMs": 180000,
+        "maxFinalDrcViolationCount": 3
+      }
+    },
+    {
+      "id": "4a770e3e",
+      "sourceBoard": "dense-power-controller-fanout",
+      "workflow": "hybrid",
+      "tier": "archive",
+      "focus": "dense two-layer routing from an explicit-fanout checkpoint",
+      "expectedHolePads": 37,
+      "expect": {
+        "maxOpenNetCount": 40,
+        "maxElapsedMs": 480000
+      }
+    },
+    {
+      "id": "b277f943",
+      "sourceBoard": "dense-power-controller-partial-power",
+      "workflow": "hybrid",
+      "tier": "diagnostic",
+      "focus": "bounded performance and partial-routing recovery",
+      "expectedHolePads": 37,
+      "expect": {
+        "maxOpenNetCount": 8,
+        "maxElapsedMs": 240000,
+        "maxFinalDrcViolationCount": 0
+      }
+    }
+  ]
+}

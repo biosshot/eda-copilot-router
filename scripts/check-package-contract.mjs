@@ -65,8 +65,8 @@ assert.equal(krt.MANAGED_PYTHON_VERSION, "3.12.14-20260814")
 assert.match(krt.managedPythonRelease().url, /python-build-standalone\/releases\/download\/20260814/)
 assert.deepEqual(krt.KRT_NATIVE_AUTO_POLICY, {
   gridStep: 0.1, ordering: "mps",
-  enableNetRescue: true, enableTerminalEscalation: true,
-  ripPreexisting: true, dynamicIterations: true,
+  enableNetRescue: false, enableTerminalEscalation: false,
+  ripPreexisting: true, dynamicIterations: false, maxIterations: 200_000,
   planeFinalize: false, finalizeRip: true,
   specialMaxCandidates: 1,
 })
@@ -76,6 +76,14 @@ assert.deepEqual(krt.buildKrtNativeRecoveryEnvironment({}), {
   KICAD_NET_RESCUE: "1",
   KICAD_TERMINAL_ESCALATION: "1",
   KICAD_DYNAMIC_ITERATIONS: "1",
+  KICAD_DYNAMIC_ITERATIONS_CLAMP: "200000",
+  KICAD_BARE_PAD_ESCAPE: "0",
+  KICAD_RESCUE_CAP_MOVE: "0",
+  COPILOT_ROUTER_RESCUE_GRID_STEP: "0.1",
+  COPILOT_ROUTER_RESCUE_CLEARANCE_STEPS: "1",
+  COPILOT_ROUTER_RESCUE_MAX_WINDOW_CELLS: "500000",
+  COPILOT_ROUTER_RESCUE_MAX_EDGES_PER_NET: "1",
+  COPILOT_ROUTER_RESCUE_MAX_ITERATIONS: "100000",
   KICAD_PLANE_FINALIZE: "0",
   KICAD_FINALIZE_RIP: "1",
 })
@@ -145,6 +153,13 @@ const board = {
 }
 
 assert.equal(api.validateRoutingBoard(board).ok, true)
+assert.equal(api.validateRoutingBoard({
+  ...board,
+  pads: [{
+    ...board.pads[0], layers: ["F.Cu", "B.Cu"],
+    hole: { shape: "round", diameterMm: 0, plated: true },
+  }, ...board.pads.slice(1)],
+}).ok, false, "invalid pad drill geometry must fail before a backend writes a native board")
 const boardWithWhitespacePaddedNet = {
   ...board,
   nets: [...board.nets, { name: " padded-net " }],
@@ -611,6 +626,27 @@ assert.deepEqual(stackOnly.stackup.effective.layers.filter((layer) => layer.kind
 assert.equal(stackOnly.stackup.effective.boardThicknessMm, 1.2)
 assert.equal(backendCalls, 1, "applyStackup must not start the routing backend")
 
+const inferredTwoLayerStack = await api.run({
+  board,
+  dsl: `
+    stack({
+      boardThicknessMm: 1.6,
+      fallbackCopperThicknessOz: 1,
+      layers: [
+        { kind: "copper", name: "TOP" },
+        { kind: "copper", name: "BOTTOM" },
+      ],
+    })
+    applyStackup()
+  `,
+})
+assert.equal(inferredTwoLayerStack.status, "complete")
+assert.deepEqual(inferredTwoLayerStack.stackup.effective.layers.map((layer) => layer.kind), [
+  "copper", "dielectric", "copper",
+])
+assert.ok(Math.abs(inferredTwoLayerStack.stackup.effective.layers[1].thicknessMm - 1.53042) < 1e-9,
+  "a two-layer board must fill its one unambiguous dielectric gap from total and copper thickness")
+
 const copperOnly = await api.run({
   board,
   backend: { ...backend, async route() { throw new Error("runCopper must not start the routing backend") } },
@@ -650,6 +686,23 @@ const fourLayerRoute = await api.run({
 assert.equal(fourLayerRoute.status, "complete")
 assert.equal(fourLayerCalls, 1)
 assert.equal(fourLayerRoute.stackup.applyRequested, true)
+
+const missingFourLayerDielectric = await api.run({
+  board,
+  backend: fourLayerBackend,
+  dsl: `
+    stack({ boardThicknessMm: 1.6, layers: [
+      { kind: "copper", name: "TOP" },
+      { kind: "copper", name: "INNER_1" },
+      { kind: "copper", name: "INNER_2" },
+      { kind: "copper", name: "BOTTOM" },
+    ] })
+    runAll()
+  `,
+})
+assert.equal(missingFourLayerDielectric.status, "error")
+assert.ok(missingFourLayerDielectric.diagnostics.some((item) => item.code === "DSL_STACK_DIELECTRIC_REQUIRED"))
+assert.equal(fourLayerCalls, 1, "invalid multilayer physical stacks must stop before backend execution")
 
 const emptyReplacementBackend = {
   ...fourLayerBackend,

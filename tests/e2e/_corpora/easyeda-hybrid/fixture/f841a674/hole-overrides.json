@@ -1,0 +1,165 @@
+{
+  "source": "historical-footprint-normalization",
+  "fabricationAuthoritative": false,
+  "pads": [
+    {
+      "pad": "SCREW1:e2",
+      "footprint": "Screw-Hole-M2",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 2,
+        "plated": false
+      }
+    },
+    {
+      "pad": "SCREW2:e2",
+      "footprint": "Screw-Hole-M2",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 2,
+        "plated": false
+      }
+    },
+    {
+      "pad": "SW2:e34",
+      "footprint": "SW-TH_SS12D07VG4",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e35",
+      "footprint": "SW-TH_SS12D07VG4",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": false
+      }
+    },
+    {
+      "pad": "SW2:e36",
+      "footprint": "SW-TH_SS12D07VG4",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 1,
+        "plated": true
+      }
+    },
+    {
+      "pad": "SW2:e37",
+      "footprint": "SW-TH_SS12D07VG4",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.8,
+        "plated": false
+      }
+    },
+    {
+      "pad": "SW2:e38",
+      "footprint": "SW-TH_SS12D07VG4",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.8,
+        "plated": false
+      }
+    },
+    {
+      "pad": "U8:e25",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U8:e26",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U9:e25",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U9:e26",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U12:e67",
+      "footprint": "TYPE-C-SMD_20009-UCAF001-X",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U12:e68",
+      "footprint": "TYPE-C-SMD_20009-UCAF001-X",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U12:e69",
+      "footprint": "TYPE-C-SMD_20009-UCAF001-X",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U12:e70",
+      "footprint": "TYPE-C-SMD_20009-UCAF001-X",
+      "hole": {
+        "shape": "slot",
+        "diameterMm": 0.6,
+        "slotLengthMm": 0.4,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U14:e25",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    },
+    {
+      "pad": "U14:e26",
+      "footprint": "CONN-TH_2P-P2.00_BOSSIE_BX-PH2.0-2PZZ",
+      "hole": {
+        "shape": "round",
+        "diameterMm": 0.8,
+        "plated": true
+      }
+    }
+  ]
+}

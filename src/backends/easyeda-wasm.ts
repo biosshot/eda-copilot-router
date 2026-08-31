@@ -419,7 +419,18 @@ function boardToRouterInput(
     components[componentKey] = {
       name: componentKey,
       footprint: footprintKey,
-      layer: padLayers.includes(1) ? 1 : padLayers[0],
+      // Every RoutingPad is exported as its own synthetic, already-positioned
+      // footprint. Keep that carrier on the front side and express the pad's
+      // physical copper layers only through `footprints[].pads[].layers`.
+      //
+      // EasyEDA mirrors a footprint's local layers when the component itself
+      // is placed on layer 2. Marking both a bottom SMD carrier and its local
+      // pad as layer 2 therefore double-flips the pad back to layer 1. The
+      // maze then quite reasonably terminates a top trace at what it believes
+      // is a top pad, while the returned trace is disconnected from the real
+      // bottom pad. A front-side synthetic carrier also preserves inner and
+      // through-hole layer sets verbatim.
+      layer: 1,
       location: toRouter(pad.at, transform),
       rotation: 0,
       nets: { p0: pad.net ?? "" },
