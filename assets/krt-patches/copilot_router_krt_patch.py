@@ -983,15 +983,20 @@ def _install_exact_net_selection():
         exact = exact_or_native(patterns, "length-match")
         if exact is None:
             return original_length_match_finder(all_net_names, patterns)
-        ordered, exact_set = exact
+        ordered, _exact_set = exact
         available = frozenset(str(name) for name in all_net_names)
-        absent = sorted(exact_set.difference(available))
-        if absent:
-            raise RuntimeError(
-                "Exact host length-match selector is absent from routed nets: "
-                + ", ".join(absent)
-            )
-        return list(ordered)
+        # Unlike expand_net_patterns(), this matcher receives a dynamic
+        # universe rather than every net present in the PCB.  Upstream calls it
+        # both with the successfully routed subset during length matching and
+        # with a one-item list when asking whether the current Phase-3 net is a
+        # member of a matched group.  Requiring every exact group member to be
+        # present therefore turns an ordinary partial route (and even a simple
+        # membership query) into a process-killing contract error.
+        #
+        # Keep host-owned names literal and ordered, but intersect them with
+        # the caller's current universe.  PCB-level absence is still rejected
+        # by expand_net_patterns() above, where the complete PCB is available.
+        return [name for name in ordered if name in available]
 
     length_matching.find_nets_matching_patterns = find_nets_matching_patterns
     # Rebind aliases in modules that may have imported the original before
