@@ -39,13 +39,18 @@ same portable core. See
 [`accepted-cleanup-and-standalone-direction.md`](./accepted-cleanup-and-standalone-direction.md).
 
 Hybrid is an internal routing strategy, not a second DSL or contract. On boards
-with at most two copper layers it sends differential, matched, power,
-critical/high-priority, impedance, fanout, bus-detection, via-sensitive, and
-per-net-layer-constrained scopes to the unchanged KRT adapter. EasyEDA WASM
-receives only the ordinary remaining scope.
-On multilayer boards Hybrid passes the exact original request to KRT. The full
-board and all existing copper remain visible to both leaf backends; only the
-internal `request.plan` and compiled intent are narrowed.
+with at most two copper layers EasyEDA WASM first receives the complete
+non-ground routable scope in native order. Matched-length, impedance, explicit
+fanout, via-forbid and per-net-layer-constrained nets overlap that provisional
+scope but remain in final KRT custody. Hybrid removes their EasyEDA-returned
+copper when the semantics cannot be checked locally; via-forbid/layer-only
+copper survives when it contains no forbidden via and every primitive stays on
+the allowed layers. For reset nets Hybrid restores incoming editable copper,
+then invokes the unchanged post-Easy KRT workflow. Power, priority and via-avoid alone remain EasyEDA-owned
+unless they are genuinely open. On multilayer boards Hybrid passes the exact
+original request to KRT. The full board and all fixed copper remain visible to
+both leaf backends; only internal plans and transaction-owned editable copper
+are narrowed.
 
 If a leaf backend fails preflight or at runtime, Hybrid retries the other leaf
 on the full routable scope when possible. Every fallback is explicitly
@@ -70,38 +75,31 @@ call:
 
 1. Run QFN/QFP fanout only for explicit `fanout(...)` targets. A failed
    fanout remains a diagnostic search aid and does not suppress maze routing.
-2. Route differential pairs and matched groups in compatible native batches.
-   Successfully verified special copper becomes protected before ordinary
-   routing.
-3. Route critical ordinary groups and protect only results that pass the
-   critical connectivity/protection gate.
-4. Give high-priority and via-sensitive (`avoid` or `forbid`) ordinary nets an
-   early bounded pass. They remain editable so native blocker recovery can
-   still move them.
-5. Route all remaining and still-open ordinary nets with KRT's native rescue,
-   terminal escalation, pre-existing rip-up recovery, dynamic iteration, and
-   finalization recovery enabled.
-6. Audit full-scope connectivity and DRC. Group still-open ordinary nets by
-   compatible layer/via policy. Then consider already-connected ordinary
-   `avoid`/`forbid` nets that are at most 10 mm long and still contain vias;
-   these are force-rerouted one net at a time. Both job kinds share a maximum
-   of eight attempts and about 30% of measured ordinary-route time after the
-   main pass (with a 5 s minimum on tiny boards). Routing, connectivity and DRC
-   audits all share this wall-clock bound.
-7. Accept each repair only when full-scope connectivity does not regress,
-   scoped native DRC does not increase, and no protected copper is damaged.
-   Open-net jobs must improve connectivity or DRC. Connected-net jobs must
-   strictly reduce the target's via count. Rejected boards remain artifacts,
-   not routing input.
+2. Route compatible impedance, differential and matched batches with generic
+   rescue disabled. Only semantically verified special copper becomes
+   protected.
+3. Route ordinary work in one main workflow. Priority and via sensitivity
+   influence ordering/batching; separate critical/pre-early/post-early
+   subprocesses are empty because they duplicated nearly equivalent work.
+4. In post-Easy mode, narrow that main work to final-custody nets and actual
+   EasyEDA opens. In full mode, use the complete resolved routable scope.
+5. Audit full-scope connectivity and DRC, then allow one original-order
+   completion candidate. This is the only stage allowed to invoke the bounded
+   expensive `net_rescue` ladder; terminal escalation and dynamic multi-million
+   iteration growth remain disabled.
+6. Consider a bounded set of targeted repairs. Connectivity opens are handled
+   before cosmetic short-via cleanup, and cosmetic cleanup does not run while
+   critical opens remain.
+7. Accept each candidate only when full-scope connectivity/shorts/DRC and the
+   protected ledger pass their transaction gates. Rejected boards remain
+   artifacts, not routing input.
 8. Return the final accepted audit and complete editable replacement, even when
    the result is partial.
 
 Repair remains a backend-internal stage, not another public route entry point
 or an unbounded per-net fan-out. Connected-net force routing is deliberately
 restricted to short via-sensitive ordinary nets. Special nets stay under their
-dedicated verification flow. A critical ordinary target may be temporarily
-unprotected only from its own isolated force-reroute; all other protected nets
-remain locked, and the target ledger entry must be restored before acceptance.
+dedicated verification flow and every accepted repair preserves their ledger.
 
 After `route()` returns, the core semantically compares the snapshot with its
 pre-route checkpoint, then materializes core-owned plane and `viaStitch(...)`

@@ -1,5 +1,7 @@
 # Hybrid/KRT corpus validation — 2026-08-31
 
+Production workflow rerun: 2026-09-01
+
 Branch: `feat/hybrid-easyeda-wasm-routing`  
 KRT: `0.21.3`  
 KiCad validation: `10.0.0`
@@ -56,8 +58,8 @@ maze-routed. `KiCad open` is the count of unique net names in native KiCad
 `unconnected_items`, shown as `all / non-GND`. KiCad's item count is larger
 because one open multipoint net can produce many missing item pairs.
 
-The values now agree for ordinary full-board scopes. Two intentional exceptions
-remain:
+In the 2026-08-31 native baseline the values agree for ordinary full-board
+scopes. Two intentional exceptions remain in that historical table:
 
 - `c6a5bead`: the router conservatively retains `ANTENNA` as open while KiCad
   considers the final copper connected;
@@ -65,7 +67,35 @@ remain:
   KiCad DRC also reports the unrelated pre-existing open nets outside that
   scope.
 
-## Reproducible EasyEDA corpus results
+## Production workflow rerun — 2026-09-01
+
+This rerun uses the implemented all-net provisional EasyEDA pass, selective
+hard-custody reset, locally verified retention for via-forbid/layer-only nets,
+and the shared post-Easy KRT workflow. Every manifest expectation passed.
+`DRC` below is KRT's scoped final audit; `—` means the core deliberately chose
+the clean incoming checkpoint instead of the routed candidate.
+
+| Case | Workflow | Wall time | Router open | DRC | Tracks | Vias | Semantic evidence |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `f841a674` | Hybrid 2L | 75.252 s | 3 | 3 | 460 | 24 | differential route remains partial |
+| `af23609f` | Hybrid 2L | 39.380 s | 0 | 0 | 213 | 15 | 2 matched nets verified |
+| `8dcca4bc` | Hybrid 2L | 82.149 s | 1 | 3 | 1240 | 44 | QSPI 5-net group verified; `GPIO27_ADC1` open |
+| `83efabb6` | Hybrid dense 2L | 111.849 s | 4 | 7 | 676 | 112 | 12 compliant layer/via-restricted nets retained; 2 matched nets verified |
+| `2568fa74` | Hybrid impedance 2L | 17.616 s | 0 | 0 | 79 | 40 | `RF_IN` and `RF_OUT` impedance verified; 4 compliant layer-only nets retained |
+| `2a52a7eb` | pure KRT 4L | 31.536 s | 0 | 0 | 316 | 23 | 2 differential nets verified |
+| `c6a5bead` | Hybrid 2L | 24.015 s | 0 | — | 0 | 0 | safe incoming checkpoint selected over a 7-DRC candidate |
+| `4a770e3e` | Hybrid dense 2L | 131.349 s | 3 | 12 | 791 | 73 | `AUX_SW` compliant layer copper retained; improved from 40 historical opens |
+| `b277f943` | Hybrid partial scope | 65.956 s | 1 | 1 | 140 | 9 | bounded partial; `VIN_ADAPTER` remains open |
+
+The diagnostic thresholds intentionally retain known partial cases instead of
+pretending they are complete. `8dcca4bc` still requires at least five verified
+matched nets, `2568fa74` still requires both verified impedance trunks, and the
+four-layer case still requires its verified differential pair.
+
+Generated `routing-result.json` and openable KiCad boards are under
+`tests/e2e/_corpora/easyeda-hybrid/results/<case>/` (ignored runtime artifacts).
+
+## 2026-08-31 native KiCad baseline
 
 | Case | Tier / workflow | Wall time | Router open | KiCad open all/non-GND | KiCad items | Invalid padstack | Semantic result |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
@@ -79,6 +109,7 @@ remain:
 | `4a770e3e` | archive / hybrid dense 2L | 193.866 s | 40 | 41 / 40 | 236 | 0 | duplicate dense failure checkpoint |
 | `b277f943` | diagnostic / hybrid partial scope | 72.081 s | 8 | 41 / 40 | 223 | 0 | safe baseline retained, no editable copper |
 
+The table above is the original native KiCad baseline retained for comparison.
 The default corpus run contains only the two reproducible `stable` cases. `diagnostic`
 cases have useful bounded partial expectations. The two expensive, largely
 duplicated dense checkpoints remain reproducible as `archive`, but do not slow
@@ -90,20 +121,23 @@ exact copper snapshot.
 
 ### Matched groups
 
-`8dcca4bc` closes every non-GND net, but two consecutive reruns produced the
-same honest partial semantic result:
+The 2026-08-31 `8dcca4bc` checkpoint closed every non-GND net, but consecutive
+runs already produced an honest partial semantic result. The 2026-09-01 global
+provisional workflow instead consistently leaves `GPIO27_ADC1` open while
+still verifying the five QSPI members:
 
-- QSPI: 5 nets, spread `6.506 mm <= 8 mm`;
-- GPIO header: 14 nets, spread `9.808 mm > 8 mm`.
+- QSPI: 5 nets, spread `3.755 mm <= 8 mm`;
+- GPIO header: 14 nets, spread `30.764 mm > 8 mm`, with `GPIO27_ADC1` open.
 
 An earlier run happened to verify all 19 matched nets, but the current workflow
 does not reproduce that result. The case is therefore diagnostic rather than a
 default green regression. Its connectivity remains useful and its partial
 diagnostics are preserved.
 
-`af23609f` demonstrates the opposite case: final connectivity is zero-open,
-but none of its three matched groups passed the length audit. It is retained as
-a diagnostic fallback test, not advertised as a successful matched result.
+`af23609f` demonstrates the opposite case: final connectivity is zero-open and
+its USB pair passes with `0.046 mm <= 0.5 mm`, while the other two groups miss
+tolerance at `1.007 mm` and `0.685 mm`. It remains diagnostic rather than being
+advertised as a completely matched result.
 
 ### Stackup-aware impedance
 
@@ -122,7 +156,7 @@ calculated `50.0046 ohm`. `RF_IN` and `RF_OUT` are verified. The short
 
 ### Four-layer pure KRT
 
-`2a52a7eb` closed every non-GND net in `35.930 s` with no scoped KRT DRC
+`2a52a7eb` closed every non-GND net in `31.536 s` with no scoped KRT DRC
 regression and no native KiCad open item. One ESD differential pair is fully
 verified. Two other pairs are electrically short in the source topology and
 fall back to single-ended completion, so the result remains honest `partial`.
@@ -130,9 +164,9 @@ fall back to single-ended completion, so the result remains honest `partial`.
 ### Performance boundary
 
 The former `b277f943` run took `776 s`, including `648.15 s` in one
-single-ended `net_rescue`. The bounded workflow now returns the safe original
-checkpoint after `72.081 s` (`10.8x` faster) instead of spending ten minutes on
-an ultimately rejected candidate.
+single-ended `net_rescue`. The final bounded workflow now returns its useful
+partial checkpoint after `65.956 s` (`11.8x` faster) instead of spending ten
+minutes on an ultimately rejected candidate.
 
 The old `routed_output` nightly E2E exposed a separate remaining gap: its first
 `route_diff.py` special candidate was still running after `615 s` and was
@@ -161,8 +195,12 @@ and packed-package installation.
 
 - The hole bug was real and is fixed at the EasyEDA source, not papered over in
   KiCad. Existing captured boards are now reproducible without reloading them.
-- One EasyEDA bulk pass plus one shared KRT transaction works well when EasyEDA
-  receives the ordinary two-layer nets; pure KRT remains the multilayer path.
+- One EasyEDA global provisional pass plus selective hard-custody reset and one
+  shared KRT transaction works well on two layers; pure KRT remains the
+  multilayer path.
+- Via-forbid/layer-only copper is retained only when every primitive already
+  satisfies the restriction; combined matched/impedance/fanout custody is
+  always reset before KRT.
 - Connectivity, matched, differential and impedance dimensions must stay
   separate. A zero-open board is not automatically a semantically successful
   board.

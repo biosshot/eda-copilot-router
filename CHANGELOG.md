@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Add the Hybrid backend: KRT keeps constrained and multilayer routing while
-  bundled EasyEDA WASM handles ordinary remaining nets on boards with at most
-  two copper layers.
+- Add the Hybrid backend: on boards with at most two copper layers bundled
+  EasyEDA WASM makes one global provisional route over all non-plane nets, then
+  the shared KRT workflow replaces unverified hard-constraint copper and repairs
+  true leftovers; locally compliant via-forbid/layer-only copper is retained
+  for KRT audit, and multilayer routing remains full KRT.
 - Preserve every leaf-backend diagnostic across preflight/runtime fallback and
   return the best semantically graded usable checkpoint as `partial` whenever
   a degraded route can still be applied.

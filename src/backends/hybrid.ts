@@ -44,7 +44,9 @@ type HybridRuntimeDependencies = Readonly<{
 
 export type HybridRoutePartition = Readonly<{
   routableNets: readonly string[]
+  /** Final hard-semantics custody. This is a subset of easyedaNets on two layers. */
   krtNets: readonly string[]
+  /** Provisional EasyEDA planning scope. It intentionally overlaps krtNets. */
   easyedaNets: readonly string[]
   reasons: Readonly<Record<string, readonly string[]>>
 }>
@@ -188,7 +190,118 @@ function withEditableCopper(request: BackendRouteRequest, copper: RoutingCopper)
   }
 }
 
-/** Select only routing policy. KRT remains the sole owner of all KRT stages. */
+type ProvisionalCustodyReset = Readonly<{
+  copper: RoutingCopper
+  removed: Readonly<{ tracks: number; vias: number; zones: number }>
+  restored: Readonly<{ tracks: number; vias: number; zones: number }>
+  retainedCompliantNets: readonly string[]
+}>
+
+const LOCALLY_VERIFIABLE_CUSTODY_REASONS = new Set([
+  "via-forbid",
+  "per-net-layers",
+  // The shared KRT selector adds this umbrella reason to every custody net.
+  "krt-dependent",
+])
+
+function provisionalCopperSatisfiesLocalCustody(
+  request: BackendRouteRequest,
+  copper: RoutingCopper,
+  net: string,
+  reasons: readonly string[],
+) {
+  const specific = reasons.filter((reason) => reason !== "krt-dependent")
+  if (!specific.length || specific.some((reason) => !LOCALLY_VERIFIABLE_CUSTODY_REASONS.has(reason))) {
+    return false
+  }
+  const hasCopper = copper.tracks.some((track) => track.net === net)
+    || copper.vias.some((via) => via.net === net)
+    || copper.zones.some((zone) => zone.net === net)
+  if (!hasCopper) return false
+  const viaForbid = specific.includes("via-forbid")
+  const layerRestricted = specific.includes("per-net-layers")
+  if (viaForbid && copper.vias.some((via) => via.net === net)) return false
+  if (!layerRestricted) return true
+
+  const allowed = new Set(ruleFor(request, net).allowedLayers ?? [])
+  if (!allowed.size) return false
+  if (copper.tracks.some((track) => track.net === net && !allowed.has(track.layer))) return false
+  if (copper.vias.some((via) => via.net === net
+    && (!allowed.has(via.fromLayer) || !allowed.has(via.toLayer)))) return false
+  if (copper.zones.some((zone) => zone.net === net
+    && zone.layers.some((layer) => !allowed.has(layer)))) return false
+  return true
+}
+
+/**
+ * Remove EasyEDA copper whose final semantics cannot be verified locally.
+ * Via-forbid/layer-only custody survives when every returned primitive already
+ * satisfies the restriction; KRT still audits that connected checkpoint.
+ * Incoming editable copper for reset nets is restored exactly, while fixed
+ * copper is outside this replacement object and remains untouched.
+ */
+function resetProvisionalKrtCustody(
+  request: BackendRouteRequest,
+  easyedaCopper: RoutingCopper,
+  partition: HybridRoutePartition,
+): ProvisionalCustodyReset {
+  const retainedCompliantNets = partition.krtNets.filter((net) => (
+    provisionalCopperSatisfiesLocalCustody(
+      request,
+      easyedaCopper,
+      net,
+      partition.reasons[net] ?? [],
+    )
+  ))
+  const retained = new Set(retainedCompliantNets)
+  const custody = new Set(partition.krtNets.filter((net) => !retained.has(net)))
+  if (!custody.size) return {
+    copper: easyedaCopper,
+    removed: { tracks: 0, vias: 0, zones: 0 },
+    restored: { tracks: 0, vias: 0, zones: 0 },
+    retainedCompliantNets,
+  }
+  const generatedForCustody = (item: { net?: string }) => Boolean(item.net && custody.has(item.net))
+  const incomingForCustody = (item: { net?: string }) => Boolean(item.net && custody.has(item.net))
+  const incoming = request.board.copper.editable
+  const removed = {
+    tracks: easyedaCopper.tracks.filter(generatedForCustody).length,
+    vias: easyedaCopper.vias.filter(generatedForCustody).length,
+    zones: easyedaCopper.zones.filter(generatedForCustody).length,
+  }
+  const restored = {
+    tracks: incoming.tracks.filter(incomingForCustody).length,
+    vias: incoming.vias.filter(incomingForCustody).length,
+    zones: incoming.zones.filter(incomingForCustody).length,
+  }
+  return {
+    copper: {
+      tracks: [
+        ...easyedaCopper.tracks.filter((item) => !generatedForCustody(item)),
+        ...incoming.tracks.filter(incomingForCustody),
+      ],
+      vias: [
+        ...easyedaCopper.vias.filter((item) => !generatedForCustody(item)),
+        ...incoming.vias.filter(incomingForCustody),
+      ],
+      zones: [
+        ...easyedaCopper.zones.filter((item) => !generatedForCustody(item)),
+        ...incoming.zones.filter(incomingForCustody),
+      ],
+    },
+    removed,
+    restored,
+    retainedCompliantNets,
+  }
+}
+
+/**
+ * Select provisional planning scope and final hard-semantics custody.
+ *
+ * These are intentionally overlapping sets: EasyEDA sees the complete
+ * two-layer routing problem, while KRT later owns the final audit and replaces
+ * copper whose semantics cannot be proven by the local via/layer gate.
+ */
 export function partitionHybridRoute(request: BackendRouteRequest): HybridRoutePartition {
   const padCounts = new Map<string, number>()
   for (const pad of request.board.pads) if (pad.net) {
@@ -212,12 +325,9 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
   for (const group of request.rules.matchedGroups ?? []) {
     for (const net of group.nets) claim(net, "effective-matched-relation")
   }
-  for (const intent of request.program.powerNets) claim(intent.net, "power")
   for (const intent of request.program.signalNets) if (intent.impedance) claim(intent.net, "impedance")
   for (const policy of request.plan.netPolicies) {
-    if (policy.priority === "high") claim(policy.net, "high-priority")
-    if (policy.priority === "critical") claim(policy.net, "critical")
-    if (policy.viaPreference !== "auto") claim(policy.net, `via-${policy.viaPreference}`)
+    if (policy.viaPreference === "forbid") claim(policy.net, "via-forbid")
   }
   for (const fanout of request.program.fanouts) {
     for (const net of fanoutTargetNets(request, fanout)) claim(net, "fanout")
@@ -237,7 +347,9 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
   return {
     routableNets,
     krtNets: routableNets.filter((net) => krt.has(net)),
-    easyedaNets: routableNets.filter((net) => !krt.has(net)),
+    // EasyEDA is the global two-layer planner, including provisional routes
+    // for KRT-custody nets. The overlap is what preserves useful corridors.
+    easyedaNets: routableNets,
     reasons: Object.fromEntries([...reasons].map(([net, values]) => [net, [...values]])),
   }
 }
@@ -344,9 +456,11 @@ async function prepareExecution(
         }
   }
 
-  // Post-Easy KRT receives the whole request so its transaction can audit and
-  // repair exact EasyEDA victims. Its internal mode still routes only reserved
-  // constraints plus genuinely open nets.
+  // EasyEDA receives the complete two-layer routing problem as a provisional
+  // global plan. Post-Easy KRT receives the whole request so its transaction
+  // can replace hard-custody copper and repair exact EasyEDA victims. Its
+  // internal mode still routes only reserved constraints plus genuinely open
+  // nets.
   // Even a board with no pre-reserved KRT nets may leave ordinary EasyEDA
   // opens.  Keep one post-Easy KRT transaction available so it can route only
   // those exact leftovers and run the shared bounded recovery stage.
@@ -359,7 +473,7 @@ async function prepareExecution(
       ? checkBackend(dependencies.krtPostEasy, krtScopedRequest, "krt-post-easy")
       : Promise.resolve(undefined),
     easyScopedRequest
-      ? checkBackend(dependencies.easyeda, easyScopedRequest, "easyeda-remaining")
+      ? checkBackend(dependencies.easyeda, easyScopedRequest, "easyeda-global-provisional")
       : Promise.resolve(undefined),
   ])
   const scopedDiagnostics = [
@@ -404,7 +518,7 @@ async function prepareExecution(
     diagnostics: [...scopedDiagnostics, ...krtFull.diagnostics],
     krtRequest: request,
     fallback: true,
-    reason: "EasyEDA WASM remaining preflight failed.",
+    reason: "EasyEDA WASM global provisional preflight failed.",
   }
 
   easyedaFull ??= easyScoped && sameStrings(
@@ -562,6 +676,7 @@ function aggregateHybridResult(
   krtResult: BackendRouteResult,
   easyedaResult: BackendRouteResult,
   diagnostics: readonly RoutingDiagnostic[],
+  custodyReset?: ProvisionalCustodyReset,
 ): BackendRouteResult {
   // Post-Easy KRT audits the complete request, including ordinary EasyEDA
   // copper and any victims it moved. Its final metrics are therefore the one
@@ -575,7 +690,6 @@ function aggregateHybridResult(
     ...(krtResult.diagnostics ?? []),
   ]
   const partial = krtResult.status !== "complete"
-    || easyedaResult.status !== "complete"
     || finalOpen > 0
     || mergedDiagnostics.some((item) => item.severity === "error")
   return {
@@ -602,6 +716,14 @@ function aggregateHybridResult(
             easyedaBulk: { status: easyedaResult.status, metrics: easyedaResult.metrics },
             krtPostEasy: { status: krtResult.status, metrics: krtResult.metrics },
           },
+          ...(custodyReset ? {
+            provisionalKrtCustody: {
+              nets: partition.krtNets,
+              removed: custodyReset.removed,
+              restoredIncoming: custodyReset.restored,
+              retainedCompliantNets: custodyReset.retainedCompliantNets,
+            },
+          } : {}),
         },
         hybridInput: {
           openNets: request.plan.scopeNets,
@@ -700,6 +822,12 @@ async function recoverFromKrtFailure(
     return enrichResult(selected, [
       ...diagnostics,
       ...unselectedDiagnostics(selected, recoveryCandidates),
+      ...(selected !== krtRecovery && partition.krtNets.length ? [diagnostic(
+        "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK",
+        "warning",
+        "Late KRT routing failed; the retained non-KRT checkpoint does not verify matched-length, impedance, fanout, layer, or via-forbid semantics. Any provisional EasyEDA copper for those nets must be treated as unfinished.",
+        { nets: partition.krtNets },
+      )] : []),
       diagnostic(
         "HYBRID_KRT_CHECKPOINT_FALLBACK",
         "warning",
@@ -911,7 +1039,12 @@ async function executePlan(
     )
   }
 
-  const stagedRequest = withEditableCopper(request, easyedaResult.copper)
+  const custodyReset = resetProvisionalKrtCustody(
+    request,
+    easyedaResult.copper,
+    plan.partition,
+  )
+  const stagedRequest = withEditableCopper(request, custodyReset.copper)
   const krtResult = await safeRoute(dependencies.krtPostEasy, stagedRequest, "krt-post-easy")
   if (stageFailed(krtResult, "krt")) return recoverFromKrtFailure(
     request,
@@ -923,7 +1056,14 @@ async function executePlan(
     easyedaResult,
   )
 
-  return aggregateHybridResult(request, plan.partition, krtResult, easyedaResult, planDiagnostics)
+  return aggregateHybridResult(
+    request,
+    plan.partition,
+    krtResult,
+    easyedaResult,
+    planDiagnostics,
+    custodyReset,
+  )
 }
 
 /**

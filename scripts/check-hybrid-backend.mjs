@@ -22,7 +22,7 @@ const defaultValues = {
   },
 }
 const netNames = [
-  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "LAYER", "IMP", "FAN", "ORD", "HIGH", "GND",
+  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "VIA_FORBID", "LAYER", "IMP", "FAN", "ORD", "HIGH", "GND",
 ]
 const board = {
   outline: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 30 }, { x: 0, y: 30 }],
@@ -66,6 +66,7 @@ const program = {
   signalNets: [
     { kind: "signal-net", net: "CRIT", priority: "critical" },
     { kind: "signal-net", net: "VIA", viaPreference: "avoid" },
+    { kind: "signal-net", net: "VIA_FORBID", viaPreference: "forbid" },
     { kind: "signal-net", net: "LAYER", allowedLayers: { kind: "top" } },
     { kind: "signal-net", net: "IMP", impedance: { targetOhm: 50 } },
     { kind: "signal-net", net: "HIGH", priority: "high" },
@@ -87,18 +88,26 @@ const request = {
 }
 
 const partition = partitionHybridRoute(request)
-assert.deepEqual(partition.easyedaNets, ["DP_P", "DP_N", "ORD"])
+assert.deepEqual(partition.easyedaNets, [
+  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "VIA_FORBID", "LAYER", "IMP", "FAN", "ORD", "HIGH",
+], "EasyEDA must see the complete non-ground two-layer routing problem")
 assert.deepEqual(partition.krtNets, [
-  "POWER", "MATCH_A", "MATCH_B", "CRIT", "VIA", "LAYER", "IMP", "FAN", "HIGH",
+  "MATCH_A", "MATCH_B", "VIA_FORBID", "LAYER", "IMP", "FAN",
 ])
-assert.ok(partition.reasons.POWER.includes("power"))
+assert.equal(partition.reasons.POWER, undefined,
+  "power intent alone must stay in the EasyEDA-owned bulk result")
 assert.equal(partition.reasons.DP_P, undefined,
   "ordinary differential pairs belong to EasyEDA's native bulk pass")
 assert.ok(partition.reasons.MATCH_A.includes("matched"))
-assert.ok(partition.reasons.CRIT.includes("critical"))
+assert.equal(partition.reasons.CRIT, undefined,
+  "priority alone must not reserve final KRT custody")
+assert.equal(partition.reasons.VIA, undefined,
+  "viaPreference=avoid is soft and must not reserve final KRT custody")
+assert.ok(partition.reasons.VIA_FORBID.includes("via-forbid"))
 assert.ok(partition.reasons.FAN.includes("fanout"))
 assert.ok(partition.reasons.LAYER.includes("per-net-layers"))
-assert.ok(partition.reasons.HIGH.includes("high-priority"))
+assert.equal(partition.reasons.HIGH, undefined,
+  "high priority alone must not reserve final KRT custody")
 
 const inheritedRelationProgram = {
   ...base,
@@ -109,13 +118,16 @@ const inheritedRelationRequest = {
   program: inheritedRelationProgram,
   plan: resolveRoutePlan(board, inheritedRelationProgram, board.rules),
 }
-assert.deepEqual(partitionHybridRoute(inheritedRelationRequest).easyedaNets, ["DP_P", "DP_N"],
-  "effective matched relations stay in KRT while ordinary differential pairs stay in EasyEDA")
+assert.deepEqual(partitionHybridRoute(inheritedRelationRequest).easyedaNets,
+  ["DP_P", "DP_N", "MATCH_A", "MATCH_B"],
+  "effective matched relations remain visible to the provisional EasyEDA global planner")
+assert.deepEqual(partitionHybridRoute(inheritedRelationRequest).krtNets, ["MATCH_A", "MATCH_B"],
+  "effective matched relations still belong to final KRT custody")
 
 const busProgram = { ...program, busDetect: true }
 const busRequest = { ...request, program: busProgram, plan: resolveRoutePlan(board, busProgram, board.rules) }
-assert.deepEqual(partitionHybridRoute(busRequest).easyedaNets, ["DP_P", "DP_N", "ORD"],
-  "bus detection must not turn the Hybrid partition into an all-KRT workflow")
+assert.deepEqual(partitionHybridRoute(busRequest).easyedaNets, partition.routableNets,
+  "bus detection must not narrow the EasyEDA global planning scope")
 
 const scoped = scopeBackendRequest(request, ["DP_P", "DP_N", "ORD"])
 assert.deepEqual(scoped.plan.scopeNets, ["DP_P", "DP_N", "ORD"])
@@ -167,6 +179,19 @@ const krt = {
     krtCalls.push(routeRequest)
     assert.ok(routeRequest.board.copper.editable.tracks.some((track) => track.id?.startsWith("easyeda-")),
       "EasyEDA bulk copper must become the incoming KRT checkpoint")
+    for (const net of ["MATCH_A", "MATCH_B", "IMP", "FAN"]) assert.equal(
+      routeRequest.board.copper.editable.tracks.some((track) => track.id === `easyeda-${net}`),
+      false,
+      `provisional EasyEDA copper for KRT-custody net ${net} must be removed before KRT`,
+    )
+    for (const net of ["VIA_FORBID", "LAYER"]) assert.ok(
+      routeRequest.board.copper.editable.tracks.some((track) => track.id === `easyeda-${net}`),
+      `locally compliant EasyEDA copper for ${net} must survive into the KRT audit/repair checkpoint`,
+    )
+    for (const net of ["POWER", "DP_P", "DP_N", "CRIT", "VIA", "ORD", "HIGH"]) assert.ok(
+      routeRequest.board.copper.editable.tracks.some((track) => track.id === `easyeda-${net}`),
+      `EasyEDA-owned copper for ${net} must survive into the KRT repair checkpoint`,
+    )
     return successfulResult(routeRequest, "krt")
   },
 }
@@ -190,10 +215,106 @@ assert.equal(krtCalls.length, 1)
 assert.equal(easyedaCalls.length, 1)
 assert.deepEqual(krtCalls[0].plan.scopeNets, request.plan.scopeNets,
   "post-Easy KRT audits the full request while internally routing reserved and open nets")
-assert.deepEqual(easyedaCalls[0].plan.scopeNets, ["DP_P", "DP_N", "ORD"])
+assert.deepEqual(easyedaCalls[0].plan.scopeNets, partition.routableNets)
 assert.equal(hybridResult.metrics.openNetCount, 0)
 assert.ok(hybridResult.copper.tracks.some((track) => track.id === "easyeda-ORD"))
 assert.ok(hybridResult.copper.tracks.some((track) => track.id === "krt-POWER"))
+assert.deepEqual(hybridResult.metrics.details.hybrid.provisionalKrtCustody, {
+  nets: partition.krtNets,
+  removed: { tracks: 4, vias: 0, zones: 0 },
+  restoredIncoming: { tracks: 0, vias: 0, zones: 0 },
+  retainedCompliantNets: ["VIA_FORBID", "LAYER"],
+})
+
+const incomingImpedanceTrack = trackFor("IMP", 99, "incoming-editable")
+const incomingCustodyBoard = {
+  ...board,
+  copper: {
+    ...board.copper,
+    editable: { tracks: [incomingImpedanceTrack], vias: [], zones: [] },
+  },
+}
+const incomingCustodyRequest = {
+  ...request,
+  board: incomingCustodyBoard,
+  plan: resolveRoutePlan(incomingCustodyBoard, program, incomingCustodyBoard.rules),
+}
+let incomingCustodyKrtRequest
+const incomingCustodyHybrid = createHybridBackend({}, {
+  easyeda,
+  krt: {
+    ...krt,
+    async route(routeRequest) {
+      incomingCustodyKrtRequest = routeRequest
+      return successfulResult(routeRequest, "incoming-custody-krt")
+    },
+  },
+})
+await incomingCustodyHybrid.preflight(incomingCustodyRequest)
+const incomingCustodyResult = await incomingCustodyHybrid.route(incomingCustodyRequest)
+assert.ok(incomingCustodyKrtRequest)
+assert.equal(incomingCustodyKrtRequest.board.copper.editable.tracks
+  .filter((track) => track.id === incomingImpedanceTrack.id).length, 1,
+  "incoming editable copper for a KRT-custody net must be restored exactly once after removing provisional EasyEDA copper")
+assert.equal(incomingCustodyKrtRequest.board.copper.editable.tracks
+  .some((track) => track.id === "easyeda-IMP"), false)
+assert.equal(incomingCustodyResult.metrics.details.hybrid.provisionalKrtCustody.restoredIncoming.tracks, 1)
+
+let violatingCustodyKrtRequest
+const violatingCustodyHybrid = createHybridBackend({}, {
+  easyeda: {
+    ...easyeda,
+    async route(routeRequest) {
+      const result = successfulResult(routeRequest, "violating-easy")
+      return {
+        ...result,
+        copper: {
+          ...result.copper,
+          tracks: result.copper.tracks.map((track) => track.id === "violating-easy-LAYER"
+            ? { ...track, layer: "BOTTOM" }
+            : track),
+          vias: [{
+            id: "violating-easy-VIA_FORBID-via",
+            net: "VIA_FORBID",
+            at: { x: 25, y: 10 },
+            diameterMm: 0.6,
+            drillMm: 0.3,
+            fromLayer: "TOP",
+            toLayer: "BOTTOM",
+            type: "through",
+          }],
+        },
+      }
+    },
+  },
+  krt: {
+    ...krt,
+    async route(routeRequest) {
+      violatingCustodyKrtRequest = routeRequest
+      return successfulResult(routeRequest, "violating-custody-krt")
+    },
+  },
+})
+await violatingCustodyHybrid.preflight(request)
+const violatingCustodyResult = await violatingCustodyHybrid.route(request)
+assert.ok(violatingCustodyKrtRequest)
+for (const net of ["VIA_FORBID", "LAYER"]) assert.equal(
+  violatingCustodyKrtRequest.board.copper.editable.tracks
+    .some((track) => track.id === `violating-easy-${net}`),
+  false,
+  `all provisional ${net} copper must be reset when one primitive violates its locally checkable constraint`,
+)
+assert.equal(violatingCustodyKrtRequest.board.copper.editable.vias
+  .some((via) => via.id === "violating-easy-VIA_FORBID-via"), false)
+assert.deepEqual(
+  violatingCustodyResult.metrics.details.hybrid.provisionalKrtCustody.retainedCompliantNets,
+  [],
+)
+assert.deepEqual(violatingCustodyResult.metrics.details.hybrid.provisionalKrtCustody.removed, {
+  tracks: partition.krtNets.length,
+  vias: 1,
+  zones: 0,
+})
 
 const krtUnavailable = {
   ...krt,
@@ -383,7 +504,8 @@ const krtOnlyRequest = {
   program: krtOnlyProgram,
   plan: resolveRoutePlan(board, krtOnlyProgram, board.rules),
 }
-assert.deepEqual(partitionHybridRoute(krtOnlyRequest).easyedaNets, [])
+assert.deepEqual(partitionHybridRoute(krtOnlyRequest).easyedaNets, ["IMP"],
+  "even an all-KRT-custody scope must enter the provisional EasyEDA planning pass")
 let krtOnlyEasyCalls = 0
 let krtOnlyEasyRequest
 const krtOnlyRuntimeFallback = createHybridBackend({}, {
@@ -419,10 +541,11 @@ await krtOnlyRuntimeFallback.preflight(krtOnlyRequest)
 const krtOnlyRecovered = await krtOnlyRuntimeFallback.route(krtOnlyRequest)
 assert.equal(krtOnlyRecovered.status, "partial")
 assert.equal(krtOnlyEasyCalls, 1,
-  "a KRT-only runtime failure must retain the one still-unused EasyEDA full fallback attempt")
+  "a late KRT failure must retain the already-created provisional EasyEDA checkpoint without rerunning WASM")
 assert.deepEqual(krtOnlyEasyRequest.plan.scopeNets, ["IMP"])
-assert.ok(krtOnlyRecovered.copper.tracks.some((track) => track.id === "krt-only-easy-fallback-IMP"))
-assert.ok(krtOnlyRecovered.diagnostics.some((item) => item.code === "HYBRID_KRT_RUNTIME_FALLBACK"))
+assert.deepEqual(krtOnlyRecovered.copper, krtOnlyRequest.board.copper.editable,
+  "when an all-custody provisional route remains open, the candidate grader may prefer the clean incoming checkpoint")
+assert.ok(krtOnlyRecovered.diagnostics.some((item) => item.code === "HYBRID_KRT_CHECKPOINT_FALLBACK"))
 assert.ok(krtOnlyRecovered.diagnostics.some((item) => item.code === "HYBRID_HARD_CONSTRAINTS_UNVERIFIED_FALLBACK"))
 
 const bothUnavailable = createHybridBackend({}, {

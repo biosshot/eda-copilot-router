@@ -1,14 +1,16 @@
 # Hybrid routing workflow: зафиксированное решение и доказательства
 
-Дата фиксации: 2026-08-31  
-Статус: реализован в `feat/hybrid-easyeda-wasm-routing`, corpus validation выполнена  
+Дата фиксации: 2026-08-31, уточнено 2026-09-01
+
+Статус: production workflow реализован в `feat/hybrid-easyeda-wasm-routing`; повторная corpus validation выполняется
 Основной scope: EasyEDA Copilot Router, двухслойные платы, KRT 0.21.3 и EasyEDA WASM router
 
 Этот документ фиксирует выводы исследования и фактическую реализацию
-Hybrid/KRT workflow. Он заменяет более раннюю рабочую гипотезу, где KRT
-hard-relations запускались до EasyEDA. Поздние A/B и transactional repair
-показали более устойчивую последовательность: один EasyEDA bulk-pass, затем
-одна KRT constrained transaction и один условный remaining repair.
+Hybrid/KRT workflow. Он заменяет две более ранние рабочие гипотезы: KRT
+hard-relations до EasyEDA и исключение hard-special nets из EasyEDA. Поздний
+full-corpus A/B показал более устойчивую последовательность: один глобальный
+EasyEDA pass по всем routable non-plane nets, selective reset provisional
+hard-special copper, затем одна KRT transaction и один условный remaining repair.
 
 ## Неподвижные требования
 
@@ -29,12 +31,13 @@ hard-relations запускались до EasyEDA. Поздние A/B и transa
 | --- | --- | --- |
 | Ordinary single-ended | EasyEDA WASM | KRT full, если EasyEDA недоступен |
 | Обычная diff pair без impedance/length relation | EasyEDA WASM native diff-pair fields | KRT full |
-| Matched/length group | KRT late constrained transaction | EasyEDA может дать только unverified partial copper |
-| Single-ended impedance | KRT native impedance transaction | EasyEDA result помечается impedance-unverified |
-| Differential impedance | KRT `route_diff.py` native impedance transaction | EasyEDA result помечается impedance-unverified |
-| PowerNet и другие KRT-dependent ограничения | KRT после bulk и hard relations | EasyEDA full fallback как partial |
-| Generic critical/high priority | KRT priority lane, но не hard protection | EasyEDA full fallback |
-| Explicit fanout | Внутри late KRT transaction, только когда fanout явно запросил DSL | Partial без fanout при недоступном KRT |
+| Matched/length group | EasyEDA provisional corridor, затем KRT final custody | EasyEDA может дать только unverified partial copper |
+| Single-ended impedance | EasyEDA provisional corridor, затем KRT native impedance transaction | EasyEDA result помечается impedance-unverified |
+| Differential impedance | EasyEDA provisional diff pair, затем KRT `route_diff.py` native impedance transaction | EasyEDA result помечается impedance-unverified |
+| PowerNet без иных hard constraints | EasyEDA WASM с effective width/rules | KRT repair, если сеть осталась open |
+| Generic critical/high priority или `viaPreference: "avoid"` | EasyEDA WASM; это порядок/стоимость, не hard custody | KRT repair, если сеть осталась open |
+| `viaPreference: "forbid"` или per-net layer restriction | EasyEDA provisional corridor, затем KRT final custody | Unverified partial при недоступном KRT |
+| Explicit fanout | EasyEDA provisional corridor, затем late KRT transaction, только по явному DSL | Partial без fanout при недоступном KRT |
 | GND/planes/polygons | Core/plane workflow | Существующая core partial policy |
 | Opens после EasyEDA и KRT victims | Один финальный KRT remaining/repair | Оставить open в partial result |
 
@@ -43,7 +46,9 @@ hard-relations запускались до EasyEDA. Поздние A/B и transa
 EasyEDA WASM не поддерживает length constraints. Это не вопрос слоя, веса,
 порядка или настройки стоимости. EasyEDA может случайно получить близкие
 длины, но не умеет гарантировать matched group. Поэтому members всех matched
-groups резервируются для KRT в штатном Hybrid.
+groups входят в финальную KRT custody. При этом EasyEDA сначала видит и их:
+это помогает глобальному planner оставить реалистичные выходы из pads и
+коридоры. Перед KRT только provisional copper этих nets удаляется.
 
 Если KRT недоступен до начала маршрутизации, full EasyEDA fallback может
 соединить эти сети, но результат обязан явно оставаться length-unverified.
@@ -60,7 +65,10 @@ B.Cu tracks и vias. Нет доказательства, что изменен�
 ```text
 DSL parse/compile + effective rules + existing core copper
                          |
-       один EasyEDA native-default global bulk-pass
+ EasyEDA native-default global pass по всем non-plane nets
+                         |
+selective reset unverified KRT-custody copper
+ (incoming editable copper этих nets восстанавливается)
                          |
           одна late KRT constrained transaction
        explicit fanout -> impedance -> matched -> main
@@ -84,19 +92,31 @@ DSL parse/compile + effective rules + existing core copper
 
 ### 2. Один EasyEDA bulk-pass
 
-В normal Hybrid EasyEDA получает:
+В normal Hybrid EasyEDA получает все routable non-ground nets:
 
 - ordinary single-ended nets;
-- native differential pairs без impedance и matched semantics;
+- native differential pairs;
+- power/critical/high/via-avoid nets;
+- provisional matched, impedance, explicit-fanout, via-forbid и
+  per-net-layer-constrained nets;
 - исходный относительный порядок сетей из EasyEDA board;
 - существующие widths, clearances, layers и другие уже поддерживаемые rules.
 
 EasyEDA не получает:
 
-- GND/plane/ignored nets;
-- matched-group members;
-- impedance nets, включая impedance diff pairs;
-- сети, которые требуют отдельной KRT-only hard semantics.
+- GND/plane nets;
+- ignored nets;
+- nets вне resolved route scope или без двух электрических terminals.
+
+Это не означает, что EasyEDA становится владельцем hard semantics. Его copper
+для matched/impedance/explicit-fanout nets является временным global-planning
+scaffold. Для `via-forbid`/per-net-layer-only nets выполняется дешёвая точная
+проверка: нет ли via и лежат ли все tracks/vias/zones только на разрешённых
+слоях. Compliant copper сохраняется и передаётся KRT для audit; при любом
+нарушении сбрасывается вся provisional copper этой сети. Для reset nets Hybrid
+восстанавливает их входной editable copper. Fixed copper не входит в
+replacement и никогда не трогается. Если сеть одновременно matched,
+impedance или fanout, локальной проверки недостаточно и она всегда reset.
 
 Нельзя дробить bulk на несколько накопительных EasyEDA passes: ранняя медь
 становится препятствием для следующего pass и разрушает глобальную оптимизацию
@@ -105,17 +125,20 @@ WASM router.
 ### 3. Explicit fanout
 
 Fanout запускается первым внутри late KRT transaction и только при явном
-fanout statement. Его target nets заранее зарезервированы от EasyEDA bulk.
+fanout statement. Его target nets видны EasyEDA provisional pass, но их
+EasyEDA copper удаляется перед KRT.
 Generic `pre-early`, `early` и `post-early` subprocesses не запускаются.
 
 ### 4. Late KRT constrained transaction
 
-После EasyEDA KRT получает только constraints, которых EasyEDA гарантировать не
-может. Порядок по умолчанию:
+После EasyEDA KRT получает полный board/request для правильного audit и blocker
+context, но в `post-easy` mode маршрутизирует только final-custody nets и
+фактически открытые сети. Порядок по умолчанию:
 
 1. impedance и impedance diff pairs;
 2. matched groups;
-3. PowerNet и другие KRT-dependent restrictions/priority work.
+3. explicit fanout, via-forbid и per-net-layer restrictions;
+4. ordinary/diff-pair opens, включая PowerNet, если EasyEDA их не закрыл.
 
 Сеть, одновременно принадлежащая нескольким hard constraints, обрабатывается
 атомарно в совместимом batch и проверяется по всем затронутым constraints.
@@ -177,8 +200,9 @@ unverified и итог остаётся partial.
 
 ### KRT упал после EasyEDA
 
-Возвращается последний EasyEDA checkpoint. Зарезервированные hard-special
-сети могут остаться open. Новый EasyEDA process специально ради них не
+Выбирается лучший безопасный checkpoint между входной платой, уже полученным
+EasyEDA result и последним читаемым KRT result. Hard-special semantics явно
+помечаются unverified. Новый EasyEDA process специально ради этих opens не
 запускается.
 
 ### EasyEDA недоступен
@@ -207,11 +231,14 @@ createKrtWorkflowBackend(options, "full" | "post-easy")
 
 ## Фактически реализовано
 
-1. На двух слоях Hybrid делает ровно один EasyEDA bulk-pass, затем передаёт
-   его checkpoint в общий KRT runner с `mode: "post-easy"`.
+1. На двух слоях Hybrid делает ровно один EasyEDA global pass по всем routable
+   non-ground nets. Затем удаляет unverified provisional copper final-custody
+   nets, сохраняет compliant via-forbid/layer-only copper, восстанавливает
+   incoming editable copper reset-сетей и передаёт checkpoint в общий KRT
+   runner с `mode: "post-easy"`.
 2. Обычные differential pairs остаются в EasyEDA. Если хотя бы один member
    после EasyEDA открыт, KRT забирает пару целиком; impedance/matched pairs
-   всегда остаются KRT-reserved.
+   всегда остаются в final KRT custody, хотя provisional EasyEDA pass их видит.
 3. В full KRT и post-Easy KRT отключены отдельные critical/early subprocesses.
    Priority используется для порядка внутри одного main workflow.
 4. Дорогой `net_rescue` разрешён только в одном финальном remaining pass:
@@ -234,6 +261,29 @@ createKrtWorkflowBackend(options, "full" | "post-easy")
 11. KRT codec больше не пишет pad-only `thermal_bridge_count/angle` внутрь
     zone fill; все экспортированные validation boards загружаются KiCad 10.
 
+### A/B полного provisional scope против исключения special nets
+
+На всех девяти сохранённых EasyEDA Hybrid cases сравнивались две одинаковые
+последовательности. Отличалось только то, видел ли первый EasyEDA pass future
+KRT-custody nets. На четырёх реально отличавшихся платах получено:
+
+| Scope EasyEDA | Opens | DRC | Vias | Суммарное время |
+| --- | ---: | ---: | ---: | ---: |
+| Все routable non-plane nets | 6 | 10 | 212 | 267.3 s |
+| Special nets исключены | 7 | 8 | 234 | 267.1 s |
+
+Full provisional scope дал на одну open net и 22 vias меньше без измеримого
+штрафа по времени. На `af23609f` оба варианта дали 0 opens/0 DRC, но global
+scope использовал 15 vias вместо 26. На `8dcca4bc` global scope дал одну open
+net вместо двух и 44 vias вместо 54. Поэтому небольшой DRC trade-off не
+устраняется слепым исключением special nets: final KRT gates и native host DRC
+остаются acceptance boundary.
+
+Отдельно `b277f943`, ранее тративший около 776 s из-за повторного rescue,
+завершил bounded workflow примерно за 74 s с одной open net и одной DRC issue.
+Это подтверждает, что основной выигрыш даёт один global planner и один дорогой
+remaining ladder, а не повторение близких `critical/main/monolithic` работ.
+
 Полный corpus-отчёт и готовые KiCad artifacts: 
 [`docs/validation/hybrid-workflow-20260831.md`](../validation/hybrid-workflow-20260831.md).
 
@@ -241,7 +291,8 @@ createKrtWorkflowBackend(options, "full" | "post-easy")
 
 ### `pcb-dsl-83efabb6`
 
-EasyEDA default bulk без matched members, затем late KRT matched и recovery:
+Исторический exclude-special experiment: EasyEDA default bulk без matched
+members, затем late KRT matched и recovery:
 
 - итог: 0 opens;
 - 0 matched violations;

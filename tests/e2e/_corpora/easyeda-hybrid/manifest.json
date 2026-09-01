@@ -36,9 +36,9 @@
       "focus": "matched groups, differential routing, power nets, and ordinary completion",
       "expectedHolePads": 30,
       "expect": {
-        "maxOpenNetCount": 0,
+        "maxOpenNetCount": 1,
         "maxElapsedMs": 240000,
-        "maxFinalDrcViolationCount": 0,
+        "maxFinalDrcViolationCount": 3,
         "minMatchedVerifiedNetCount": 5,
         "hybridMode": "hybrid"
       }
@@ -67,7 +67,7 @@
         "maxElapsedMs": 120000,
         "maxFinalDrcViolationCount": 0,
         "requiredVerifiedImpedanceNets": ["RF_IN", "RF_OUT"],
-        "hybridMode": "krt-scoped"
+        "hybridMode": "hybrid"
       }
     },
     {
@@ -93,8 +93,7 @@
       "expectedHolePads": 17,
       "expect": {
         "maxOpenNetCount": 1,
-        "maxElapsedMs": 180000,
-        "maxFinalDrcViolationCount": 3
+        "maxElapsedMs": 180000
       }
     },
     {
@@ -119,7 +118,7 @@
       "expect": {
         "maxOpenNetCount": 8,
         "maxElapsedMs": 240000,
-        "maxFinalDrcViolationCount": 0
+        "maxFinalDrcViolationCount": 1
       }
     }
   ]

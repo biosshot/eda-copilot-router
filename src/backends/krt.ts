@@ -172,7 +172,17 @@ function routableScopeNets(request: BackendRouteRequest) {
   ))
 }
 
-/** @internal Nets reserved from the EasyEDA bulk pass for late KRT custody. */
+/**
+ * @internal Nets whose final copper belongs to late KRT custody.
+ *
+ * The two-layer Hybrid provisional EasyEDA pass may still route these nets so
+ * its global maze search reserves their pad escapes and corridors. Hybrid
+ * removes provisional copper that cannot be verified locally before invoking
+ * this workflow; compliant via-forbid/layer-only copper may remain as an
+ * audited starting checkpoint. Priority, power intent and viaPreference=avoid
+ * are not hard KRT semantics by themselves; EasyEDA remains their final owner
+ * unless they stay open.
+ */
 export function krtPostEasyReservedNets(request: BackendRouteRequest) {
   const routableNets = routableScopeNets(request)
   const routable = new Set(routableNets)
@@ -181,11 +191,8 @@ export function krtPostEasyReservedNets(request: BackendRouteRequest) {
   for (const group of request.program.matchedGroups) for (const net of group.nets) claim(net)
   for (const group of request.rules.matchedGroups ?? []) for (const net of group.nets) claim(net)
   for (const net of routable) if (ruleFor(request, net).impedanceOhm !== undefined) claim(net)
-  for (const item of request.program.powerNets) claim(item.net)
   for (const policy of request.plan.netPolicies) {
-    if (policy.priority === "high" || policy.priority === "critical" || policy.viaPreference !== "auto") {
-      claim(policy.net)
-    }
+    if (policy.viaPreference === "forbid") claim(policy.net)
   }
   const allLayers = normalizedLayerSet(request.board.layers.map((layer) => layer.name))
   for (const net of routable) {
