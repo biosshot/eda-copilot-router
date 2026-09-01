@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-09-01
 
 - Add the Hybrid backend: on boards with at most two copper layers bundled
   EasyEDA WASM makes one global provisional route over all non-plane nets, then

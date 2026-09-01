@@ -1,6 +1,6 @@
 {
   "name": "eda-copilot-router",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "EDA-neutral hybrid PCB routing with KiCad Routing Tools and EasyEDA WASM",
   "type": "module",
   "license": "MIT",
