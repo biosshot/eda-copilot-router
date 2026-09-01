@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
+import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import {
   bundledEasyEdaWasmAssets,
   createEasyEdaWasmBackend,
@@ -116,5 +119,14 @@ assert.deepEqual(failed.metrics.openNets, ["A"])
 const assets = bundledEasyEdaWasmAssets()
 assert.ok(existsSync(assets.workerPath), assets.workerPath)
 assert.ok(existsSync(assets.wasmPath), assets.wasmPath)
+
+const inheritedModuleModeSmoke = resolve("tests/e2e/no_kicad/easyeda_wasm.mjs")
+const inheritedModuleMode = spawnSync(process.execPath, [
+  "--input-type=module",
+  "--eval",
+  `await import(${JSON.stringify(pathToFileURL(inheritedModuleModeSmoke).href)})`,
+], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 })
+assert.equal(inheritedModuleMode.status, 0,
+  `bundled worker must not inherit --input-type=module:\n${inheritedModuleMode.stderr}\n${inheritedModuleMode.stdout}`)
 
 console.log("EasyEDA WASM backend contract: ok")

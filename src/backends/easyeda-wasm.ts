@@ -736,6 +736,10 @@ export function createEasyEdaWasmWorkerEngine(options: EasyEdaWasmWorkerEngineOp
     const worker = new Worker(workerWrapper, {
       eval: true,
       workerData: { workerPath: options.workerPath, wasmPath: options.wasmPath },
+      // `--input-type=module` applies to eval workers as well and would turn
+      // this deliberately CommonJS compatibility wrapper into ESM. Hosts may
+      // legitimately launch Node with that flag, so do not inherit it here.
+      execArgv: process.execArgv.filter((argument) => !argument.startsWith("--input-type")),
     })
     let settled = false
     let lastResult: EasyEdaWasmRouterOutput | undefined

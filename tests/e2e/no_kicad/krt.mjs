@@ -7,6 +7,14 @@ const testDirectory = dirname(fileURLToPath(import.meta.url))
 const routerDirectory = resolve(testDirectory, "../../..")
 const router = await import(pathToFileURL(resolve(routerDirectory, "package-dist/index.js")))
 
+if (process.env.EXPECT_MANAGED_PYTHON === "1") {
+  const runtime = await router.prepareKrtRuntime()
+  assert.notEqual(runtime.pythonSource, "system",
+    `a no-system-Python runner unexpectedly selected ${runtime.pythonPath}`)
+  assert.ok(resolve(runtime.pythonPath).startsWith(resolve(runtime.cacheDirectory)),
+    `managed Python must stay below the private router cache: ${JSON.stringify(runtime)}`)
+}
+
 const result = await router.run({
   board,
   dsl,

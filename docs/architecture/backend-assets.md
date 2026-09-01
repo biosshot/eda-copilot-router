@@ -14,6 +14,16 @@ a pinned, redistributable CPython runtime below the router cache. The managed
 interpreter is invoked by absolute path and never modifies `PATH`, the Windows
 registry, a global Python installation, or global `site-packages`.
 
+System discovery is best-effort and ordered: explicit configuration and
+`COPILOT_ROUTER_PYTHON`/`KICAD_PYTHON`/common Python environment variables;
+active virtualenv, Conda, or `PYTHONHOME`; installed KiCad versions; standard
+per-user/system Python, pyenv, Conda, macOS Framework/Homebrew locations; the
+Windows `py -3` launcher; and versioned/ordinary PATH commands. Launcher and
+PATH candidates are normalized to the absolute `sys.executable` returned by a
+Python 3.9+ probe before KRT uses them. Failure of every candidate is not fatal:
+managed Python is the final KRT runtime path, and Hybrid can still retain a
+bundled-EasyEDA partial route if KRT preparation itself is unavailable.
+
 Managed assets use a pinned upstream version, immutable URL, expected byte
 size, and SHA-256. The package downloads only when that backend is first used,
 rejects an integrity mismatch, rejects unsafe archive paths and symbolic links,

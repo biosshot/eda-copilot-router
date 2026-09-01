@@ -23,6 +23,12 @@
   implementation-owned.
 - Raise the implementation-owned plane and explicit stitching-via guardrails
   from 500 to 4096 vias per plane or `viaStitch(...)` intent.
+- Broaden Python discovery across virtualenv, Conda, installed KiCad/Python,
+  pyenv, Windows launcher, macOS framework/Homebrew, and versioned PATH
+  candidates, normalizing successful probes to an absolute interpreter path.
+- Exercise the real bundled EasyEDA WASM Hybrid fallback with an empty offline
+  KRT cache on Windows, Linux, and macOS CI; KRT absence remains a visible
+  `partial` degradation while useful EasyEDA copper is retained.
 
 ## 0.2.1 - 2026-08-22
 

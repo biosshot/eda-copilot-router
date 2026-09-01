@@ -82,10 +82,13 @@ export {
   MANAGED_PYTHON_VERSION,
   krtManagedRelease,
   managedPythonRelease,
+  krtPythonDiscoveryCandidates,
   prepareManagedPython,
   prepareKrtRuntime,
   readKrtLicense,
   type KrtRuntimeOptions,
+  type KrtPythonDiscoveryCandidate,
+  type KrtPythonDiscoveryContext,
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
 

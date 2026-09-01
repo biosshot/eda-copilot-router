@@ -6,13 +6,14 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises"
 import { constants } from "node:fs"
-import { arch, platform } from "node:os"
+import { arch, homedir, platform } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -95,6 +96,7 @@ type PythonDetails = Readonly<{
   version: number[]
   tag: string
   hasPip: boolean
+  executable: string
 }>
 
 type PreparedPython = Readonly<{
@@ -200,23 +202,186 @@ async function prepareReleaseDirectory(directory: string) {
   await copyFile(source, join(directory, "rust_router", binary.importName))
 }
 
-function commandCandidates(explicit?: string) {
-  const values: string[] = []
-  const append = (value: string | undefined) => {
-    if (value && !values.some((item) => item.toLowerCase() === value.toLowerCase())) values.push(value)
+export type KrtPythonDiscoveryCandidate = Readonly<{
+  command: string
+  args: readonly string[]
+  source: string
+  /** Resolve a launcher such as Windows `py -3` to `sys.executable`. */
+  resolveExecutable?: boolean
+}>
+
+export type KrtPythonDiscoveryContext = Readonly<{
+  environment?: NodeJS.ProcessEnv
+  currentPlatform?: string
+  homeDirectory?: string
+}>
+
+function environmentValue(environment: NodeJS.ProcessEnv, name: string) {
+  const direct = environment[name]
+  if (direct !== undefined) return direct
+  const found = Object.keys(environment).find((key) => key.toLowerCase() === name.toLowerCase())
+  return found ? environment[found] : undefined
+}
+
+async function childDirectories(root: string | undefined, pattern: RegExp) {
+  if (!root) return []
+  return readdir(root, { withFileTypes: true }).then(
+    entries => entries
+      .filter((entry) => entry.isDirectory() && pattern.test(entry.name))
+      .map((entry) => join(root, entry.name))
+      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" })),
+    () => [] as string[],
+  )
+}
+
+/**
+ * @internal Enumerate compatible system-Python locations for support tooling
+ * and runtime discovery. Missing absolute paths are discarded before probing;
+ * PATH commands and declared overrides are probed directly.
+ */
+export async function krtPythonDiscoveryCandidates(
+  explicit?: string,
+  context: KrtPythonDiscoveryContext = {},
+): Promise<readonly KrtPythonDiscoveryCandidate[]> {
+  const environment = context.environment ?? process.env
+  const currentPlatform = context.currentPlatform ?? process.platform
+  const homeDirectory = context.homeDirectory ?? homedir()
+  const values: KrtPythonDiscoveryCandidate[] = []
+  const append = (
+    command: string | undefined,
+    source: string,
+    args: readonly string[] = [],
+    resolveExecutable = false,
+  ) => {
+    if (!command) return
+    const key = `${command}\u0000${args.join("\u0000")}`
+    const normalize = (value: string) => currentPlatform === "win32" ? value.toLowerCase() : value
+    if (values.some((item) => normalize(`${item.command}\u0000${item.args.join("\u0000")}`) === normalize(key))) return
+    values.push({ command, args, source, ...(resolveExecutable ? { resolveExecutable: true } : {}) })
   }
-  append(explicit)
-  append(process.env.COPILOT_ROUTER_PYTHON)
-  if (process.platform === "win32") {
-    const local = process.env.LOCALAPPDATA
-    const programs = process.env.ProgramFiles
-    for (const version of ["10.0", "9.0"]) {
-      if (local) append(join(local, "Programs", "KiCad", version, "bin", "python.exe"))
-      if (programs) append(join(programs, "KiCad", version, "bin", "python.exe"))
+  const appendExisting = async (
+    command: string | undefined,
+    source: string,
+    args: readonly string[] = [],
+    resolveExecutable = false,
+  ) => {
+    if (command && await readable(command)) append(command, source, args, resolveExecutable)
+  }
+  const appendPrefix = async (root: string | undefined, source: string) => {
+    if (!root) return
+    if (currentPlatform === "win32") {
+      await appendExisting(join(root, "python.exe"), source)
+      await appendExisting(join(root, "Scripts", "python.exe"), source)
+    } else {
+      await appendExisting(join(root, "bin", "python3"), source)
+      await appendExisting(join(root, "bin", "python"), source)
     }
   }
-  append("python3")
-  append("python")
+
+  append(explicit, "option")
+  for (const name of [
+    "COPILOT_ROUTER_PYTHON",
+    "KICAD_PYTHON",
+    "PYTHON",
+    "PYTHON_EXECUTABLE",
+    "UV_PYTHON",
+    "npm_config_python",
+  ]) append(environmentValue(environment, name), `environment:${name}`)
+  for (const name of ["VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME"]) {
+    await appendPrefix(environmentValue(environment, name), `environment:${name}`)
+  }
+
+  if (currentPlatform === "win32") {
+    const local = environmentValue(environment, "LOCALAPPDATA")
+    const user = environmentValue(environment, "USERPROFILE") ?? homeDirectory
+    const programRoots = [
+      environmentValue(environment, "ProgramFiles"),
+      environmentValue(environment, "ProgramFiles(x86)"),
+    ].filter((value): value is string => Boolean(value))
+
+    const kicadRoots = [
+      ...(local ? [join(local, "Programs", "KiCad")] : []),
+      ...programRoots.map((root) => join(root, "KiCad")),
+    ]
+    for (const root of kicadRoots) for (const directory of await childDirectories(root, /^\d+(?:\.\d+)*$/)) {
+      await appendExisting(join(directory, "bin", "python.exe"), "kicad")
+    }
+
+    const pythonRoots = [
+      ...(local ? [join(local, "Programs", "Python")] : []),
+      ...programRoots,
+      ...programRoots.map((root) => join(root, "Python")),
+    ]
+    for (const root of pythonRoots) for (const directory of await childDirectories(root, /^Python(?:\d|$)/i)) {
+      await appendExisting(join(directory, "python.exe"), "python-installation")
+    }
+
+    const pyenvRoot = environmentValue(environment, "PYENV_ROOT")
+      ?? join(user, ".pyenv", "pyenv-win")
+    for (const directory of await childDirectories(join(pyenvRoot, "versions"), /^\d/)) {
+      await appendExisting(join(directory, "python.exe"), "pyenv")
+    }
+    for (const root of [
+      join(user, "miniconda3"), join(user, "anaconda3"),
+      ...(local ? [join(local, "miniconda3"), join(local, "anaconda3")] : []),
+    ]) await appendPrefix(root, "conda-installation")
+    await appendExisting(join(user, "scoop", "apps", "python", "current", "python.exe"), "scoop")
+
+  } else {
+    const pyenvRoot = environmentValue(environment, "PYENV_ROOT") ?? join(homeDirectory, ".pyenv")
+    for (const directory of await childDirectories(join(pyenvRoot, "versions"), /^\d/)) {
+      await appendExisting(join(directory, "bin", "python3"), "pyenv")
+      await appendExisting(join(directory, "bin", "python"), "pyenv")
+    }
+    for (const root of [
+      join(homeDirectory, "miniconda3"), join(homeDirectory, "anaconda3"), "/opt/conda",
+    ]) await appendPrefix(root, "conda-installation")
+    for (const command of [
+      join(homeDirectory, ".local", "bin", "python3"),
+      "/usr/local/bin/python3", "/usr/bin/python3",
+      "/opt/homebrew/bin/python3", "/opt/local/bin/python3",
+    ]) await appendExisting(command, "standard-installation")
+
+    if (currentPlatform === "darwin") {
+      for (const root of [
+        "/Library/Frameworks/Python.framework/Versions",
+        join(homeDirectory, "Library", "Frameworks", "Python.framework", "Versions"),
+      ]) for (const directory of await childDirectories(root, /^\d/)) {
+        await appendExisting(join(directory, "bin", "python3"), "python-framework")
+      }
+      for (const root of ["/opt/homebrew/opt", "/usr/local/opt"]) {
+        for (const directory of await childDirectories(root, /^python(?:@|$)/i)) {
+          await appendExisting(join(directory, "bin", "python3"), "homebrew")
+        }
+      }
+      for (const application of [
+        "/Applications/KiCad/KiCad.app",
+        join(homeDirectory, "Applications", "KiCad", "KiCad.app"),
+      ]) {
+        const versions = join(application, "Contents", "Frameworks", "Python.framework", "Versions")
+        await appendExisting(join(versions, "Current", "bin", "python3"), "kicad")
+        for (const directory of await childDirectories(versions, /^(?:Current|\d)/)) {
+          await appendExisting(join(directory, "bin", "python3"), "kicad")
+        }
+      }
+    }
+    if (currentPlatform === "linux") {
+      await appendExisting("/snap/kicad/current/usr/bin/python3", "kicad-snap")
+    }
+  }
+
+  append("python3", "path")
+  append("python", "path")
+  if (currentPlatform === "win32") {
+    const local = environmentValue(environment, "LOCALAPPDATA")
+    const windows = environmentValue(environment, "WINDIR")
+    for (const launcher of [
+      ...(local ? [join(local, "Programs", "Python", "Launcher", "py.exe")] : []),
+      ...(windows ? [join(windows, "py.exe")] : []),
+    ]) await appendExisting(launcher, "python-launcher", ["-3"], true)
+    append("py", "path-launcher", ["-3"], true)
+  }
+  for (const minor of [15, 14, 13, 12, 11, 10, 9]) append(`python3.${minor}`, "path")
   return values
 }
 
@@ -261,15 +426,20 @@ function runProcess(
   })
 }
 
-async function pythonDetails(command: string, signal?: AbortSignal) {
+async function pythonDetails(
+  command: string,
+  signal?: AbortSignal,
+  prefixArgs: readonly string[] = [],
+) {
   const result = await runProcess(command, [
+    ...prefixArgs,
     "-c",
-    "import importlib.util,json,sys; print(json.dumps({'version':list(sys.version_info[:3]),'tag':sys.implementation.cache_tag,'hasPip':importlib.util.find_spec('pip') is not None}))",
+    "import importlib.util,json,sys; print(json.dumps({'version':list(sys.version_info[:3]),'tag':sys.implementation.cache_tag,'hasPip':importlib.util.find_spec('pip') is not None,'executable':sys.executable}))",
   ], {}, signal)
   if (result.exitCode !== 0 || result.error) return undefined
   try {
     const details = JSON.parse(result.stdout.trim()) as PythonDetails
-    if (details.version[0] !== 3 || details.version[1] < 9 || !details.tag) return undefined
+    if (details.version[0] !== 3 || details.version[1] < 9 || !details.tag || !details.executable) return undefined
     return { ...details, hasPip: details.hasPip === true }
   } catch {
     return undefined
@@ -277,9 +447,18 @@ async function pythonDetails(command: string, signal?: AbortSignal) {
 }
 
 async function discoverSystemPython(explicit?: string, signal?: AbortSignal): Promise<PreparedPython | undefined> {
-  for (const candidate of commandCandidates(explicit)) {
-    const details = await pythonDetails(candidate, signal)
-    if (details) return { command: candidate, details, source: "system" }
+  for (const candidate of await krtPythonDiscoveryCandidates(explicit)) {
+    const details = await pythonDetails(candidate.command, signal, candidate.args)
+    if (!details) continue
+    const executable = resolve(details.executable)
+    if (candidate.resolveExecutable) {
+      const resolvedDetails = await pythonDetails(executable, signal)
+      if (resolvedDetails) return {
+        command: resolve(resolvedDetails.executable), details: resolvedDetails, source: "system",
+      }
+      continue
+    }
+    return { command: executable, details, source: "system" }
   }
   return undefined
 }

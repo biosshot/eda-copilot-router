@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { board as portableBoard } from "./board.mjs"
 
 const execute = promisify(execFile)
 const npmCli = process.env.npm_execpath
@@ -42,7 +43,27 @@ try {
   const imported = await adapter.importKiCadRoutingBoard(output)
   assert.ok(imported.board, JSON.stringify(imported.diagnostics))
   assert.ok(imported.board.copper.editable.tracks.length > 0)
-  console.log(`packed npm standalone routing: ok (${imported.board.copper.editable.tracks.length} tracks)`)
+
+  const installedRouter = await import(pathToFileURL(
+    join(temporary, "node_modules", "eda-copilot-router", "package-dist", "index.js"),
+  ))
+  const fallback = await installedRouter.run({
+    board: portableBoard,
+    backend: installedRouter.createHybridBackend({
+      krt: {
+        krtDirectory: join(temporary, "not-installed-krt"),
+        assets: { cacheDirectory: join(temporary, "offline-cache"), allowDownload: false },
+      },
+    }),
+    dsl: `onlyNets("USB_DP_CONN"); runRouting()`,
+    signal: AbortSignal.timeout(30_000),
+  })
+  assert.equal(fallback.status, "partial", JSON.stringify(fallback.diagnostics))
+  assert.equal(fallback.metrics?.details?.hybrid?.mode, "easyeda-only")
+  assert.ok(fallback.copper.tracks.some((track) => track.net === "USB_DP_CONN"),
+    "the installed npm tarball must contain a runnable EasyEDA fallback")
+  assert.ok(fallback.diagnostics.some((item) => item.code === "KRT_OVERRIDE_INVALID"))
+  console.log(`packed npm routing: KRT ${imported.board.copper.editable.tracks.length} tracks; EasyEDA fallback ${fallback.copper.tracks.length} tracks`)
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

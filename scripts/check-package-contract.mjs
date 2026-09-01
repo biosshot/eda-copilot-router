@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { gzipSync } from "node:zlib"
@@ -1351,6 +1351,51 @@ assert.equal(JSON.parse(doctor.stdout).edaAccess, "KiCad file adapter")
 
 const temporary = await mkdtemp(join(tmpdir(), "copilot-router-package-"))
 try {
+  const virtualEnvironment = join(temporary, "fixture-venv")
+  const virtualPython = process.platform === "win32"
+    ? join(virtualEnvironment, "python.exe")
+    : join(virtualEnvironment, "bin", "python3")
+  const pyenvPython = process.platform === "win32"
+    ? join(temporary, ".pyenv", "pyenv-win", "versions", "3.13.1", "python.exe")
+    : join(temporary, ".pyenv", "versions", "3.13.1", "bin", "python3")
+  await mkdir(dirname(virtualPython), { recursive: true })
+  await mkdir(dirname(pyenvPython), { recursive: true })
+  await writeFile(virtualPython, "fixture", "utf8")
+  await writeFile(pyenvPython, "fixture", "utf8")
+  const discoveryEnvironment = {
+    COPILOT_ROUTER_PYTHON: join(temporary, "declared-python"),
+    KICAD_PYTHON: join(temporary, "declared-kicad-python"),
+    PYTHON: join(temporary, "declared-generic-python"),
+    UV_PYTHON: join(temporary, "declared-uv-python"),
+    npm_config_python: join(temporary, "declared-npm-python"),
+    VIRTUAL_ENV: virtualEnvironment,
+    USERPROFILE: temporary,
+    HOME: temporary,
+    PATH: "",
+  }
+  const pythonCandidates = await krt.krtPythonDiscoveryCandidates(
+    join(temporary, "explicit-python"),
+    {
+      environment: discoveryEnvironment,
+      currentPlatform: process.platform,
+      homeDirectory: temporary,
+    },
+  )
+  assert.equal(pythonCandidates[0].command, join(temporary, "explicit-python"))
+  for (const expected of [
+    discoveryEnvironment.COPILOT_ROUTER_PYTHON,
+    discoveryEnvironment.KICAD_PYTHON,
+    discoveryEnvironment.PYTHON,
+    discoveryEnvironment.UV_PYTHON,
+    discoveryEnvironment.npm_config_python,
+    virtualPython,
+    pyenvPython,
+  ]) assert.ok(pythonCandidates.some((candidate) => candidate.command === expected),
+    `Python discovery omitted ${expected}`)
+  if (process.platform === "win32") assert.ok(pythonCandidates.some((candidate) => (
+    candidate.command === "py" && candidate.args.join(" ") === "-3" && candidate.resolveExecutable
+  )), "Windows Python launcher discovery must resolve py -3 to an executable")
+
   const assetPayload = Buffer.from("managed backend fixture\n", "utf8")
   const assetSpec = {
     backend: "fixture-router",

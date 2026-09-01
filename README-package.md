@@ -35,9 +35,11 @@ required. Downloads are integrity-checked and cached. The optional
 installations.
 
 Python is also zero-setup. The package first reuses a compatible Python 3.9+
-interpreter. If none is available—or the local interpreter cannot prepare the
-KRT environment—it downloads pinned portable CPython 3.12 into the same private
-router cache. KRT dependencies come from the managed release's
+interpreter discovered from explicit/environment settings, active virtualenv or
+Conda environments, installed KiCad/Python/pyenv locations, the Windows Python
+launcher, or normal versioned/PATH commands. If none is available—or the local
+interpreter cannot prepare the KRT environment—it downloads pinned portable
+CPython 3.12 into the same private router cache. KRT dependencies come from the managed release's
 `requirements.txt` and are installed with `pip --target` into a versioned cache;
 nothing is installed globally and the machine's `PATH` is not changed.
 

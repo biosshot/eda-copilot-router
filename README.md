@@ -65,9 +65,11 @@ copilot-router route board.kicad_pcb --dsl routing.dsl.js -o routed.kicad_pcb
 
 This writes a new board and never overwrites the input. Without KiCad, zone
 outlines are preserved and the result is marked for later native refill/DRC by
-the host. `--python` selects KRT's Python interpreter; normal discovery already
-checks `COPILOT_ROUTER_PYTHON`, standard KiCad Python locations, `python3`, and
-`python`. When none is usable, the package downloads a pinned portable CPython
+the host. `--python` selects KRT's Python interpreter; normal discovery checks
+declared Python variables, active virtualenv/Conda installations, every locally
+installed KiCad version, standard user/system Python and pyenv/Conda locations,
+the Windows `py -3` launcher, versioned `python3.x`, `python3`, and `python`
+commands. When none is usable, the package downloads a pinned portable CPython
 into its private cache. KRT dependencies are installed from the managed
 release's `requirements.txt` into a separate `pip --target` cache, never into a
 global Python environment.
@@ -95,8 +97,9 @@ npm run e2e:interf_u_unrouted
 
 GitHub Actions keeps separate checks for the package/adapter contract, portable
 routing without KRT or Python, polygon planning on real boards without KRT or
-KiCad, and managed-KRT routing from an installed npm tarball without KiCad or a
-local KRT checkout.
+KiCad, real bundled-EasyEDA Hybrid fallback from an empty offline KRT cache on
+Windows/Linux/macOS, and managed-KRT routing from an installed npm tarball
+without KiCad or a local KRT checkout.
 
 Native E2E runners use the adapter built in this package. Generated artifacts
 are written only under this repository's ignored `results/` directory.
