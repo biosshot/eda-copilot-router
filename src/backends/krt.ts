@@ -39,6 +39,7 @@ import {
   subtractKrtCopper,
   writeKrtBoard,
 } from "./krt-codec.js"
+import { krtPreRouteBaseline } from "./krt-baseline.js"
 
 export {
   auditKrtBoardConnectivity,
@@ -1693,6 +1694,10 @@ function createKrtWorkflowBackend(
       let fallbackOpenNets: readonly string[] = []
       let fallbackInitialConnectivityEvidence: KrtConnectivityEvidence | undefined
       let fallbackCheckpointConnectivityEvidence: KrtConnectivityEvidence | undefined
+      let fallbackPreRouteConnectivityEvidence: KrtConnectivityEvidence | undefined
+      const preRouteBaseline = workflowMode === "post-easy"
+        ? krtPreRouteBaseline(request)
+        : undefined
       let managed: PreparedKrtRuntime
       try {
         managed = await runtime(request.signal)
@@ -1764,21 +1769,47 @@ function createKrtWorkflowBackend(
           remainingNets: routeScopeNets,
           protectedNets: [],
         }
-        const initialConnectivity = routeScopeNets.length
-          ? await auditKrtBoardConnectivity(
+        type ConnectivityAudit = Awaited<ReturnType<typeof auditKrtBoardConnectivity>>
+        const emptyConnectivityAudit = (): ConnectivityAudit => ({
+          openNets: [], issueFingerprints: [], issueFingerprintsByNet: {}, componentCountByNet: {},
+          elapsedMs: 0, diagnostics: [],
+        })
+        const initialConnectivityPromise = routeScopeNets.length
+          ? auditKrtBoardConnectivity(
               current,
               routeScopeNets,
               initialAuditSpec,
               join(root, "initial-audit", "connectivity"),
             )
-          : {
-              openNets: [] as string[], issueFingerprints: [] as string[], issueFingerprintsByNet: {}, componentCountByNet: {},
-              elapsedMs: 0, diagnostics: [] as KrtDiagnostic[],
-            }
+          : Promise.resolve(emptyConnectivityAudit())
+        const preRouteConnectivityPromise = preRouteBaseline
+          ? (async () => {
+              const baselineRoot = join(root, "pre-route-audit")
+              await mkdir(baselineRoot, { recursive: true })
+              const baselinePrepared = await writeKrtBoard(preRouteBaseline, baselineRoot)
+              if (!routeScopeNets.length) return emptyConnectivityAudit()
+              return auditKrtBoardConnectivity(
+                baselinePrepared.inputBoard,
+                routeScopeNets,
+                { ...initialAuditSpec, authoritativeProjectPath: baselinePrepared.inputProject },
+                join(baselineRoot, "connectivity"),
+              )
+            })()
+          : Promise.resolve(undefined)
+        const [initialConnectivity, preRouteConnectivity] = await Promise.all([
+          initialConnectivityPromise,
+          preRouteConnectivityPromise,
+        ])
         diagnostics.push(...convertDiagnostics(initialConnectivity.diagnostics).map((item) => (
           item.severity === "error" ? { ...item, severity: "warning" as const } : item
         )))
-        const connectivityEvidence = (audit: typeof initialConnectivity): KrtConnectivityEvidence | undefined => {
+        if (preRouteConnectivity?.diagnostics.some((item) => item.severity === "error")) diagnostics.push(diagnostic(
+          "KRT_PRE_ROUTE_CONNECTIVITY_AUDIT_FAILED",
+          "warning",
+          "KRT could not audit the original pre-Easy board; core candidate selection will use its conservative baseline fallback.",
+          { diagnostics: convertDiagnostics(preRouteConnectivity.diagnostics) },
+        ))
+        const connectivityEvidence = (audit: ConnectivityAudit): KrtConnectivityEvidence | undefined => {
           if (audit.diagnostics.some((item) => item.severity === "error")) return undefined
           const open = new Set(audit.openNets)
           const componentsByNet: Record<string, number> = {}
@@ -1794,8 +1825,12 @@ function createKrtWorkflowBackend(
           }
         }
         const initialConnectivityEvidence = connectivityEvidence(initialConnectivity)
+        const preRouteConnectivityEvidence = preRouteConnectivity
+          ? connectivityEvidence(preRouteConnectivity)
+          : undefined
         fallbackInitialConnectivityEvidence = initialConnectivityEvidence
         fallbackCheckpointConnectivityEvidence = initialConnectivityEvidence
+        fallbackPreRouteConnectivityEvidence = preRouteConnectivityEvidence
         fallbackOpenNets = initialConnectivity.openNets
         const workflowSpecialRequest = krtSpecialWorkflowRequest(
           request,
@@ -3061,6 +3096,9 @@ function createKrtWorkflowBackend(
               },
               policy: "native-auto",
               workflowMode,
+              ...(preRouteBaseline ? {
+                preRouteConnectivity: preRouteConnectivityEvidence ?? { auditFailed: true },
+              } : {}),
               initialConnectivity: initialConnectivityEvidence ?? { auditFailed: true },
               finalConnectivity: finalConnectivityEvidence ?? { auditFailed: true },
               protectedNets: [...protectedNets].sort(),
@@ -3168,6 +3206,9 @@ function createKrtWorkflowBackend(
                 details: {
                   artifactsDirectory: root,
                   policy: "native-auto",
+                  ...(preRouteBaseline ? {
+                    preRouteConnectivity: fallbackPreRouteConnectivityEvidence ?? { auditFailed: true },
+                  } : {}),
                   recoveredCheckpoint: fallbackCurrentBoard,
                   ...recoveredConnectivity.details,
                 },

@@ -92,7 +92,12 @@ function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
 }
 
 function initialConnectivityEvidence(result: BackendRouteResult) {
-  const value = record(record(result.metrics?.details)?.initialConnectivity)
+  const details = record(result.metrics?.details)
+  const hasPreRouteEvidence = Boolean(details
+    && Object.prototype.hasOwnProperty.call(details, "preRouteConnectivity"))
+  const value = record(hasPreRouteEvidence
+    ? details?.preRouteConnectivity
+    : details?.initialConnectivity)
   if (!value || !Array.isArray(value.openNets)) return undefined
   const openNets = value.openNets.filter((item): item is string => typeof item === "string")
   const componentCount = Number(value.connectivityComponentCount)

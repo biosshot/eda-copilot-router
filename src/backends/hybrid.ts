@@ -25,6 +25,7 @@ import {
   krtPostEasyReservedNets,
   type KrtBackendOptions,
 } from "./krt.js"
+import { withKrtPreRouteBaseline } from "./krt-baseline.js"
 
 export type HybridBackendOptions = Readonly<{
   krt?: KrtBackendOptions
@@ -1044,7 +1045,10 @@ async function executePlan(
     easyedaResult.copper,
     plan.partition,
   )
-  const stagedRequest = withEditableCopper(request, custodyReset.copper)
+  const stagedRequest = withKrtPreRouteBaseline(
+    withEditableCopper(request, custodyReset.copper),
+    request,
+  )
   const krtResult = await safeRoute(dependencies.krtPostEasy, stagedRequest, "krt-post-easy")
   if (stageFailed(krtResult, "krt")) return recoverFromKrtFailure(
     request,

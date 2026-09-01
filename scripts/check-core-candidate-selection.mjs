@@ -354,6 +354,49 @@ assert.equal(routeCalls, 1, "core must make exactly one backend route call")
 assert.equal(replacement.status, "complete")
 assert.deepEqual(replacement.copper.tracks, [replacementTrack], "backend editable copper is a replacement, not an additions-only delta")
 
+const preRouteEvidenceTrack = {
+  net: "OSC", layer: "TOP", widthMm: 0.2,
+  points: [{ x: 2, y: 2 }, { x: 7, y: 2 }],
+}
+const preRouteEvidenceResult = await core.run({
+  board: { ...board, nets: [{ name: "OSC" }] },
+  dsl: dsl.compileRoutingDsl('onlyNets("OSC"); runRouting()'),
+  backend: {
+    id: "post-easy-connectivity-fixture",
+    capabilities,
+    async route() {
+      return {
+        status: "complete",
+        copper: { ...emptyCopper, tracks: [preRouteEvidenceTrack] },
+        metrics: {
+          openNetCount: 0,
+          openNets: [],
+          connectivityComponentCount: 1,
+          details: {
+            // This is the board immediately before KRT, after EasyEDA already
+            // connected OSC. It must not grade the true empty input baseline.
+            initialConnectivity: {
+              openNets: [],
+              componentsByNet: { OSC: 1 },
+              connectivityComponentCount: 1,
+            },
+            preRouteConnectivity: {
+              openNets: ["OSC"],
+              componentsByNet: { OSC: 2 },
+              connectivityComponentCount: 2,
+            },
+          },
+        },
+      }
+    },
+  },
+})
+assert.equal(preRouteEvidenceResult.status, "complete")
+assert.deepEqual(preRouteEvidenceResult.copper.tracks, [preRouteEvidenceTrack],
+  "a connected post-Easy candidate must beat the truly open pre-route board even though it adds track length")
+assert.deepEqual(preRouteEvidenceResult.metrics.details.candidateAudit.baseline.openNetCount, 1)
+assert.equal(preRouteEvidenceResult.metrics.details.candidateAudit.selected.label, "post-easy-connectivity-fixture")
+
 const partialFromException = await core.run({
   board: { ...board, copper: { fixed: emptyCopper, editable: { ...emptyCopper, tracks: [retainedTrack] } } },
   dsl: base,
