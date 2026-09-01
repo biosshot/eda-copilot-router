@@ -15,9 +15,9 @@ import type {
   RoutingRules,
   RoutingRuleValues,
 } from "./contracts.js"
+import { MAX_GENERATED_STITCHING_VIAS_PER_INTENT } from "./stitching-limits.js"
 
 const EPSILON = 1e-7
-const MAX_GENERATED_PLANE_STITCH_VIAS = 500
 
 // KiCad zone min_thickness is a fill-detail/manufacturability parameter, not
 // the required current-carrying width of the net.  Feeding a calculated power
@@ -293,7 +293,7 @@ function stitchingCandidates(
     return true
   }
   const add = (point: PointMm, ownerPad?: { component: string; number: string }) => {
-    if (accepted.length >= MAX_GENERATED_PLANE_STITCH_VIAS || !candidateAllowed(point, ownerPad)) return false
+    if (accepted.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT || !candidateAllowed(point, ownerPad)) return false
     accepted.push({
       net: plane.net,
       at: { ...point },

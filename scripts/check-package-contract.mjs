@@ -1184,6 +1184,37 @@ assert.equal(planeResult.copper.zones[0].removeIslandsBelowMm2, 2)
 assert.ok(planeResult.copper.vias.length > 0)
 assert.ok(planeResult.copper.vias.length <= 8)
 
+const largeStitchBoard = {
+  ...board,
+  outline: [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 60 }, { x: 0, y: 60 }],
+  components: [], pads: [], keepouts: [],
+  copper: { fixed: emptyCopper, editable: emptyCopper },
+}
+const largePlaneStitchResult = await api.run({
+  board: largeStitchBoard,
+  dsl: `
+    plane({ net: "GND", layers: "OUTER", region: board(), stitching: { gridMm: 2, viaInPad: false } })
+    runCopper()
+  `,
+})
+assert.equal(largePlaneStitchResult.status, "complete")
+assert.equal(largePlaneStitchResult.copper.vias.length, 900,
+  "plane stitching must not retain the obsolete 500-via guardrail")
+
+const largeExplicitStitch = api.planViaStitches(
+  largeStitchBoard,
+  {
+    tracks: [], vias: [], zones: [{
+      net: "GND", layers: ["F.Cu", "B.Cu"], outline: { outer: largeStitchBoard.outline }, fill: { style: "solid" },
+    }],
+  },
+  [{ kind: "via-stitch", mode: "grid", id: "LARGE_GRID", net: "GND", region: { kind: "board" }, pitchMm: 2 }],
+  largeStitchBoard.rules,
+  { completedNets: [] },
+)
+assert.equal(largeExplicitStitch.vias.length, 900,
+  "explicit grid stitching must not retain the obsolete 500-via guardrail")
+
 const viaInPadBoard = {
   ...board,
   components: [...board.components, { designator: "C2", at: { x: 12, y: 5 }, rotationDeg: 0, side: "top" }],

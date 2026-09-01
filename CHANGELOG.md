@@ -21,6 +21,8 @@
   versioned router cache instead of hardcoding or modifying global packages.
 - Hide `maxVias` from the public routing DSL; via-count guardrails are
   implementation-owned.
+- Raise the implementation-owned plane and explicit stitching-via guardrails
+  from 500 to 4096 vias per plane or `viaStitch(...)` intent.
 
 ## 0.2.1 - 2026-08-22
 

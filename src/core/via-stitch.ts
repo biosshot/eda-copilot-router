@@ -10,10 +10,10 @@ import type {
   RoutingRules,
 } from "./contracts.js"
 import { distanceToPadHoleCenterline, padHoleGeometry } from "./pad-hole.js"
+import { MAX_GENERATED_STITCHING_VIAS_PER_INTENT } from "./stitching-limits.js"
 import { foreignZoneBlocksCircle } from "./zone-clearance.js"
 
 const EPSILON = 1e-7
-const MAX_GENERATED_VIAS_PER_STITCH = 500
 
 function pointInRing(point: PointMm, ring: readonly PointMm[]) {
   let inside = false
@@ -303,7 +303,7 @@ export function planViaStitches(
       const sourceRules = rulesForNet(rules, track.net)
       const offset = fence.offsetMm ?? track.widthMm / 2 + radius + Math.max(value.clearanceMm, sourceRules.clearanceMm)
       for (const point of segmentSamples(track, pitch, offset, rows, rowSpacing, stagger)) {
-        if (fenceVias.length >= MAX_GENERATED_VIAS_PER_STITCH) break
+        if (fenceVias.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT) break
         if (!pointInRing(point, board.outline) || board.cutouts.some((ring) => pointInRing(point, ring))) continue
         if (distanceToRingBoundary(point, board.outline) < radius + value.edgeClearanceMm - EPSILON) continue
         if (board.cutouts.some((ring) => distanceToRingBoundary(point, ring) < radius + value.edgeClearanceMm - EPSILON)) continue
@@ -348,7 +348,7 @@ export function planViaStitches(
   for (const stitch of stitches.filter((item): item is Extract<ViaStitchIntent, { mode: "return" }> => modes.has("return") && item.mode === "return")) {
     const sourceNets = new Set(stitch.forNets ?? completion.defaultReturnNets ?? [])
     const sourceVias = existingVias.filter((via) => sourceNets.has(via.net))
-    const limit = MAX_GENERATED_VIAS_PER_STITCH
+    const limit = MAX_GENERATED_STITCHING_VIAS_PER_INTENT
     let generatedCount = 0
     for (const source of sourceVias) {
       if (generatedCount >= limit) break
@@ -419,7 +419,7 @@ export function planViaStitches(
     const generated: RoutedVia[] = []
     for (const ring of targetRings(board, stitch)) {
       for (const at of contourSamples(ring, pitch, offset, side, stitch.rows ?? 1)) {
-        if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
+        if (generated.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT) break
         if (!legalVia(board, at, stitch.net, layers, geometry.diameterMm, geometry.drillMm, rules, tracks, zones, accepted)) continue
         const via: RoutedVia = {
           id: `via-stitch:${stitch.id}:${vias.length + generated.length}`, net: stitch.net, at,
@@ -449,7 +449,7 @@ export function planViaStitches(
       for (const [padIndex, pad] of board.pads.entries()) {
         if (pad.net !== stitch.net || pad.hole?.plated
           || !regions.some((region) => pointInRing(pad.at, region))) continue
-        if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
+        if (generated.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT) break
         const copperLayers = new Set(netZones.filter((zone) => zoneContains(pad.at, zone)).flatMap((zone) => zone.layers))
         if (copperLayers.size < 2) continue
         if (accepted.some((via) => via.net === stitch.net
@@ -469,7 +469,7 @@ export function planViaStitches(
       const ys = region.map((point) => point.y)
       for (let y = Math.min(...ys) + stitch.pitchMm / 2; y <= Math.max(...ys); y += stitch.pitchMm) {
         for (let x = Math.min(...xs) + stitch.pitchMm / 2; x <= Math.max(...xs); x += stitch.pitchMm) {
-          if (generated.length >= MAX_GENERATED_VIAS_PER_STITCH) break
+          if (generated.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT) break
           const at = { x, y }
           if (!pointInRing(at, region)) continue
           const copperLayers = new Set(netZones.filter((zone) => zoneContains(at, zone)).flatMap((zone) => zone.layers))
