@@ -375,11 +375,9 @@ function boardToRouterInput(
   const routeNets = visibleNets.filter((net) => (
     requestedNets.has(net)
     && padNets.has(net)
-    && net.toUpperCase() !== "GND"
   ))
-  // Non-routed nets still need an entry and a rule class. In particular, the
-  // worker otherwise sees GND pads/proxy tracks without a known net and may
-  // route straight through them.
+  // Non-routed nets still need an entry and a rule class so the worker can
+  // honor their pads and proxy tracks as obstacles.
   const tables = ruleTables(board, visibleNets, routeLayerIds)
   const classByNet = new Map(tables.classes.map((item) => [item.net, item.id]))
   const differentialPairs = (board.rules.differentialPairs ?? []).filter((pair) => (

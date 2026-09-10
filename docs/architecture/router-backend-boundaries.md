@@ -40,7 +40,7 @@ same portable core. See
 
 Hybrid is an internal routing strategy, not a second DSL or contract. On boards
 with at most two copper layers EasyEDA WASM first receives the complete
-non-ground routable scope in native order. Matched-length, impedance, explicit
+routable scope, including ground, in native order. Matched-length, impedance, explicit
 fanout, via-forbid and per-net-layer-constrained nets overlap that provisional
 scope but remain in final KRT custody. Hybrid removes their EasyEDA-returned
 copper when the semantics cannot be checked locally; via-forbid/layer-only

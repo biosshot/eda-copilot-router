@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Route and audit GND and /GND like other nets in KRT, Hybrid, and EasyEDA WASM,
+  including fanout and recovery. Explicit onlyNets/ignoreNets still control scope.
+  The deprecated krtUnplannedGroundNets helper remains callable and returns an empty list.
+
 ## 0.3.0 - 2026-09-01
 
 - Add the Hybrid backend: on boards with at most two copper layers bundled

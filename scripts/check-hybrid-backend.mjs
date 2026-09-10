@@ -89,8 +89,8 @@ const request = {
 
 const partition = partitionHybridRoute(request)
 assert.deepEqual(partition.easyedaNets, [
-  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "VIA_FORBID", "LAYER", "IMP", "FAN", "ORD", "HIGH",
-], "EasyEDA must see the complete non-ground two-layer routing problem")
+  "POWER", "DP_P", "DP_N", "MATCH_A", "MATCH_B", "CRIT", "VIA", "VIA_FORBID", "LAYER", "IMP", "FAN", "ORD", "HIGH", "GND",
+], "EasyEDA must see the complete two-layer routing problem, including ground")
 assert.deepEqual(partition.krtNets, [
   "MATCH_A", "MATCH_B", "VIA_FORBID", "LAYER", "IMP", "FAN",
 ])
@@ -108,6 +108,21 @@ assert.ok(partition.reasons.FAN.includes("fanout"))
 assert.ok(partition.reasons.LAYER.includes("per-net-layers"))
 assert.equal(partition.reasons.HIGH, undefined,
   "high priority alone must not reserve final KRT custody")
+
+const ignoredGroundProgram = { ...base, ignoreNets: ["GND"] }
+assert.ok(!partitionHybridRoute({
+  ...request, program: ignoredGroundProgram,
+  plan: resolveRoutePlan(board, ignoredGroundProgram, board.rules),
+}).routableNets.includes("GND"), "only an explicit ignoreNets must exclude ground")
+const hierarchicalGroundBoard = {
+  ...board,
+  nets: board.nets.map((net) => net.name === "GND" ? { name: "/GND" } : net),
+  pads: board.pads.map((pad) => pad.net === "GND" ? { ...pad, net: "/GND" } : pad),
+}
+assert.ok(partitionHybridRoute({
+  ...request, board: hierarchicalGroundBoard,
+  plan: resolveRoutePlan(hierarchicalGroundBoard, program, board.rules),
+}).easyedaNets.includes("/GND"), "hierarchical ground must reach the global routing pass")
 
 const inheritedRelationProgram = {
   ...base,
@@ -155,7 +170,7 @@ const successfulResult = (routeRequest, idPrefix) => ({
   copper: {
     tracks: [
       ...routeRequest.board.copper.editable.tracks,
-      ...routeRequest.plan.scopeNets.filter((net) => net !== "GND")
+      ...routeRequest.plan.scopeNets
         .map((net, index) => trackFor(net, index, idPrefix)),
     ],
     vias: routeRequest.board.copper.editable.vias,
@@ -188,7 +203,7 @@ const krt = {
       routeRequest.board.copper.editable.tracks.some((track) => track.id === `easyeda-${net}`),
       `locally compliant EasyEDA copper for ${net} must survive into the KRT audit/repair checkpoint`,
     )
-    for (const net of ["POWER", "DP_P", "DP_N", "CRIT", "VIA", "ORD", "HIGH"]) assert.ok(
+    for (const net of ["POWER", "DP_P", "DP_N", "CRIT", "VIA", "ORD", "HIGH", "GND"]) assert.ok(
       routeRequest.board.copper.editable.tracks.some((track) => track.id === `easyeda-${net}`),
       `EasyEDA-owned copper for ${net} must survive into the KRT repair checkpoint`,
     )
@@ -383,9 +398,9 @@ const failedEasyCode = "EASYEDA_FIXTURE_ROUTE_FAILED"
 const partialKrt = {
   ...krt,
   async route(routeRequest) {
-    const nonGround = routeRequest.plan.scopeNets.filter((net) => net !== "GND")
-    const completedNets = nonGround.slice(0, -1)
-    const openNets = nonGround.slice(-1)
+    const scope = routeRequest.plan.scopeNets
+    const completedNets = scope.slice(0, -1)
+    const openNets = scope.slice(-1)
     return {
       status: "partial",
       copper: {
@@ -397,7 +412,7 @@ const partialKrt = {
       metrics: {
         openNetCount: openNets.length,
         openNets,
-        connectivityComponentCount: nonGround.length + openNets.length,
+        connectivityComponentCount: scope.length + openNets.length,
       },
     }
   },
@@ -421,6 +436,7 @@ const doubleRuntimeFailure = createHybridBackend({}, { krt: partialKrt, easyeda:
 await doubleRuntimeFailure.preflight(request)
 const retainedPartial = await doubleRuntimeFailure.route(request)
 assert.equal(retainedPartial.status, "partial")
+assert.deepEqual(retainedPartial.metrics.openNets, ["GND"], "fallback must retain open ground in its metrics")
 assert.ok(retainedPartial.copper.tracks.some((track) => track.id?.startsWith("retained-krt-")),
   `a useful KRT checkpoint must survive even when both runtime attempts report errors: ${JSON.stringify(retainedPartial)}`)
 for (const code of [partialKrtCode, failedEasyCode, "HYBRID_EASYEDA_RUNTIME_FALLBACK"]) {

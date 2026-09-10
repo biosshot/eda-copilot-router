@@ -142,37 +142,19 @@ function orderedScopeNets(request: Pick<BackendRouteRequest, "board" | "program"
   return request.program.onlyNets.filter((net) => known.has(net))
 }
 
-const GND_NET_NAMES = new Set(["GND", "/GND"])
-
-function isGroundNetName(net: string) {
-  return GND_NET_NAMES.has(net.trim().toUpperCase())
-}
-
 /**
- * Ground is intentionally excluded from KRT's maze-routing scope. Surface the
- * otherwise silent case where neither the core planner nor the imported board
- * supplies a ground zone and the caller did not explicitly ignore the net.
+ * @deprecated Ground now participates in routing and connectivity audits like
+ * every other net. Retained for callers of the former exclusion diagnostic.
  */
 export function krtUnplannedGroundNets(
-  request: Pick<BackendRouteRequest, "board" | "program">,
-) {
-  const ignored = new Set(request.program.ignoreNets)
-  const zoned = new Set([
-    ...request.board.copper.fixed.zones,
-    ...request.board.copper.editable.zones,
-  ].flatMap((zone) => zone.net ? [zone.net] : []))
-  return orderedScopeNets(request).filter((net) => (
-    isGroundNetName(net)
-    && !ignored.has(net)
-    && !zoned.has(net)
-    && request.board.pads.filter((pad) => pad.net === net).length >= 2
-  ))
+  _request: Pick<BackendRouteRequest, "board" | "program">,
+): string[] {
+  return []
 }
 
 function routableScopeNets(request: BackendRouteRequest) {
   return request.plan.scopeNets.filter((net) => (
-    !isGroundNetName(net)
-    && request.board.pads.filter((pad) => pad.net === net).length >= 2
+    request.board.pads.filter((pad) => pad.net === net).length >= 2
   ))
 }
 
@@ -719,7 +701,7 @@ export function planKrtQfnFanout(
   // alone must never activate it or mutate a board that did not request it.
   const fanouts = request.plan?.fanout.targets ?? request.program.fanouts ?? []
   if (!fanouts.length) return []
-  const scope = new Set(routeNets.filter((net) => !isGroundNetName(net)))
+  const scope = new Set(routeNets)
   const layerCatalog = createLayerCatalog(request.board.layers)
   const logicalPadCounts = new Map<string, number>()
   for (const pad of request.board.pads) if (pad.net) {
@@ -1223,7 +1205,6 @@ export function krtMonolithicFallbackSelectors(request: BackendRouteRequest) {
     ...orderedScopeNets(request).filter((net) => !projectOrderedSet.has(net)),
   ].filter((net) => (
     fallbackScope.has(net)
-    && !isGroundNetName(net)
     && !request.program.ignoreNets.includes(net)
   ))
 }
@@ -1662,19 +1643,6 @@ function createKrtWorkflowBackend(
       }
       if (request.board.layers.length > 32) diagnostics.push(diagnostic(
         "KRT_LAYER_LIMIT", "error", "KRT supports at most 32 copper layers.",
-      ))
-      const unplannedGroundNets = krtUnplannedGroundNets(request)
-      if (unplannedGroundNets.length) diagnostics.push(diagnostic(
-        "KRT_GROUND_UNPLANNED",
-        "warning",
-        "KRT excludes ground from maze routing, but no ground zone is present; these nets will not be routed or counted as open.",
-        {
-          nets: unplannedGroundNets.map((net) => ({
-            net,
-            padCount: request.board.pads.filter((pad) => pad.net === net).length,
-          })),
-          remediation: "Declare plane(...), retain a verified existing ground zone, or explicitly ignoreNets(...).",
-        },
       ))
       const routeScope = routableScopeNets(request)
       const specialRequest = krtSpecialWorkflowRequest(request, workflowMode)
@@ -2682,7 +2650,6 @@ function createKrtWorkflowBackend(
         const incumbentStats = incumbentCopper ? copperStatsByNet(incumbentCopper) : new Map()
         const repairRipExclusions = new Set([
           ...verifiedSpecialNets,
-          ...request.board.nets.map((item) => item.name).filter(isGroundNetName),
           ...request.board.copper.fixed.zones.flatMap((zone) => zone.net ? [zone.net] : []),
           ...request.board.copper.editable.zones.flatMap((zone) => zone.net ? [zone.net] : []),
         ])

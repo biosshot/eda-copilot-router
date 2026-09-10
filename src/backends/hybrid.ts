@@ -79,7 +79,6 @@ type HybridExecutionPlan = Readonly<{
   reason?: string
 }>
 
-const GROUND_NETS = new Set(["GND", "/GND"])
 
 function diagnostic(
   code: string,
@@ -98,10 +97,6 @@ function record(value: unknown): Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Readonly<Record<string, unknown>>
     : {}
-}
-
-function isGroundNet(net: string) {
-  return GROUND_NETS.has(net.trim().toUpperCase())
 }
 
 function normalized(values: readonly string[]) {
@@ -309,7 +304,7 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
     padCounts.set(pad.net, (padCounts.get(pad.net) ?? 0) + 1)
   }
   const routableNets = request.plan.scopeNets.filter((net) => (
-    !isGroundNet(net) && (padCounts.get(net) ?? 0) >= 2
+    (padCounts.get(net) ?? 0) >= 2
   ))
   const routable = new Set(routableNets)
   const krt = new Set<string>()

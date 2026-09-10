@@ -11,7 +11,7 @@ adapter and CLI; neither KRT routing path requires installed KiCad.
 
 KRT remains the default for `run()` and the KiCad CLI. EasyEDA hosts can select
 Hybrid: on boards with at most two copper layers EasyEDA WASM first sees the
-complete non-plane routing problem, then the shared KRT workflow replaces
+complete routing problem, including ground, then the shared KRT workflow replaces
 unverified hard-constraint copper and repairs true leftovers. Locally compliant
 via-forbid/layer-restricted copper can be retained for KRT audit. On multilayer
 boards Hybrid delegates the original request to KRT. There is no caller-selected

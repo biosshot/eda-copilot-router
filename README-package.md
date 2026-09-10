@@ -24,7 +24,7 @@ const result = await run({
 `run()` continues to default to the single native-auto KRT workflow. An
 EasyEDA host can pass `createHybridBackend()`: on boards with at most two
 copper layers bundled EasyEDA WASM makes one global provisional pass over all
-non-plane nets, then the shared KRT workflow replaces unverified hard-constraint
+routable nets, including ground, then the shared KRT workflow replaces unverified hard-constraint
 copper and repairs true opens; compliant via-forbid/layer-only copper is kept
 for KRT audit. Multilayer requests remain unchanged KRT requests. Callers
 do not select a quality profile or candidate count.

@@ -1,6 +1,6 @@
 # Hybrid routing workflow: зафиксированное решение и доказательства
 
-Дата фиксации: 2026-08-31, уточнено 2026-09-01
+Дата фиксации: 2026-08-31, уточнено 2026-09-10
 
 Статус: production workflow реализован в `feat/hybrid-easyeda-wasm-routing`; повторная corpus validation выполняется
 Основной scope: EasyEDA Copilot Router, двухслойные платы, KRT 0.21.3 и EasyEDA WASM router
@@ -9,7 +9,7 @@
 Hybrid/KRT workflow. Он заменяет две более ранние рабочие гипотезы: KRT
 hard-relations до EasyEDA и исключение hard-special nets из EasyEDA. Поздний
 full-corpus A/B показал более устойчивую последовательность: один глобальный
-EasyEDA pass по всем routable non-plane nets, selective reset provisional
+EasyEDA pass по всем routable nets, включая GND, selective reset provisional
 hard-special copper, затем одна KRT transaction и один условный remaining repair.
 
 ## Неподвижные требования
@@ -20,7 +20,7 @@ hard-special copper, затем одна KRT transaction и один услов�
 4. Любая ошибка или timeout возвращает последний полезный checkpoint как partial result. Уже полезная медь не выбрасывается.
 5. EasyEDA WASM запускается с максимально близкими к native default/max-completion настройками.
 6. EasyEDA получает сети в исходном native-порядке. Алфавитная сортировка и искусственные веса не применяются.
-7. GND/plane nets не передаются обычному maze routing. Ими владеют core copper/plane stages.
+7. GND участвует в maze routing и аудите связности наравне с другими сетями. Core copper/plane stages создают явно объявленные заливки; только ignoreNets исключает сеть по запросу пользователя.
 8. Generic successful `critical` net не становится автоматически immutable: такая сеть может оказаться blocker.
 9. Hard-special copper защищается только после проверки соответствующей семантики.
 10. Глобальную дополнительную проверку EasyEDA за самим EasyEDA не добавляем. Проверяем только собственные KRT transactions и hard semantics, которые EasyEDA не умеет гарантировать.
@@ -38,7 +38,8 @@ hard-special copper, затем одна KRT transaction и один услов�
 | Generic critical/high priority или `viaPreference: "avoid"` | EasyEDA WASM; это порядок/стоимость, не hard custody | KRT repair, если сеть осталась open |
 | `viaPreference: "forbid"` или per-net layer restriction | EasyEDA provisional corridor, затем KRT final custody | Unverified partial при недоступном KRT |
 | Explicit fanout | EasyEDA provisional corridor, затем late KRT transaction, только по явному DSL | Partial без fanout при недоступном KRT |
-| GND/planes/polygons | Core/plane workflow | Существующая core partial policy |
+| GND | Общий routing workflow | Связность и opens учитываются наравне с другими сетями |
+| Planes/polygons | Core/plane workflow | Существующая core partial policy |
 | Opens после EasyEDA и KRT victims | Один финальный KRT remaining/repair | Оставить open в partial result |
 
 ### EasyEDA и matched length
@@ -65,7 +66,7 @@ B.Cu tracks и vias. Нет доказательства, что изменен�
 ```text
 DSL parse/compile + effective rules + existing core copper
                          |
- EasyEDA native-default global pass по всем non-plane nets
+ EasyEDA native-default global pass по всем routable nets, including ground
                          |
 selective reset unverified KRT-custody copper
  (incoming editable copper этих nets восстанавливается)
@@ -92,7 +93,7 @@ selective reset unverified KRT-custody copper
 
 ### 2. Один EasyEDA bulk-pass
 
-В normal Hybrid EasyEDA получает все routable non-ground nets:
+В normal Hybrid EasyEDA получает все routable nets, включая GND:
 
 - ordinary single-ended nets;
 - native differential pairs;
@@ -104,7 +105,6 @@ selective reset unverified KRT-custody copper
 
 EasyEDA не получает:
 
-- GND/plane nets;
 - ignored nets;
 - nets вне resolved route scope или без двух электрических terminals.
 
@@ -232,7 +232,7 @@ createKrtWorkflowBackend(options, "full" | "post-easy")
 ## Фактически реализовано
 
 1. На двух слоях Hybrid делает ровно один EasyEDA global pass по всем routable
-   non-ground nets. Затем удаляет unverified provisional copper final-custody
+   nets, включая GND. Затем удаляет unverified provisional copper final-custody
    nets, сохраняет compliant via-forbid/layer-only copper, восстанавливает
    incoming editable copper reset-сетей и передаёт checkpoint в общий KRT
    runner с `mode: "post-easy"`.
@@ -269,7 +269,7 @@ KRT-custody nets. На четырёх реально отличавшихся п
 
 | Scope EasyEDA | Opens | DRC | Vias | Суммарное время |
 | --- | ---: | ---: | ---: | ---: |
-| Все routable non-plane nets | 6 | 10 | 212 | 267.3 s |
+| Все routable nets, включая GND | 6 | 10 | 212 | 267.3 s |
 | Special nets исключены | 7 | 8 | 234 | 267.1 s |
 
 Full provisional scope дал на одну open net и 22 vias меньше без измеримого

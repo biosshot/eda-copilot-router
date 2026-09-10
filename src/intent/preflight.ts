@@ -681,7 +681,7 @@ export function compileRoutingRules(
   // runAll() persists the universal KRT neckdown floor without weakening a
   // stricter imported or DSL hard minimum.
   if (program.operation === "all") for (const { name } of board.nets) {
-    if (!selected(name) || /^GND$/i.test(name)) continue
+    if (!selected(name)) continue
     const values = byNet.get(name) ?? board.rules.default
     byNet.set(name, {
       ...values,

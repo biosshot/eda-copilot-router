@@ -116,6 +116,28 @@ assert.ok(failed.diagnostics.some((item) => (
 )))
 assert.deepEqual(failed.metrics.openNets, ["A"])
 
+for (const groundName of ["GND", "/GND"]) {
+  const groundBoard = {
+    ...board,
+    nets: board.nets.map((net) => net.name === "GND" ? { name: groundName } : net),
+    pads: board.pads.map((pad) => pad.net === "GND" ? { ...pad, net: groundName } : pad),
+  }
+  const groundProgram = { ...baseProgram, onlyNets: [groundName] }
+  const groundRequest = {
+    board: groundBoard, program: groundProgram, rules: groundBoard.rules,
+    plan: resolveRoutePlan(groundBoard, groundProgram, groundBoard.rules),
+  }
+  const groundResult = await createEasyEdaWasmBackend({
+    async engine(input) {
+      assert.deepEqual(input.nets.filter((net) => net.routing).map((net) => net.net), [groundName])
+      return { progress: 1, routabitity: 0, traces: [], vias: [] }
+    },
+  }).route(groundRequest)
+  assert.equal(groundResult.status, "partial")
+  assert.equal(groundResult.metrics.openNetCount, 1, "unrouted ground must be counted in WASM's partial estimate")
+  assert.deepEqual(groundResult.metrics.details.routeNets, [groundName])
+}
+
 const assets = bundledEasyEdaWasmAssets()
 assert.ok(existsSync(assets.workerPath), assets.workerPath)
 assert.ok(existsSync(assets.wasmPath), assets.wasmPath)

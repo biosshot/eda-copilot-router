@@ -725,7 +725,7 @@ const originalOrderRequest = {
   program: { ...baseRequest.program, ignoreNets: ["IGNORED"] },
 }
 const originalOrderSelectors = krt.krtMonolithicFallbackSelectors(originalOrderRequest)
-assert.deepEqual(originalOrderSelectors, ["$BOOT", "SIG", "+1V1"],
+assert.deepEqual(originalOrderSelectors, ["GND", "$BOOT", "SIG", "+1V1"],
   "original-order fallback selectors must preserve project/netclass grouping and filtering")
 assert.deepEqual(krt.compactKrtExactSelectorArgs([
   "in.kicad_pcb", "out.kicad_pcb",

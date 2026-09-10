@@ -338,7 +338,7 @@ try {
       { name: "TOP", index: 0, side: "top" },
       { name: "BOTTOM", index: 31, side: "bottom" },
     ],
-    nets: [{ name: "!OSC[0]" }, { name: "OPEN" }],
+    nets: [{ name: "!OSC[0]" }, { name: "GND" }],
     components: [
       { designator: "X1", at: { x: 5, y: 10 }, rotationDeg: 0, side: "top" },
       { designator: "U3", at: { x: 13, y: 10 }, rotationDeg: 0, side: "top" },
@@ -348,8 +348,8 @@ try {
     pads: [
       { component: "X1", number: "1", net: "!OSC[0]", at: { x: 5, y: 10 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
       { component: "U3", number: "1", net: "!OSC[0]", at: { x: 13, y: 10 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
-      { component: "J3", number: "1", net: "OPEN", at: { x: 5, y: 16 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
-      { component: "J4", number: "1", net: "OPEN", at: { x: 25, y: 16 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
+      { component: "J3", number: "1", net: "GND", at: { x: 5, y: 16 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
+      { component: "J4", number: "1", net: "GND", at: { x: 25, y: 16 }, rotationDeg: 0, layers: ["TOP"], shape: { kind: "circle", diameterMm: 1 } },
     ],
     keepouts: [{
       layers: ["TOP", "BOTTOM"],
@@ -380,12 +380,12 @@ try {
     }),
     dsl: `
       signalNet("!OSC[0]", { priority: "critical", viaPreference: "avoid" })
-      signalNet("OPEN", { priority: "high", allowedLayers: "TOP" })
+      signalNet("GND", { priority: "high", allowedLayers: "TOP" })
       runRouting()
     `,
   })
   assert.notEqual(viaRepairResult.status, "error", JSON.stringify(viaRepairResult.diagnostics))
-  assert.ok(viaRepairResult.metrics?.openNets?.includes("OPEN"), "fixture must retain one unresolved ordinary net")
+  assert.ok(viaRepairResult.metrics?.openNets?.includes("GND"), "blocked ground must remain in openNets")
   assert.equal(
     viaRepairResult.copper.vias.filter((via) => via.net === "!OSC[0]").length,
     0,

@@ -672,12 +672,6 @@ export function krtLiteralNetFilterPattern(net: string) {
   return net.startsWith("!") ? `\\${pattern}` : pattern
 }
 
-const GND_NET_NAMES = new Set(["GND", "/GND"])
-
-function isGroundNetName(net: string) {
-  return GND_NET_NAMES.has(net.trim().toUpperCase())
-}
-
 function sameStrings(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
@@ -1986,9 +1980,6 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
       return
     }
     for (const member of [pair.positive, pair.negative]) {
-      if (isGroundNetName(member)) diagnostics.push(diagnostic(
-        "KRT_GND_EXCLUDED", "error", "GND cannot be a special routed net.", { pair },
-      ))
       const previous = memberOwner.get(member)
       if (previous !== undefined) diagnostics.push(diagnostic(
         "KRT_INVALID_DIFF_PAIR",
@@ -2008,9 +1999,6 @@ function specialPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]): Nor
       { index, group },
     ))
     for (const net of group.nets) {
-      if (isGroundNetName(net)) diagnostics.push(diagnostic(
-        "KRT_GND_EXCLUDED", "error", "GND cannot belong to a matched group.", { index, net },
-      ))
       const previous = groupOwner.get(net)
       if (previous !== undefined) diagnostics.push(diagnostic(
         "KRT_MATCHED_GROUP_CONFLICT",
@@ -2061,21 +2049,21 @@ function remainingPreflight(spec: KrtStageSpec, diagnostics: KrtDiagnostic[]) {
     const normalized = normalizePair(pair)
     return [normalized.positive, normalized.negative]
   }))
-  const forbidden = nets.filter((net) => isGroundNetName(net) || specialNets.has(net))
+  const forbidden = nets.filter((net) => specialNets.has(net))
   if (forbidden.length) diagnostics.push(diagnostic(
     "KRT_REMAINING_SCOPE_CONFLICT",
     "error",
-    "The remaining pass must explicitly exclude GND and every special net.",
+    "The remaining pass must explicitly exclude every special net.",
     forbidden,
   ))
   const ripExistingNets = unique(spec.ripExistingNets ?? [])
   const invalidRipNets = ripExistingNets.filter((net) => (
-    isGroundNetName(net) || specialNets.has(net) || nets.includes(net)
+    specialNets.has(net) || nets.includes(net)
   ))
   if (invalidRipNets.length) diagnostics.push(diagnostic(
     "KRT_RIP_SCOPE_CONFLICT",
     "error",
-    "Blocker repair may rip only exact, non-GND, non-special nets outside remainingNets.",
+    "Blocker repair may rip only exact, non-special nets outside remainingNets.",
     invalidRipNets,
   ))
   const routed = new Set(nets)

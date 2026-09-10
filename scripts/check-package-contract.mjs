@@ -178,18 +178,27 @@ const boardWithUnplannedGround = {
 }
 assert.deepEqual(
   krt.krtUnplannedGroundNets({ board: boardWithUnplannedGround, program: dsl.compileRoutingDsl("runRouting()") }),
-  ["GND"],
-  "KRT must expose ground nets that it excludes without a planned/imported zone",
+  [],
+  "the deprecated ground exclusion diagnostic must be empty now that ground is routable",
 )
 assert.deepEqual(
   krt.krtUnplannedGroundNets({ board: boardWithUnplannedGround, program: dsl.compileRoutingDsl('ignoreNets("GND"); runRouting()') }),
   [],
-  "an explicit ground exclusion must acknowledge the missing maze route",
+  "explicitly ignored ground must not produce an implicit exclusion diagnostic",
 )
 const netlessZone = {
   layers: ["F.Cu"],
   outline: { outer: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }, { x: 1, y: 2 }] },
 }
+const groundFloorRules = dsl.compileRoutingRules({
+  ...board,
+  rules: {
+    ...board.rules,
+    nets: [{ net: "GND", values: { ...board.rules.default, minTrackWidthMm: 0.1 } }],
+  },
+}, dsl.compileRoutingDsl("runAll()"))
+assert.equal(groundFloorRules.effective.nets.find((item) => item.net === "GND").values.minTrackWidthMm, 0.127,
+  "runAll must apply the routing width floor to ground as well as signal nets")
 assert.equal(api.validateRoutingBoard({
   ...board,
   copper: { fixed: { ...emptyCopper, zones: [netlessZone] }, editable: emptyCopper },

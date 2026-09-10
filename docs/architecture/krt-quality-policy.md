@@ -222,7 +222,7 @@ share the same limit of eight processes and the same wall-clock deadline,
 including connectivity and DRC audits.
 
 An open-net repair may grant KRT at most three observed lower-priority blockers
-as explicit rip victims. Verified special/critical copper, GND and zone-owned
+as explicit rip victims. Verified special/critical copper and zone-owned
 nets are never eligible. The candidate must restore every victim and pass the
 same full-board checkpoint gate, so blocker knowledge improves search without
 turning priority into destructive global locking.
