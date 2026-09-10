@@ -104,7 +104,7 @@ without KiCad or a local KRT checkout.
 Native E2E runners use the adapter built in this package. Generated artifacts
 are written only under this repository's ignored `results/` directory.
 
-KRT `v0.21.3` is downloaded lazily, verified by SHA-256, patched from
+KRT `v0.22.0` is downloaded lazily, verified by SHA-256, patched from
 `assets/krt-patches`, and cached per user. `COPILOT_ROUTER_KRT_DIR` is an
 optional explicit development/air-gapped override.
 

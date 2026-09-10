@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Upgrade the managed KiCadRoutingTools release to 0.22.0 with verified archive
+  metadata and updated cache checks. Preserve per-net project clearances under
+  the new Default-class meaning of --clearance without using --clearance-ceiling.
+
 - Route and audit GND and /GND like other nets in KRT, Hybrid, and EasyEDA WASM,
   including fanout and recovery. Explicit onlyNets/ignoreNets still control scope.
   The deprecated krtUnplannedGroundNets helper remains callable and returns an empty list.

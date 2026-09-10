@@ -3,7 +3,7 @@
 Дата фиксации: 2026-08-31, уточнено 2026-09-10
 
 Статус: production workflow реализован в `feat/hybrid-easyeda-wasm-routing`; повторная corpus validation выполняется
-Основной scope: EasyEDA Copilot Router, двухслойные платы, KRT 0.21.3 и EasyEDA WASM router
+Основной scope: EasyEDA Copilot Router, двухслойные платы, KRT 0.22.0 и EasyEDA WASM router
 
 Этот документ фиксирует выводы исследования и фактическую реализацию
 Hybrid/KRT workflow. Он заменяет две более ранние рабочие гипотезы: KRT

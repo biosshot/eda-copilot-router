@@ -2,10 +2,16 @@
 
 ## Authority
 
-The managed backend uses KiCadRoutingTools `v0.21.3`. KRT owns path search,
+The managed backend uses KiCadRoutingTools `v0.22.0`. KRT owns path search,
 blocker selection, rip-up/reconciliation, net rescue and terminal escalation.
 The router core owns DSL semantics, compiled hard rules, protected-net custody,
 candidate selection and partial-result application.
+
+KRT 0.22.0 resolves `--clearance` as the run's Default-class value. Ordinary
+and matched-ordinary calls omit it and inherit the materialized project rules;
+special calls pass their compiled value. The adapter never passes the new
+`--clearance-ceiling`, which would cap stricter classes. Every stage retains
+the explicit `--fab-overrides` floor and the final hard-rule audit.
 
 There are no public quality profiles. Production uses one `native-auto` policy
 and deliberately does not override KRT's measured defaults for iteration caps,
@@ -62,9 +68,9 @@ KICAD_IMPEDANCE_NECKDOWN=1
 ```
 
 Every subprocess receives a required fab-overrides file. Ordinary `route.py`
-calls omit global `--clearance`, because KRT treats it as a ceiling which can
-flatten stricter net classes; the per-net project rules and fabrication floor
-remain authoritative.
+calls inherit the materialized per-net clearances without a Default-class
+override or a class ceiling; the project rules and fabrication floor remain
+authoritative.
 
 ## Authoritative project bundle
 

@@ -43,7 +43,7 @@ version.
   They require no download, Python, global install, or host-owned path. Package
   contract tests assert that both assets are present, and a no-KiCad smoke test
   starts the real worker and routes a board through the shipped WebAssembly.
-- KRT is managed from the official `v0.21.3` release archive. The package also
+- KRT is managed from the official `v0.22.0` release archive. The package also
   selects the release's platform-specific `grid_router` module and prepares
   every dependency declared by that release's `requirements.txt` in a
   backend-owned Python cache when the selected interpreter does not already
@@ -66,8 +66,8 @@ drift therefore fails before board routing starts.
 
 ## Pinned releases
 
-- KRT: `v0.21.3`, SHA-256
-  `fd6e9f880e5defbd1747f4a5437735184486fabece55ce8b2a1397c25b611a64`
+- KRT: `v0.22.0`, SHA-256
+  `75df60b82df577f5087be07ff07b3ef1b867c362ba57da8ad347c1f6a5f2f66e`
 - Python: CPython `3.12.14`, `python-build-standalone` release `20260814`;
   per-platform SHA-256 values are returned by `managedPythonRelease()`.
 Version upgrades are code changes: update the pinned metadata, run backend

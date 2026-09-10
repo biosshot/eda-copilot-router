@@ -94,7 +94,10 @@ assert.deepEqual(krt.KRT_RIPUP_ABANDON_METRIC_CHOICES, [
   "stranded", "total-pads", "complete-nets", "congestion",
   "history", "weighted", "probe", "weighted-probe",
 ])
-assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.21\.3\.zip$/)
+assert.equal(krt.KRT_MANAGED_VERSION, "0.22.0")
+assert.match(krt.krtManagedRelease().url, /KiCadRoutingTools-0\.22\.0\.zip$/)
+assert.equal(krt.krtManagedRelease().sha256, "75df60b82df577f5087be07ff07b3ef1b867c362ba57da8ad347c1f6a5f2f66e")
+assert.equal(krt.krtManagedRelease().sizeBytes, 7_467_221)
 assert.deepEqual(krt.KRT_REQUIRED_NECKDOWN_ENVIRONMENT, {
   KICAD_IMPEDANCE_NECKDOWN: "1",
 }, "KRT impedance neck-down must never be disabled by the adapter")

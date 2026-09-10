@@ -29,7 +29,7 @@ copper and repairs true opens; compliant via-forbid/layer-only copper is kept
 for KRT audit. Multilayer requests remain unchanged KRT requests. Callers
 do not select a quality profile or candidate count.
 
-The package lazily prepares pinned KRT `v0.21.3`; no manual checkout is
+The package lazily prepares pinned KRT `v0.22.0`; no manual checkout is
 required. Downloads are integrity-checked and cached. The optional
 `COPILOT_ROUTER_KRT_DIR` override is intended for development or air-gapped
 installations.

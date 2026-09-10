@@ -39,12 +39,12 @@ export type KrtMatchedGroup =
   | readonly string[]
   | { nets: readonly string[] }
 
-/** Exact argparse choices in KiCadRoutingTools 0.21.3. */
+/** Exact argparse choices in KiCadRoutingTools 0.22.0. */
 export const KRT_RIPUP_BLOCKER_SELECT_CHOICES = Object.freeze([
   "count", "near-target", "bidir", "mincut", "cost",
 ] as const)
 
-/** Exact route.py argparse choices in KiCadRoutingTools 0.21.3. */
+/** Exact route.py argparse choices in KiCadRoutingTools 0.22.0. */
 export const KRT_RIPUP_ABANDON_METRIC_CHOICES = Object.freeze([
   "stranded", "total-pads", "complete-nets", "congestion",
   "history", "weighted", "probe", "weighted-probe",
@@ -317,10 +317,10 @@ export type KrtProcessResult = {
   protectedNets?: string[]
   /** Independent board-semantic length audit for the selected matched groups. */
   matchedGroupsAuditPath?: string
-  /** KRT 0.21.3 route.py --json-out artifact with merged reconciliation state. */
+  /** KRT 0.22.0 route.py --json-out artifact with merged reconciliation state. */
   mergedSummaryPath?: string
   jsonSummary?: Record<string, unknown>
-  /** Compact authoritative verdict emitted once by KRT 0.21.3 route.py. */
+  /** Compact authoritative verdict emitted once by KRT 0.22.0 route.py. */
   jsonSummaryMin?: Record<string, unknown>
   jsonSummaries: Record<string, unknown>[]
   diagnostics: KrtDiagnostic[]
@@ -712,7 +712,7 @@ function pointDistance(left: readonly [number, number], right: readonly [number,
 }
 
 /**
- * Match KRT 0.21.3's `_arc_to_segments(..., chord_eps=0.005)` measurement.
+ * Match KRT 0.22.0's `_arc_to_segments(..., chord_eps=0.005)` measurement.
  * Native output is linear, but inherited KiCad arcs must contribute exactly as
  * they do to KRT's own `net_copper_length()` semantic.
  */
@@ -804,7 +804,7 @@ function viaBarrelLength(node: SExpression[], layers: readonly { name: string; t
 /**
  * Independently measure the intended KRT length metric (planar copper plus
  * via barrels) from the final board. The S-expression stackup reader is
- * deliberately stricter than KRT 0.21.3's line-oriented parser, so compact
+ * deliberately stricter than KRT 0.22.0's line-oriented parser, so compact
  * host-generated stackups still receive their physically real barrel length.
  */
 async function measureKrtNetCopperLengths(
@@ -1243,7 +1243,7 @@ function parseJsonSummaries(stdout: string, diagnostics: KrtDiagnostic[]) {
   return summaries
 }
 
-/** Parse KRT 0.21.3's one-per-outer-run compact merged verdict. */
+/** Parse KRT 0.22.0's one-per-outer-run compact merged verdict. */
 export function parseKrtJsonSummaryMin(stdout: string): Record<string, unknown> | undefined {
   const values: Record<string, unknown>[] = []
   for (const line of stdout.split(/\r?\n/)) {
@@ -2084,14 +2084,14 @@ function commonArgs(
   inputBoard: string,
   outputBoard: string,
   spec: KrtStageSpec,
-  options: { omitClearanceCeiling?: boolean } = {},
+  options: { omitDefaultClearance?: boolean } = {},
 ) {
   const args = [resolve(inputBoard), resolve(outputBoard)]
   args.push("--layers", ...unique(spec.layers))
-  // route.py treats --clearance as a ceiling on native netclass clearance.
-  // Ordinary groups can span classes, so omitting it is the only lossless
-  // translation; the fab-overrides floor remains mandatory below.
-  if (!options.omitClearanceCeiling) args.push("--clearance", numberArg(spec.rules.clearance))
+  // KRT 0.22 uses --clearance for the Default class only. Special calls pass
+  // their compiled clearance; ordinary groups inherit every project class.
+  // Never pass --clearance-ceiling: it would weaken stricter classes.
+  if (!options.omitDefaultClearance) args.push("--clearance", numberArg(spec.rules.clearance))
   args.push("--via-size", numberArg(spec.rules.viaSize))
   args.push("--via-drill", numberArg(spec.rules.viaDrill))
   pushNumericArg(args, "--grid-step", spec.rules.gridStep)
@@ -2160,7 +2160,7 @@ function matchedOrdinaryArgs(
   spec: KrtStageSpec,
   groups: NormalizedGroup[],
 ) {
-  const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
+  const args = commonArgs(inputBoard, outputBoard, spec, { omitDefaultClearance: true })
   const nets = unique(groups.flatMap((group) => group.nets))
   args.push("--nets", ...nets.map(krtLiteralNetFilterPattern))
   // route.py performs matching only over results produced by this invocation,
@@ -2188,10 +2188,9 @@ function remainingArgs(
   spec: KrtStageSpec,
   nets: string[],
 ) {
-  // The board sidecar already carries the fully materialized per-net rules.
-  // KRT treats --clearance as a global ceiling, so passing it here would
-  // silently flatten stricter classes.
-  const args = commonArgs(inputBoard, outputBoard, spec, { omitClearanceCeiling: true })
+  // The board sidecar already carries the fully materialized per-net rules,
+  // including the Default class. Preserve them without a global override.
+  const args = commonArgs(inputBoard, outputBoard, spec, { omitDefaultClearance: true })
   args.push("--nets", ...unique(nets).map(krtLiteralNetFilterPattern))
   if (spec.busDetect) {
     args.push("--bus")
@@ -2429,7 +2428,7 @@ async function executeStage(
     }
 
     // route.py may emit a run-scope summary followed by a reconciliation
-    // subset. KRT 0.21.3 owns their state/effort merge and exposes the result
+    // subset. KRT 0.22.0 owns their state/effort merge and exposes the result
     // through --json-out; consuming that file avoids reimplementing upstream's
     // scope semantics in TypeScript. route_diff.py and qfn_fanout.py retain
     // their existing single-summary contracts.
@@ -3259,7 +3258,7 @@ async function auditKrtDrc(
       stderr: `Could not persist the exact DRC-audit scope: ${errorText(error)}`,
     }
   }
-  // check_drc.py treats --clearance as a global ceiling, just like route.py.
+  // check_drc.py still treats --clearance as a global ceiling.
   // Omitting it is required for the authoritative project netclasses and
   // netclass_patterns to remain effective during a mixed-class board audit.
   const args = [resolve(boardPath), "--quiet", "--json", jsonPath]
