@@ -2265,10 +2265,6 @@ function qfnFanoutArgs(
   args.push("--via-size", numberArg(spec.rules.viaSize))
   args.push("--via-drill", numberArg(spec.rules.viaDrill))
   pushNumericArg(args, "--board-edge-clearance", spec.rules.boardEdgeClearance)
-  // Completion-first fanout always permits via-in-pad. KRT's positive
-  // same-net pad clearance otherwise overrides --allow-via-in-pad, so pin it
-  // to the explicit "allowed" sentinel for this isolated fanout subprocess.
-  args.push("--same-net-pad-clearance", "-1", "--allow-via-in-pad")
   args.push("--fab-overrides", resolve(spec.fabOverridesPath), "--no-fix-drc-settings")
   return args
 }

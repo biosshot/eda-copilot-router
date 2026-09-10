@@ -5,6 +5,9 @@
 - Route and audit GND and /GND like other nets in KRT, Hybrid, and EasyEDA WASM,
   including fanout and recovery. Explicit onlyNets/ignoreNets still control scope.
   The deprecated krtUnplannedGroundNets helper remains callable and returns an empty list.
+- Stop forcing QFN via-in-pad and default plane stitching viaInPad to false.
+  Explicit DSL stitching opt-in remains available; ordinary KRT same-net pad
+  clearance policy is unchanged.
 
 ## 0.3.0 - 2026-09-01
 

@@ -105,6 +105,7 @@ declare function plane(options: {
     gridMm?: number;
     maxVisibleViaDistanceMm?: number;
     via?: "drc-min" | Pick<ViaOptions, "diameterMm" | "drillMm">;
+    /** Allow pad-centered stitching vias. Default false; requires explicit opt-in. */
     viaInPad?: boolean;
   };
 }): void;

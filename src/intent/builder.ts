@@ -409,7 +409,7 @@ class RoutingDslBuilder {
         gridMm: value.gridMm === undefined ? 5 : positive(value.gridMm, "gridMm"),
         maxPadViaDistanceMm: maxDistance === undefined ? 10 : positive(maxDistance, "maxVisibleViaDistanceMm"),
         via,
-        viaInPad: value.viaInPad === undefined ? true : Boolean(value.viaInPad),
+        viaInPad: value.viaInPad === undefined ? false : Boolean(value.viaInPad),
       }
     }
     this.planes.push({

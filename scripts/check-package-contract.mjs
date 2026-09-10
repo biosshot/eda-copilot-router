@@ -990,6 +990,23 @@ const compactPlaneProgram = dsl.compileRoutingDsl(`
   plane({ net: "GND", layers: "OUTER", region: board(), stitching: { gridMm: 1 } })
   runCopper()
 `)
+for (const stitching of ['true', '{ gridMm: 100 }', '{ gridMm: 100, viaInPad: false }']) {
+  const program = dsl.compileRoutingDsl(`plane({ net: "GND", stitching: ${stitching} }); runCopper()`)
+  assert.equal(program.planes[0].stitching.viaInPad, false)
+}
+const padStitchProgram = (viaInPad) => dsl.compileRoutingDsl(`
+  plane({ net: "GND", layers: "OUTER", stitching: { gridMm: 100${viaInPad ? ', viaInPad: true' : ''} } })
+  runCopper()
+`)
+const defaultPadStitchProgram = padStitchProgram(false)
+const explicitPadStitchProgram = padStitchProgram(true)
+const isolatedPadBoard = { ...board, pads: board.pads.filter((pad) => pad.net === "GND") }
+assert.equal(api.planRoutingCopper(isolatedPadBoard, defaultPadStitchProgram,
+  dsl.compileRoutingRules(isolatedPadBoard, defaultPadStitchProgram).effective).copper.vias.length, 0,
+  "a coarse stitching grid must not implicitly fill uncovered pads with vias")
+assert.ok(api.planRoutingCopper(isolatedPadBoard, explicitPadStitchProgram,
+  dsl.compileRoutingRules(isolatedPadBoard, explicitPadStitchProgram).effective).copper.vias.some((via) => via.net === "GND"),
+  "explicit viaInPad stitching remains available")
 const compactPlaneRules = dsl.compileRoutingRules(board, compactPlaneProgram).effective
 const compactPlane = api.planRoutingCopper(board, compactPlaneProgram, compactPlaneRules)
 const plannedVccZone = compactPlane.copper.zones.find((zone) => zone.net === "VCC")
