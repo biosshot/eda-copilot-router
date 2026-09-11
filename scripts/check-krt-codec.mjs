@@ -6,6 +6,7 @@ import {
   approximateKiCadArc,
   krtProjectNetOrder,
   readKrtBoard,
+  KrtFixedCopperChangedError,
   writeKrtBoard,
 } from "../package-dist/backends/krt-codec.js"
 import { importKiCadRoutingBoard } from "../package-dist/adapters/kicad.js"
@@ -183,6 +184,15 @@ try {
     "KRT output parsing must not silently turn blind/buried vias into through vias")
   assert.ok(!recovered.copper.vias.some((via) => via.at.x === 6 && via.at.y === 18),
     "fixed microvias must not leak into backend-owned replacement copper")
+  for (const [label, changed] of [
+    ['moved track', replaced.replace('(start 1 18) (end 4 18)', '(start 1 18) (end 4 19)')],
+    ['removed track', replaced.replace(/\s*\(segment\s+\(start 1 18\)[\s\S]*?\(uuid "[^"]+"\)\)/, '')],
+    ['moved via', replaced.replace('(via micro (at 6 18)', '(via micro (at 7 18)')],
+  ]) {
+    assert.notEqual(changed, replaced, label)
+    await writeFile(routedBoard, changed)
+    await assert.rejects(readKrtBoard(inputBoard, routedBoard, board), KrtFixedCopperChangedError, label)
+  }
   assert.ok((source.match(/\(polygon \(pts/g) ?? []).length >= 4, "zone and keepout hole contours must be serialized")
   const points = approximateKiCadArc({ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, 0.01)
   assert.ok(points.length > 3)

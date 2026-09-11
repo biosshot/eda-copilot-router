@@ -76,6 +76,8 @@ export type RoutedTrack = Readonly<{
   widthMm: Millimeters
   /** A track is one constant-width polyline with at least two points. */
   points: readonly PointMm[]
+  /** Native evidence of pads already connected by existing copper; references RoutingPad.id. */
+  connectedPadIds?: readonly string[]
 }>
 
 export type RoutedVia = Readonly<{

@@ -557,6 +557,14 @@ export async function writeKrtBoard(request: BackendRouteRequest, directory: str
   return { inputBoard, inputProject }
 }
 
+/** A native stage must never replace geometry owned by the host document. */
+export class KrtFixedCopperChangedError extends Error {
+  constructor(readonly missing: RoutingCopper) {
+    super(`KRT changed fixed copper: ${missing.tracks.length} segment(s), ${missing.vias.length} via(s).`)
+    this.name = "KrtFixedCopperChangedError"
+  }
+}
+
 export async function readKrtBoard(
   preparedBoard: string,
   routedBoard: string,
@@ -571,10 +579,16 @@ export async function readKrtBoard(
   ])
   if (!board) return { copper: subtractKrtCopper(before, after) }
   const catalog = createLayerCatalog(board.layers)
+  const fixed = copperToKiCadLayers(board.copper.fixed, catalog)
+  // Check before subtracting fixed copper. Otherwise native shove/rip-up can
+  // remove a locked track, pass DRC on that board, and collide with the old
+  // geometry that remains in EasyEDA when only editable copper is applied.
+  const missing = subtractKrtCopper(after, fixed)
+  if (missing.tracks.length || missing.vias.length) throw new KrtFixedCopperChangedError(missing)
   // BackendRouteResult owns the complete editable transaction, not an
   // additions-only delta. Otherwise KRT can rip/recover an editable route on
   // disk but the core would silently merge the removed route back in.
-  const editable = subtractKrtCopper(copperToKiCadLayers(board.copper.fixed, catalog), after)
+  const editable = subtractKrtCopper(fixed, after)
   const canonical = canonicalizeCopper(editable, catalog)
   return {
     copper: {

@@ -1055,6 +1055,14 @@ async function executePlan(
     request,
   )
   const krtResult = await safeRoute(dependencies.krtPostEasy, stagedRequest, "krt-post-easy")
+  if (hasDiagnostic(krtResult, "KRT_FIXED_COPPER_CHANGED")) return enrichResult(
+    conservativeEasyCheckpoint(request, plan.partition, easyedaResult),
+    [...planDiagnostics, ...(krtResult.diagnostics ?? []), diagnostic(
+      "HYBRID_KRT_FIXED_COPPER_FALLBACK", "warning",
+      "KRT changed fixed copper; its result was discarded and the original EasyEDA WASM checkpoint was restored. KRT-only constraints remain unverified.",
+    )],
+    "hybrid", plan.partition, true, { recoverySelected: "easyeda-bulk" },
+  )
   if (stageFailed(krtResult, "krt")) return recoverFromKrtFailure(
     request,
     plan.partition,

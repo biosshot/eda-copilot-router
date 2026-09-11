@@ -41,7 +41,7 @@ export type EasyEdaWasmRouterInput = Readonly<{
 
 export type EasyEdaWasmRouterOutput = Readonly<{
   progress?: number
-  routabitity?: number
+  routabitity?: number | null
   traces?: readonly Readonly<{
     id?: number | string
     layer: number
@@ -313,13 +313,17 @@ function ruleTables(
   board: RoutingBoard,
   routeNets: readonly string[],
   routeLayerIds: readonly number[],
+  physicalLayerIds: readonly number[],
 ) {
   const classes = routeNets.map((net, index) => ({ id: `routing_${index}`, net, values: valuesFor(board, net) }))
   return {
     classes,
     rules: {
       safeClearances: Object.fromEntries(classes.map(({ id, values }) => [id, [{
-        layers: routeLayerIds,
+        // The WASM clearance lookup visits physical layers even when routing
+        // on them is disabled. Missing entries throw C++ map::at exceptions.
+        // Routing permission is controlled separately by layers.route/notRoute.
+        layers: physicalLayerIds,
         trackToTrack: values.clearanceMm,
         trackToVia: values.clearanceMm,
         trackToPad: values.clearanceMm,
@@ -380,7 +384,7 @@ function boardToRouterInput(
   ))
   // Non-routed nets still need an entry and a rule class so the worker can
   // honor their pads and proxy tracks as obstacles.
-  const tables = ruleTables(board, visibleNets, routeLayerIds)
+  const tables = ruleTables(board, visibleNets, routeLayerIds, layers.allIds)
   const classByNet = new Map(tables.classes.map((item) => [item.net, item.id]))
   const differentialPairs = (board.rules.differentialPairs ?? []).filter((pair) => (
     routeNets.includes(pair.positive) && routeNets.includes(pair.negative)
@@ -406,6 +410,7 @@ function boardToRouterInput(
       ],
     }]]
   }))
+  const padReferences = new Map<string, readonly [string, string]>()
   const components: Record<string, unknown> = {}
   const footprints: Record<string, unknown> = {}
   for (const [index, pad] of board.pads.entries()) {
@@ -413,6 +418,7 @@ function boardToRouterInput(
     if (!padLayers.length) continue
     const componentKey = `routing_pad_${index}`
     const footprintKey = `routing_footprint_${index}`
+    if (pad.id) padReferences.set(pad.id, [componentKey, "p0"])
     const ring = closed(padRing(pad).map((point) => [point.x, point.y]))
     const xs = ring.map((point) => point[0])
     const ys = ring.map((point) => point[1])
@@ -485,6 +491,10 @@ function boardToRouterInput(
       id: track.id?.startsWith("existing-zone-proxy-") ? track.id : `existing-track-${index}`,
       layer: layers.byName.get(track.layer), net: track.net,
       path: track.points.map((point) => toRouter(point, transform)), width: track.widthMm,
+      pads: (track.connectedPadIds ?? []).flatMap(id => {
+        const reference = padReferences.get(id)
+        return reference && board.pads.some(pad => pad.id === id && pad.net === track.net) ? [reference] : []
+      }),
     })),
     vias: inputVias.map((via, index) => ({
       id: `existing-via-${index}`, location: toRouter(via.at, transform), net: via.net,
@@ -622,7 +632,7 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
           ...(options.onProgress ? { onProgress: options.onProgress } : {}),
         })
         const progress = Number(output.progress ?? 0)
-        const routability = Number(output.routabitity)
+        const routability = output.routabitity == null ? NaN : Number(output.routabitity)
         const completionRatio = Number.isFinite(routability)
           ? Math.max(0, Math.min(1, routability))
           : progress >= 1 ? 1 : Math.max(0, Math.min(1, progress))

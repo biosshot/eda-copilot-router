@@ -34,6 +34,9 @@ const wasm = createEasyEdaWasmBackend({routeLayers:['TOP','INNER_1','INNER_2','B
 await wasm.route(request)
 assert.deepEqual(captured.layers.route,[1,16,2])
 assert.deepEqual(captured.layers.notRoute,[15])
+for (const entries of Object.values(captured.rules.safeClearances)) {
+  assert.deepEqual(new Set(entries[0].layers),new Set([1,15,16,2]), 'Clearance lookup must cover disabled physical layers')
+}
 assert.throws(()=>compileRoutingDsl(dsl.replace('"disableRouting":true','"disableRouting":"true"')),/boolean/)
 const conflict = compileRoutingDsl(dsl.replace('runRouting()', 'signalNet("A", { allowedLayers: ["INNER_1"] }); runRouting()'))
 assert.ok(compileRoutingRules(board,conflict).diagnostics.some(x=>x.code==='DSL_NO_ROUTING_LAYERS'))
@@ -63,6 +66,16 @@ if (process.argv.includes('--real-wasm')) {
   assert.ok(live.copper.tracks.length > 0,'Real WASM must create tracks')
   assert.ok(live.copper.tracks.every(x=>x.layer!=='INNER_1'))
   console.log('Real bundled WASM on four physical layers with INNER_1 disabled: '+live.status)
+  // Through-hole terminals occupy disabled copper too. The worker still
+  // needs clearance entries there while computing routes and transitions.
+  const throughHoleBoard = {...materialized,pads:materialized.pads.map((pad,i)=>({
+    ...pad,layers:i===0?['TOP','INNER_1','INNER_2','BOTTOM']:['BOTTOM'],
+  }))}
+  const throughHole = await createBundledEasyEdaWasmBackend().route({...request,board:throughHoleBoard,signal:AbortSignal.timeout(20000)})
+  assert.ok(!throughHole.diagnostics.some(x=>x.code==='EASYEDA_WASM_ROUTE_FAILED'),JSON.stringify(throughHole.diagnostics))
+  assert.ok(throughHole.copper.tracks.length > 0)
+  assert.ok(throughHole.copper.tracks.every(x=>x.layer!=='INNER_1'))
+  console.log('Real WASM with through-hole copper on a disabled layer: '+throughHole.status)
 }
 
 const fallbackStages=[]

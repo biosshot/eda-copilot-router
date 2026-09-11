@@ -35,6 +35,7 @@ import {
   type PreparedKrtRuntime,
 } from "./krt-runtime.js"
 import {
+  KrtFixedCopperChangedError,
   krtProjectNetOrder,
   readKrtBoard,
   subtractKrtCopper,
@@ -1991,11 +1992,13 @@ function createKrtWorkflowBackend(
             try {
               candidateCopper = (await readKrtBoard(prepared.inputBoard, output, request.board)).copper
             } catch (error) {
+              if (error instanceof KrtFixedCopperChangedError) throw error
               unreadable = error
             }
             try {
               checkpointCopper = (await readKrtBoard(prepared.inputBoard, current, request.board)).copper
             } catch (error) {
+              if (error instanceof KrtFixedCopperChangedError) throw error
               checkpointUnreadable = error
             }
           }
@@ -2649,6 +2652,7 @@ function createKrtWorkflowBackend(
         try {
           incumbentCopper = (await readKrtBoard(prepared.inputBoard, current, request.board)).copper
         } catch (error) {
+          if (error instanceof KrtFixedCopperChangedError) throw error
           diagnostics.push(diagnostic(
             "KRT_REPAIR_BASELINE_UNREADABLE",
             "warning",
@@ -2866,6 +2870,7 @@ function createKrtWorkflowBackend(
             try {
               candidateCopper = (await readKrtBoard(prepared.inputBoard, output, request.board)).copper
             } catch (error) {
+              if (error instanceof KrtFixedCopperChangedError) throw error
               diagnostics.push(diagnostic(
                 "KRT_REPAIR_CANDIDATE_UNREADABLE",
                 "warning",
@@ -3155,6 +3160,16 @@ function createKrtWorkflowBackend(
           },
         }
       } catch (error) {
+        if (error instanceof KrtFixedCopperChangedError) return {
+          status: "error", copper: request.board.copper.editable,
+          diagnostics: [diagnostic(
+            "KRT_FIXED_COPPER_CHANGED", "warning",
+            "KRT changed fixed tracks or vias; the entire KRT result was discarded and the incoming copper retained.",
+            { tracks: error.missing.tracks.length, vias: error.missing.vias.length,
+              nets: [...new Set([...error.missing.tracks, ...error.missing.vias].map(item => item.net))] },
+          )],
+          metrics: { elapsedMs: performance.now() - startedAt, backend: "krt" },
+        }
         if (fallbackPrepared && fallbackCurrentBoard) {
           try {
             const fallback = await readKrtBoard(

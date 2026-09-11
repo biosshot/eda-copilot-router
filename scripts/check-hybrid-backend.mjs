@@ -639,3 +639,27 @@ assert.equal(multilayerRequestSeen, multilayerRequest,
 assert.equal(multilayerResult.status, "complete")
 
 console.log("Hybrid backend scope, fallback, and diagnostic preservation: ok")
+
+// Even a rich partial KRT checkpoint must be discarded when it moved fixed
+// copper. Restore the original WASM result, before provisional custody reset.
+let fixedFallbackEasy
+let fixedFallbackCalls = 0
+const fixedFallback = createHybridBackend({}, {
+  easyeda: {...easyeda, async route(input) {
+    fixedFallbackCalls++
+    fixedFallbackEasy = successfulResult(input, 'fixed-fallback-easy')
+    return fixedFallbackEasy
+  }},
+  krt: {...krt, async route(input) {
+    return {...successfulResult(input, 'must-not-survive'), status:'error', diagnostics:[{
+      code:'KRT_FIXED_COPPER_CHANGED', severity:'warning', message:'Fixture: fixed segment moved',
+    }]}
+  }},
+})
+const fixedFallbackResult = await fixedFallback.route(request)
+assert.equal(fixedFallbackCalls, 1, 'Do not restart WASM on a fixed-copper violation')
+assert.deepEqual(fixedFallbackResult.copper, fixedFallbackEasy.copper)
+assert.equal(fixedFallbackResult.status, 'partial')
+assert.ok(fixedFallbackResult.diagnostics.some(d=>d.code==='HYBRID_KRT_FIXED_COPPER_FALLBACK'))
+assert.ok(fixedFallbackResult.metrics.openNets.includes('VIA_FORBID'), 'KRT-only constraints remain unverified')
+console.log('Hybrid fixed-copper violation restores the original WASM checkpoint: ok')

@@ -152,3 +152,7 @@ assert.equal(inheritedModuleMode.status, 0,
   `bundled worker must not inherit --input-type=module:\n${inheritedModuleMode.stderr}\n${inheritedModuleMode.stdout}`)
 
 console.log("EasyEDA WASM backend contract: ok")
+
+const noWork = await createEasyEdaWasmBackend({async engine(){return {progress:1,routabitity:null,traces:[],vias:[]}}}).route(request)
+assert.equal(noWork.status,'complete')
+assert.equal(noWork.metrics.openNetCount,0)
