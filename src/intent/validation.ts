@@ -376,7 +376,8 @@ export function validateRoutingProgram(program: RoutingProgram): ProgramValidati
     if (program.stack.layers !== undefined) array(program.stack.layers, "stack.layers", diagnostics).forEach((raw, index) => {
       const path = `stack.layers[${index}]`; const item = object(raw) ? raw : {}
       if (item.kind === "copper") {
-        exactKeys(item, ["kind", "name", "thicknessOz", "thicknessMm"], diagnostics, path)
+        exactKeys(item, ["kind", "name", "thicknessOz", "thicknessMm", "disableRouting"], diagnostics, path)
+        if (item.disableRouting !== undefined && typeof item.disableRouting !== "boolean") diagnostics.push(error("DSL_STACK_LAYER_INVALID", `${path}.disableRouting must be boolean.`, path))
         if (item.thicknessOz !== undefined && item.thicknessMm !== undefined) diagnostics.push(error("DSL_STACK_CONFLICT", `${path} cannot specify thicknessOz and thicknessMm together.`, path))
       } else if (item.kind === "dielectric") {
         exactKeys(item, ["kind", "name", "thicknessMm", "relativePermittivity", "lossTangent", "material"], diagnostics, path)

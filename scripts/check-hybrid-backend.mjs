@@ -615,6 +615,23 @@ const multilayerKrt = {
   },
 }
 const multilayerHybrid = createHybridBackend({}, { krt: multilayerKrt, easyeda })
+const fourLayerStages = []
+const fourLayerHybrid = createHybridBackend({}, {
+  krt: { ...multilayerKrt, async route(input) {
+    fourLayerStages.push('krt')
+    return multilayerKrt.route(input)
+  } },
+  easyeda: { ...easyeda, async route(input) {
+    fourLayerStages.push('easyeda')
+    return easyeda.route(input)
+  } },
+})
+await fourLayerHybrid.route(multilayerRequest)
+assert.deepEqual(fourLayerStages, ['easyeda', 'krt'],
+  'four copper layers must run EasyEDA first, then KRT')
+multilayerBoard.layers.splice(3, 0,
+  { name: 'INNER_3', index: 3, side: 'inner' },
+  { name: 'INNER_4', index: 4, side: 'inner' })
 await multilayerHybrid.preflight(multilayerRequest)
 const multilayerResult = await multilayerHybrid.route(multilayerRequest)
 assert.equal(multilayerRequestSeen, multilayerRequest,

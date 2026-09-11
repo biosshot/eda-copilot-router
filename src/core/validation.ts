@@ -246,7 +246,8 @@ export function validateRoutingBoard(value: unknown): ValidationResult<RoutingBo
   const nets = new Set<string>()
   layerItems.forEach((item, index) => {
     if (!object(item) || typeof item.name !== "string" || !item.name.trim() || !Number.isInteger(item.index)
-      || !["top", "inner", "bottom"].includes(String(item.side))) {
+      || !["top", "inner", "bottom"].includes(String(item.side))
+      || (item.disableRouting !== undefined && typeof item.disableRouting !== "boolean")) {
       error(diagnostics, "ROUTING_LAYER_INVALID", `layers[${index}] is invalid.`, `layers[${index}]`)
       return
     }
@@ -389,6 +390,14 @@ export function validateRoutingCopper(copper: unknown, board: RoutingBoard): Val
   // backend objects must produce diagnostics, never crash the host grader.
   if (!diagnostics.some((item) => item.severity === "error")
     && object(copper) && Array.isArray(copper.tracks) && Array.isArray(copper.vias) && Array.isArray(copper.zones)) {
+    const disabled = new Set(board.layers.filter(layer => layer.disableRouting).map(layer => layer.name))
+    if (disabled.size) {
+      const original = fixedEchoSignatures({ tracks: board.copper.editable.tracks, vias: [], zones: [] }).tracks
+      for (const track of (copper as RoutingCopper).tracks) if (disabled.has(track.layer)) {
+        const signature = [...fixedEchoSignatures({ tracks: [track], vias: [], zones: [] }).tracks][0]
+        if (!original.has(signature)) error(diagnostics, "ROUTING_DISABLED_LAYER", `New track on routing-disabled layer ${track.layer}.`, "copper.tracks")
+      }
+    }
     const fixed = fixedEchoSignatures(board.copper.fixed)
     const candidate = fixedEchoSignatures(copper as RoutingCopper)
     for (const kind of ["tracks", "vias", "zones"] as const) {

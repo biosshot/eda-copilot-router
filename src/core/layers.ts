@@ -169,3 +169,14 @@ export function copperToKiCadLayers(copper: RoutingCopper, catalog: LayerCatalog
     })),
   }
 }
+
+/** Physical layers remain in the board even when no new tracks may use them. */
+export function routingLayerNames(board: RoutingBoard): string[] {
+  return board.layers.filter(layer => !layer.disableRouting).map(layer => layer.name)
+}
+
+export function restrictRoutingLayers(board: RoutingBoard, values: RoutingRuleValues): RoutingRuleValues {
+  if (!board.layers.some(layer => layer.disableRouting)) return values
+  const enabled = routingLayerNames(board)
+  return { ...values, allowedLayers: enabled.filter(name => !values.allowedLayers || values.allowedLayers.includes(name)) }
+}

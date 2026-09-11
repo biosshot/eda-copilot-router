@@ -223,6 +223,7 @@ export type ViaStitchIntent =
     }>
 
 export type StackCopperLayerIntent = Readonly<{
+  disableRouting?: boolean
   name: string
   kind: "copper"
   thicknessOz?: number

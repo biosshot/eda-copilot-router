@@ -685,11 +685,13 @@ class RoutingDslBuilder {
       layers = source.layers.map((value, index) => {
         const item = object(value, `stack.layers[${index}]`)
         if (item.kind === "copper") {
-          assertKnownKeys(item, ["name", "kind", "thicknessOz", "thicknessMm"], `stack.layers[${index}]`)
+          assertKnownKeys(item, ["name", "kind", "thicknessOz", "thicknessMm", "disableRouting"], `stack.layers[${index}]`)
           if (item.thicknessOz !== undefined && item.thicknessMm !== undefined) {
             throw new TypeError(`stack.layers[${index}] may specify thicknessOz or thicknessMm, not both`)
           }
+          if (item.disableRouting !== undefined && typeof item.disableRouting !== "boolean") throw new TypeError(`stack.layers[${index}].disableRouting must be boolean`)
           return {
+            ...(item.disableRouting === undefined ? {} : { disableRouting: item.disableRouting as boolean }),
             kind: "copper" as const, name: canonicalPhysicalLayer(item.name, `stack.layers[${index}].name`),
             ...optionalPositive(item, "thicknessOz"), ...optionalPositive(item, "thicknessMm"),
           }

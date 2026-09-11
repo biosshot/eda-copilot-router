@@ -11,6 +11,8 @@ export type RoutingLayer = Readonly<{
   name: string
   index: number
   side: "top" | "inner" | "bottom"
+  /** Disallow new tracks; retain physical copper, planes and via spans. */
+  disableRouting?: boolean
 }>
 
 export type RoutingNet = Readonly<{

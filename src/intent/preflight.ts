@@ -1,3 +1,4 @@
+import { routingLayerNames, restrictRoutingLayers } from "../core/layers.js"
 import type {
   RoutingBoard,
   RoutingDiagnostic,
@@ -173,7 +174,7 @@ function applyImpedanceConstraint(
 ) {
   const requestedReference = constraint.referenceNet === undefined || constraint.referenceNet === "auto"
     ? undefined : constraint.referenceNet
-  const allowed = base.allowedLayers ?? board.layers.map((layer) => layer.name)
+  const allowed = restrictRoutingLayers(board, base).allowedLayers ?? routingLayerNames(board)
   const candidates = impedanceCandidates(board, program, allowed, requestedReference, base, valuesForReference, differentialGapMm)
     .flatMap((candidate) => {
       const width = explicitTrackWidthMm ?? solveImpedanceWidthMm(constraint.targetOhm, candidate.geometry)
@@ -690,11 +691,17 @@ export function compileRoutingRules(
   }
   if (program.operation === "route" || program.operation === "all") required.add("ordinary-routing")
   const effective: RoutingRules = {
-    default: effectiveDefault,
-    nets: board.nets.map(({ name }) => ({ net: name, values: byNet.get(name) ?? board.rules.default })),
+    default: restrictRoutingLayers(board, effectiveDefault),
+    nets: board.nets.map(({ name }) => ({ net: name, values: restrictRoutingLayers(board, byNet.get(name) ?? board.rules.default) })),
     ...(differentialPairs.length ? { differentialPairs } : {}),
     ...(matchedGroups.length ? { matchedGroups } : {}),
     ...(netClasses.length ? { netClasses } : {}),
+  }
+  if (program.operation === "route" || program.operation === "all") {
+    for (const { net, values } of effective.nets) if (selected(net) && values.allowedLayers?.length === 0) {
+      diagnostics.push(diagnostic("DSL_NO_ROUTING_LAYERS", `${net} has no routing layers after stack.disableRouting and allowedLayers are intersected.`))
+    }
+    if (!routingLayerNames(board).length) diagnostics.push(diagnostic("DSL_NO_ROUTING_LAYERS", "All copper layers have routing disabled."))
   }
   for (const { scope, values } of [
     { scope: "default", values: effective.default },

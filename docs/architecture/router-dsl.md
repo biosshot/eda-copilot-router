@@ -421,3 +421,18 @@ then constrain the same effective rule set. Overrides may be stricter or weaker
 when the selected terminal operation applies DRC. Every difference is reported
 in `RoutingResult.rules.overriddenFields`. The complete precedence decision is in
 [`drc-rule-precedence.md`](./drc-rule-precedence.md).
+
+
+## Layers reserved for planes
+
+On boards with up to four copper layers, Hybrid runs EasyEDA WASM first and KRT afterward for unfinished connections and special constraints. Above four copper layers, KRT runs first. The threshold counts physical copper layers, including layers reserved for planes.
+
+Set `disableRouting: true` on a copper entry in `stack.layers` to forbid new tracks on that layer for every net. For example, a copper entry in a complete four-layer stack can be:
+
+```js
+{ kind: "copper", name: "INNER_1", thicknessOz: 1, disableRouting: true }
+```
+
+Keep the other copper and dielectric entries in their physical order with the actual board parameters. Do not copy a guessed stack merely to disable a layer. Omitted `disableRouting` means false. Declare the policy in each routing program that needs it; it is not a persistent EasyEDA editor setting.
+
+The layer remains available for planes, impedance reference calculations and through-via spans. Existing tracks are not cleared by this declaration. Per-net `allowedLayers` can narrow the enabled set but cannot re-enable a disabled layer; an empty intersection for a routed net is rejected before routing. WASM and KRT receive the filtered routing layers, including fallback and repair passes. Returned copper is checked for new tracks on disabled layers. This does not prohibit via barrels or via annular rings on a plane layer.

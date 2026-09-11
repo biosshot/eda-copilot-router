@@ -172,6 +172,7 @@ export function materializeRoutingStackup(board: RoutingBoard, stack: StackInten
   const layers: readonly RoutingLayer[] = copper?.length
     ? copper.map((layer, index) => ({
         name: physicalLayerName(board, layer.name),
+        ...(layer.disableRouting === undefined ? {} : { disableRouting: layer.disableRouting }),
         index,
         side: index === 0 ? "top" as const : index === copper.length - 1 ? "bottom" as const : "inner" as const,
       }))

@@ -1,3 +1,4 @@
+import { routingLayerNames, restrictRoutingLayers } from "../core/layers.js"
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -132,7 +133,7 @@ export async function discoverKrtDirectory(explicit?: string, assets?: RouterAss
 }
 
 function ruleFor(request: BackendRouteRequest, net: string) {
-  return request.rules.nets.find((item) => item.net === net)?.values ?? request.rules.default
+  return restrictRoutingLayers(request.board, request.rules.nets.find((item) => item.net === net)?.values ?? request.rules.default)
 }
 
 function orderedScopeNets(request: Pick<BackendRouteRequest, "board" | "program">) {
@@ -161,7 +162,7 @@ function routableScopeNets(request: BackendRouteRequest) {
 /**
  * @internal Nets whose final copper belongs to late KRT custody.
  *
- * The two-layer Hybrid provisional EasyEDA pass may still route these nets so
+ * The up-to-four-layer Hybrid provisional EasyEDA pass may still route these nets so
  * its global maze search reserves their pad escapes and corridors. Hybrid
  * removes provisional copper that cannot be verified locally before invoking
  * this workflow; compliant via-forbid/layer-only copper may remain as an
@@ -180,7 +181,7 @@ export function krtPostEasyReservedNets(request: BackendRouteRequest) {
   for (const policy of request.plan.netPolicies) {
     if (policy.viaPreference === "forbid") claim(policy.net)
   }
-  const allLayers = normalizedLayerSet(request.board.layers.map((layer) => layer.name))
+  const allLayers = normalizedLayerSet(routingLayerNames(request.board))
   for (const net of routable) {
     const allowed = normalizedLayerSet(ruleFor(request, net).allowedLayers ?? [])
     if (allowed.length && (allowed.length !== allLayers.length
@@ -263,13 +264,13 @@ function routeLayersFor(request: BackendRouteRequest, nets: readonly string[]) {
   const constrained = nets
     .map((net) => ruleFor(request, net).allowedLayers)
     .find((layers): layers is readonly string[] => Boolean(layers?.length))
-  if (!constrained) return request.board.layers.map((item) => catalog.kiCadName(item.name))
+  if (!constrained) return routingLayerNames(request.board).map(name => catalog.kiCadName(name))
   const allowed = new Set(constrained)
   // Unconstrained nets in this call inherit the one explicit safe subset. This
   // may reduce routability, but it can never violate another net's layer rule.
   return request.board.layers
     .map((item) => item.name)
-    .filter((layer) => allowed.has(layer))
+    .filter((layer) => allowed.has(layer) && routingLayerNames(request.board).includes(layer))
     .map((layer) => catalog.kiCadName(layer))
 }
 
@@ -417,7 +418,10 @@ export function krtRoutedCopperRuleDiagnostics(request: BackendRouteRequest, cop
   })
   const forbiddenLayers = copper.tracks.flatMap((track) => {
     const allowed = ruleFor(request, track.net).allowedLayers
-    return allowed?.length && !allowed.includes(track.layer)
+    const retained = request.board.layers.some(layer => layer.name === track.layer && layer.disableRouting)
+      && request.board.copper.editable.tracks.some(old => old.net === track.net && old.layer === track.layer
+        && old.widthMm === track.widthMm && JSON.stringify(old.points) === JSON.stringify(track.points))
+    return !retained && allowed !== undefined && !allowed.includes(track.layer)
       ? [{ net: track.net, actualLayer: track.layer, allowedLayers: allowed }]
       : []
   })
@@ -1370,7 +1374,7 @@ export function auditKrtImpedanceCopper(
       .filter((item) => Math.abs(item.widthMm - expected) <= widthTolerance)
       .reduce((sum, item) => sum + item.lengthMm, 0)
     const offWidthLengthMm = Math.max(0, totalLengthMm - controlledLengthMm)
-    const allowedLayers = rules.allowedLayers ?? request.board.layers.map((layer) => layer.name)
+    const allowedLayers = rules.allowedLayers ?? routingLayerNames(request.board)
     const actualLayers = [...new Set(pieces.map((item) => item.layer))]
     const reasons: string[] = []
     if (!request.board.stackup) reasons.push("missing-stackup")
@@ -1645,6 +1649,7 @@ function createKrtWorkflowBackend(
         "KRT_LAYER_LIMIT", "error", "KRT supports at most 32 copper layers.",
       ))
       const routeScope = routableScopeNets(request)
+      for (const net of routeScope) if (ruleFor(request, net).allowedLayers?.length === 0) diagnostics.push(diagnostic("KRT_NO_ROUTING_LAYERS", "error", `${net} has no enabled routing layers.`))
       const specialRequest = krtSpecialWorkflowRequest(request, workflowMode)
       const specialPlan = planKrtSpecialBatches(specialRequest, routeScope, KRT_NATIVE_AUTO_POLICY.gridStep)
       diagnostics.push(...specialPlan.diagnostics)
@@ -1659,6 +1664,11 @@ function createKrtWorkflowBackend(
     },
     async route(request): Promise<BackendRouteResult> {
       const diagnostics: RoutingDiagnostic[] = []
+      if (!routingLayerNames(request.board).length || routableScopeNets(request).some(net => ruleFor(request, net).allowedLayers?.length === 0)) return {
+        status: "error", copper: request.board.copper.editable,
+        diagnostics: [diagnostic("KRT_NO_ROUTING_LAYERS", "error", "Routing scope has no enabled routing layers.")], metrics: {},
+      }
+
       let fallbackPrepared: Awaited<ReturnType<typeof writeKrtBoard>> | undefined
       let fallbackCurrentBoard: string | undefined
       let fallbackRouteScopeNets: readonly string[] = []
@@ -1710,7 +1720,7 @@ function createKrtWorkflowBackend(
           pythonPathEntries: managed.pythonPathEntries,
           krtDirectory,
           authoritativeProjectPath: prepared.inputProject,
-          layers: request.board.layers.map((item) => layerCatalog.kiCadName(item.name)),
+          layers: routingLayerNames(request.board).map(name => layerCatalog.kiCadName(name)),
           diffPairs: [],
           matchedGroups: [],
           remainingNets: [],
@@ -3209,7 +3219,7 @@ export function createKrtBackend(options: KrtBackendOptions = {}): RouterBackend
   return createKrtWorkflowBackend(options, "full")
 }
 
-/** @internal Shared late KRT transaction used by the two-layer Hybrid backend. */
+/** @internal Shared late KRT transaction used by the up-to-four-layer Hybrid backend. */
 export function createKrtPostEasyBackend(options: KrtBackendOptions = {}): RouterBackendAdapter {
   return createKrtWorkflowBackend(options, "post-easy")
 }

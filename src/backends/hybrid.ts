@@ -1,3 +1,5 @@
+import { validateRoutingCopper } from "../core/validation.js"
+import { routingLayerNames, restrictRoutingLayers } from "../core/layers.js"
 import type {
   RoutingCopper,
   RoutingDiagnostic,
@@ -45,7 +47,7 @@ type HybridRuntimeDependencies = Readonly<{
 
 export type HybridRoutePartition = Readonly<{
   routableNets: readonly string[]
-  /** Final hard-semantics custody. This is a subset of easyedaNets on two layers. */
+  /** Final hard-semantics custody. This is a subset of easyedaNets on up to four layers. */
   krtNets: readonly string[]
   /** Provisional EasyEDA planning scope. It intentionally overlaps krtNets. */
   easyedaNets: readonly string[]
@@ -110,7 +112,7 @@ function sameStrings(left: readonly string[], right: readonly string[]) {
 }
 
 function ruleFor(request: BackendRouteRequest, net: string) {
-  return request.rules.nets.find((item) => item.net === net)?.values ?? request.rules.default
+  return restrictRoutingLayers(request.board, request.rules.nets.find((item) => item.net === net)?.values ?? request.rules.default)
 }
 
 function fanoutTargetNets(request: BackendRouteRequest, fanout: FanoutIntent) {
@@ -295,7 +297,7 @@ function resetProvisionalKrtCustody(
  * Select provisional planning scope and final hard-semantics custody.
  *
  * These are intentionally overlapping sets: EasyEDA sees the complete
- * two-layer routing problem, while KRT later owns the final audit and replaces
+ * up-to-four-layer routing problem, while KRT later owns the final audit and replaces
  * copper whose semantics cannot be proven by the local via/layer gate.
  */
 export function partitionHybridRoute(request: BackendRouteRequest): HybridRoutePartition {
@@ -329,7 +331,7 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
     for (const net of fanoutTargetNets(request, fanout)) claim(net, "fanout")
   }
 
-  const allLayers = request.board.layers.map((layer) => layer.name)
+  const allLayers = routingLayerNames(request.board)
   for (const net of routableNets) {
     const rule = ruleFor(request, net)
     if (rule.impedanceOhm !== undefined) claim(net, "compiled-impedance-rule")
@@ -343,7 +345,7 @@ export function partitionHybridRoute(request: BackendRouteRequest): HybridRouteP
   return {
     routableNets,
     krtNets: routableNets.filter((net) => krt.has(net)),
-    // EasyEDA is the global two-layer planner, including provisional routes
+    // EasyEDA is the global up-to-four-layer planner, including provisional routes
     // for KRT-custody nets. The overlap is what preserves useful corridors.
     easyedaNets: routableNets,
     reasons: Object.fromEntries([...reasons].map(([net, values]) => [net, [...values]])),
@@ -429,7 +431,7 @@ async function prepareExecution(
   }
 
   const easyFullRequest = scopeBackendRequest(request, partition.routableNets)
-  if (request.board.layers.length > 2) {
+  if (request.board.layers.length > 4) {
     const krt = await checkBackend(dependencies.krtFull, request, "krt-full")
     if (krt.ready) return {
       mode: "krt-full", partition, diagnostics: krt.diagnostics,
@@ -452,7 +454,7 @@ async function prepareExecution(
         }
   }
 
-  // EasyEDA receives the complete two-layer routing problem as a provisional
+  // EasyEDA receives the complete up-to-four-layer routing problem as a provisional
   // global plan. Post-Easy KRT receives the whole request so its transaction
   // can replace hard-custody copper and repair exact EasyEDA victims. Its
   // internal mode still routes only reserved constraints plus genuinely open
@@ -588,6 +590,14 @@ async function safeRoute(
         ),
       ],
       metrics: { ...baselineMetrics(request), elapsedMs: performance.now() - startedAt },
+    }
+    if (request.board.layers.some(layer => layer.disableRouting)) {
+      const checked = validateRoutingCopper(result.copper, request.board)
+      if (!checked.ok) return {
+        status: "error", copper: request.board.copper.editable,
+        diagnostics: [...(result.diagnostics ?? []), ...checked.diagnostics],
+        metrics: baselineMetrics(request),
+      }
     }
     if (result.status === "error"
       && copperPrimitiveCount(result.copper) === 0

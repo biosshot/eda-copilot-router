@@ -1,3 +1,5 @@
+import { routingLayerNames } from "../core/layers.js"
+import { validateRoutingCopper } from "../core/validation.js"
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
@@ -607,7 +609,9 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
     async route(request): Promise<BackendRouteResult> {
       const startedAt = performance.now()
       try {
-        const selected = options.routeLayers ?? request.board.layers.map((layer) => layer.name)
+        const enabled = routingLayerNames(request.board)
+        const selected = (options.routeLayers ?? enabled).filter(name => enabled.includes(name))
+        if (!selected.length) throw new Error("No enabled routing layers")
         // The compiled request rules may differ from the imported board rules
         // for runAll(). The engine must see the effective values, while the
         // immutable caller-owned board object remains untouched.
@@ -634,6 +638,8 @@ export function createEasyEdaWasmBackend(options: EasyEdaWasmBackendOptions): Ro
           "EASYEDA_WASM_PARTIAL_ROUTABILITY", "warning", `EasyEDA WASM routability is ${routability}.`,
         ))
         const copper = outputCopper(effectiveBoard, output, exported.transform, exported.layers, exported.routeNets)
+        const checked = validateRoutingCopper(copper, request.board)
+        if (!checked.ok) throw new Error(checked.diagnostics.map(item => item.message).join("; "))
         const length = copper.tracks.reduce((sum, track) => sum + track.points.slice(1).reduce((trackSum, point, index) => {
           const previous = track.points[index]
           return trackSum + Math.hypot(point.x - previous.x, point.y - previous.y)
