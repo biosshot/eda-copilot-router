@@ -363,6 +363,45 @@ function ruleTables(
   }
 }
 
+/** Native pad links describe connected groups, including paths through vias. */
+function fullyConnectedPairNets(board: RoutingBoard): ReadonlySet<string> {
+  const connected = new Map<string, boolean>()
+  const tracks = [...board.copper.fixed.tracks, ...board.copper.editable.tracks]
+  const isConnected = (net: string): boolean => {
+    const cached = connected.get(net)
+    if (cached !== undefined) return cached
+    const pads = board.pads.filter(pad => pad.net === net)
+    const ids = pads.flatMap(pad => pad.id ? [pad.id] : [])
+    // Missing or ambiguous identities cannot prove that every physical pad
+    // participates. Keep such nets routable rather than guessing connectivity.
+    if (ids.length < 2 || ids.length !== pads.length || new Set(ids).size !== ids.length) {
+      connected.set(net, false)
+      return false
+    }
+    const parent = new Map(ids.map(id => [id, id]))
+    const root = (id: string): string => {
+      let current = id
+      while (parent.get(current)! !== current) current = parent.get(current)!
+      return current
+    }
+    for (const track of tracks) {
+      if (track.net !== net) continue
+      const group = (track.connectedPadIds ?? []).filter(id => parent.has(id))
+      const first = group[0]
+      if (first === undefined) continue
+      for (const id of group.slice(1)) parent.set(root(id), root(first))
+    }
+    const complete = ids.every(id => root(id) === root(ids[0]!))
+    connected.set(net, complete)
+    return complete
+  }
+  return new Set((board.rules.differentialPairs ?? []).flatMap(pair => (
+    isConnected(pair.positive) && isConnected(pair.negative)
+      ? [pair.positive, pair.negative]
+      : []
+  )))
+}
+
 function boardToRouterInput(
   board: RoutingBoard,
   routeLayers: readonly string[],
@@ -378,9 +417,15 @@ function boardToRouterInput(
   const padNets = new Set(board.pads.flatMap((pad) => pad.net ? [pad.net] : []))
   const visibleNets = board.nets.map((net) => net.name)
   const requestedNets = new Set(routeScopeNets)
+  // WASM's differential router can add parallel paths even with native pad
+  // links present. Do not dispatch a pair already connected at every pad on
+  // both nets. Keep its copper and pads visible and its rules in the board for
+  // the independent downstream audit. Partial pairs still need routing.
+  const completedPairNets = fullyConnectedPairNets(board)
   const routeNets = visibleNets.filter((net) => (
     requestedNets.has(net)
     && padNets.has(net)
+    && !completedPairNets.has(net)
   ))
   // Non-routed nets still need an entry and a rule class so the worker can
   // honor their pads and proxy tracks as obstacles.
