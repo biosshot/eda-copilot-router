@@ -369,6 +369,8 @@ function planIntent(
     {
       maxPadFreeGapWidths: intent.maxPadFreeGapWidths,
       ...options.rulesForNet?.(intent.net),
+      maximumAreaMm2: boardAreaMm2 * MAX_COMPACT_BOARD_AREA_RATIO,
+      boardOutline: pcb.board?.polygon,
     },
   )
   if (optimized.failure) {

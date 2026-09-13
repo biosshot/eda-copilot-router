@@ -2111,6 +2111,186 @@ function routedConnectionGeometry(
   return { subjects, protectedSubjects }
 }
 
+/** Concave boundary chains between vertices of the convex hull are bays.
+ * The hull is only a detector: each mouth is closed independently, never by
+ * filling the whole hull across unrelated obstacles or long empty spans.
+ */
+export function detectCompactBays(ring: PcbPoint[]) {
+  const cross = (a: PcbPoint, b: PcbPoint, c: PcbPoint) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const sorted = ring.map((point, index) => ({ point, index }))
+    .sort((a, b) => a.point.x - b.point.x || a.point.y - b.point.y)
+  const half = (items: typeof sorted) => {
+    const hull: typeof sorted = []
+    for (const item of items) {
+      while (hull.length >= 2 && cross(hull[hull.length - 2].point, hull[hull.length - 1].point, item.point) <= 1e-9) hull.pop()
+      hull.push(item)
+    }
+    return hull.slice(0, -1)
+  }
+  const indexes = [...new Set([...half(sorted), ...half([...sorted].reverse())].map(item => item.index))].sort((a, b) => a - b)
+  return indexes.flatMap((hullStart, index) => {
+    let start = hullStart
+    const end = indexes[(index + 1) % indexes.length]
+    let count = (end - start + ring.length) % ring.length
+    if (count < 2) return []
+    // Collinear hull points can extend far beyond the actual mouth. Trim
+    // them or a narrow deep slot in a long side looks like a shallow bay.
+    const supportA = ring[start], supportB = ring[end]
+    while (count > 1 && Math.abs(cross(supportA, supportB, ring[(start + 1) % ring.length])) < 1e-9) {
+      start = (start + 1) % ring.length
+      count -= 1
+    }
+    while (count > 1 && Math.abs(cross(supportA, supportB, ring[(start + count - 1) % ring.length])) < 1e-9) count -= 1
+    const chain = Array.from({ length: count + 1 }, (_, i) => ring[(start + i) % ring.length])
+    const a = chain[0], b = chain[chain.length - 1]
+    const mouthMm = Math.hypot(b.x - a.x, b.y - a.y)
+    if (mouthMm < 1e-9) return []
+    const depthMm = Math.max(...chain.map(p => Math.abs(cross(a, b, p)) / mouthMm))
+    return depthMm > 1e-6 ? [{ start, count, mouthMm, depthMm }] : []
+  })
+}
+
+/** Final, bounded aesthetic pass over the complete branch union.
+ * Preserve the clearance-trimmed electrical core and all target pad bodies.
+ * Native zone refill remains responsible for exact clearance and thermals.
+ */
+export function regularizeCompactOutline(
+  original: PcbPoint[],
+  protectedRings: PcbPoint[][],
+  obstacleRings: PcbPoint[][],
+  clearanceMm: number,
+  minimumWidthMm: number,
+  checkpoint: () => boolean | void = () => {},
+  maximumAreaMm2 = Infinity,
+  requiredPadRings: PcbPoint[][] = [],
+  boardOutline?: PcbPoint[],
+): PcbPoint[] {
+  if (original.length < 3 || !isOctilinearBoundary(original) || checkpoint() === false) return original
+  const basePaths = unionPaths([toClipper(original)])
+  if (basePaths.length !== 1) return original
+  const boardPaths = boardOutline?.length ? [toClipper(boardOutline)] : undefined
+  const obstacles = offsetPaths(unionPaths(obstacleRings.map(toClipper)), Math.max(0, clearanceMm))
+  if (clipperPathsAreaMm2(intersectPaths(requiredPadRings.map(toClipper), obstacles)) > 1e-8) return original
+  // Corridors are rough envelopes and may already cross a foreign pad. Model
+  // the clearance cut that native refill would make before protecting them.
+  const core = differencePaths(unionPaths(protectedRings.map(toClipper)), obstacles)
+  const cleared = differencePaths(unionPaths([...basePaths, ...core]), obstacles)
+  if (core.length !== 1 || cleared.length !== 1) return original
+  const clearBoundary = simplifyCollinear(fromClipper(cleared[0]))
+  if (!isOctilinearBoundary(clearBoundary) || boundaryArea(clearBoundary) > maximumAreaMm2) return original
+  const emittedClear = [toClipper(clearBoundary)]
+  if (clipperPathsAreaMm2(differencePaths(core, emittedClear)) > 1e-8
+    || clipperPathsAreaMm2(intersectPaths(emittedClear, obstacles)) > 1e-8) return original
+  if (boardPaths && clipperPathsAreaMm2(differencePaths(differencePaths(emittedClear, basePaths), boardPaths)) > 1e-8) return original
+  const baseArea = boundaryArea(original)
+  if (boundaryArea(clearBoundary) < baseArea * 0.88
+    || boundaryArea(clearBoundary) > baseArea * 1.25
+    || clipperPathsAreaMm2(differencePaths(basePaths, cleared))
+      + clipperPathsAreaMm2(differencePaths(cleared, basePaths)) > baseArea * 0.35) return original
+  const basePerimeter = boundaryPerimeterMm(original)
+  // Scale visual features to the local copper body, not a display zoom or grid.
+  const scale = Math.max(minimumWidthMm, 2 * baseArea / basePerimeter)
+  const deepBayPaths = detectCompactBays(clearBoundary)
+    .filter(bay => bay.depthMm > Math.max(scale, bay.mouthMm * 0.75))
+    .map(bay => toClipper(Array.from({ length: bay.count + 1 }, (_, i) =>
+      clearBoundary[(bay.start + i) % clearBoundary.length])))
+  const score = (ring: PcbPoint[]) => boundaryPerimeterMm(ring)
+    + scale * (0.8 * ring.length + 1.2 * reflexVertexCount(ring))
+    + 0.25 * Math.abs(boundaryArea(ring) - baseArea) / scale
+  let best = clearBoundary
+  let bestScore = score(best)
+  // Fixed limits keep this optional pass small even on large multi-pad groups.
+  for (let pass = 0; pass < 12; pass += 1) {
+    if (checkpoint() === false) return best
+    const candidates = new Map<string, { ring: PcbPoint[]; score: number; bay: boolean }>()
+    const offer = (ring: PcbPoint[], bay = false) => {
+      ring = simplifyCollinear(ring)
+      if (ring.length < 3 || ring.length > best.length
+        || (!bay && ring.length === best.length) || !isOctilinearBoundary(ring)) return
+      const areaRatio = boundaryArea(ring) / baseArea
+      if (areaRatio < 0.88 || areaRatio > 1.25 || boundaryArea(ring) > maximumAreaMm2) return
+      if (boundaryPerimeterMm(ring) > basePerimeter + 1e-7) return
+      const energy = score(ring)
+      if (energy >= bestScore - 1e-7) return
+      const labels = ring.map(p => `${p.x.toFixed(6)},${p.y.toFixed(6)}`)
+      const first = labels.indexOf([...labels].sort()[0])
+      const key = [...labels.slice(first), ...labels.slice(0, first)].join(';')
+      candidates.set(key, { ring, score: energy, bay: bay || candidates.get(key)?.bay === true })
+    }
+    const xs = best.map(p => p.x), ys = best.map(p => p.y)
+    offer(boundsRing({ left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) }))
+    const envelope = octilinearEnvelope(best, 0)
+    if (envelope) offer(envelope)
+    for (const bay of detectCompactBays(best)) {
+      // Deep U-shaped routing corridors are not cosmetic dents. Only local
+      // bays with a reasonable mouth/depth ratio may spend extra copper.
+      if (bay.depthMm > Math.max(scale, bay.mouthMm * 0.75)) continue
+      const rotated = [...best.slice(bay.start), ...best.slice(0, bay.start)]
+      for (const mouth of octilinearCandidates(rotated[0], rotated[bay.count])) {
+        offer([...mouth.slice(0, -1), ...rotated.slice(bay.count)], true)
+      }
+    }
+    // Straight and L-shaped shortcuts align entire chains with existing edges.
+    const stride = Math.max(1, Math.ceil(best.length / 64))
+    for (let start = 0; start < best.length; start += stride) {
+      if (checkpoint() === false) return best
+      const rotated = [...best.slice(start), ...best.slice(0, start)]
+      for (let count = 2; count <= Math.min(10, best.length - 2); count += 1) {
+        for (const shortcut of octilinearCandidates(rotated[0], rotated[count])) {
+          offer([...shortcut.slice(0, -1), ...rotated.slice(count)])
+        }
+      }
+    }
+    let accepted = false
+    for (const candidate of [...candidates.values()].sort((a, b) => a.score - b.score).slice(0, 256)) {
+      if (checkpoint() === false) return best
+      const proposed = unionPaths([toClipper(candidate.ring)])
+      // Reject self-crossing proposals instead of silently repairing their shape.
+      if (proposed.length !== 1) continue
+      const normalized = simplifyCollinear(fromClipper(proposed[0]))
+      if (normalized.length !== candidate.ring.length
+        || Math.abs(boundaryArea(normalized) - boundaryArea(candidate.ring)) > 1e-7) continue
+      // Restore the core before scoring: earlier tiny-edge cleanup can have
+      // shaved a pad corner, and a visual pass must never preserve that loss.
+      const paths = unionPaths([...proposed, ...core])
+      if (paths.length !== 1) continue
+      const ring = simplifyCollinear(fromClipper(paths[0]))
+      const area = boundaryArea(ring)
+      if (!isOctilinearBoundary(ring) || ring.length > best.length
+        || (!candidate.bay && ring.length === best.length)
+        || score(ring) >= bestScore - 1e-7 || area > maximumAreaMm2
+        || area / baseArea < 0.88 || area / baseArea > 1.25
+        || boundaryPerimeterMm(ring) > basePerimeter + 1e-7) continue
+      // Check the emitted ring, not the pre-simplification Clipper result:
+      // tolerance-based collinear cleanup can shave tiny core slivers.
+      const emitted = [toClipper(ring)]
+      if (clipperPathsAreaMm2(differencePaths(core, emitted)) > 1e-8) continue
+      const added = differencePaths(emitted, basePaths)
+      const removed = differencePaths(basePaths, emitted)
+      if (boardPaths && clipperPathsAreaMm2(differencePaths(added, boardPaths)) > 1e-8) continue
+      // Bound total edits as well as net area: large additions must not be
+      // paid for by removing copper from an unrelated branch.
+      if (clipperPathsAreaMm2(added) + clipperPathsAreaMm2(removed) > baseArea * 0.35) continue
+      if (clipperPathsAreaMm2(intersectPaths(emitted, obstacles)) > 1e-8) continue
+      // All proposal types must respect deep routing gaps, including the
+      // generic rectangle/envelope candidates that bypass the bay detector.
+      if (clipperPathsAreaMm2(intersectPaths(added, deepBayPaths)) > 1e-8) continue
+      if (candidate.bay) {
+        const previous = [toClipper(best)]
+        if (clipperPathsAreaMm2(differencePaths(previous, emitted)) > 1e-8
+          || clipperPathsAreaMm2(differencePaths(emitted, previous)) > baseArea * 0.12) continue
+      } else if (area > Math.max(baseArea * 1.12, boundaryArea(best)) + 1e-8) continue
+      best = ring
+      bestScore = score(ring)
+      accepted = true
+      break
+    }
+    if (!accepted) break
+  }
+  return best
+}
+
 function optimizeGroup(
   geometries: PadGeometry[],
   obstacles: PadGeometry[],
@@ -2118,6 +2298,8 @@ function optimizeGroup(
   minimumCorridorWidthMm: number,
   obstacleClearanceMm: number,
   searchBudget: PolygonSearchBudget,
+  maximumAreaMm2: number,
+  boardOutline?: PcbPoint[],
 ): CompactBoundaryOptimization | undefined {
   searchBudget.checkpoint("starting compact polygon optimization")
   const edges = minimumSpanningTree(geometries, searchBudget)
@@ -2280,7 +2462,26 @@ function optimizeGroup(
     && envelopeAvoidsForeignPads
     && envelope!.length < baselineUnion.length
     && envelopeAreaMm2 / Math.max(1e-9, boundaryArea(baselineUnion)) <= MAX_OCTILINEAR_ENVELOPE_AREA_RATIO
-  const boundary = useEnvelope ? envelope! : simplifiedUnion
+  const initialBoundary = useEnvelope ? envelope! : simplifiedUnion
+  // Single branches already received the dedicated global regularization.
+  const boundary = branchGeometry.length <= 1 ? initialBoundary : regularizeCompactOutline(
+    initialBoundary,
+    protectedSubjects,
+    foreignPadRings,
+    obstacleClearanceMm,
+    regularizationWidthMm,
+    () => {
+      // Optional cosmetics must not discard a usable polygon when the main
+      // corridor search has consumed almost all of its budget.
+      if (searchBudget.usedWorkUnits + 1 >= searchBudget.maxWorkUnits
+        || performance.now() - searchBudget.startedAtMs >= searchBudget.maxElapsedMs - 25) return false
+      searchBudget.spend(1, "regularizing the final compact outline")
+      return true
+    },
+    maximumAreaMm2,
+    geometries.map(geometry => boundsRing(geometryBounds(geometry))),
+    boardOutline,
+  )
   if (!isOctilinearBoundary(boundary)) return undefined
   const boundaryAreaMm2 = boundaryArea(boundary)
   return {
@@ -2321,6 +2522,8 @@ export function optimizeCompactBoundaries(
     obstacleClearanceMm?: number
     maxSearchWorkUnits?: number
     maxSearchElapsedMs?: number
+    maximumAreaMm2?: number
+    boardOutline?: PcbPoint[]
   } = {},
 ): CompactBoundaryOptimizationResult {
   const maxPadFreeGapWidths = options.maxPadFreeGapWidths ?? MAX_PAD_FREE_GAP_WIDTHS
@@ -2394,6 +2597,8 @@ export function optimizeCompactBoundaries(
         minimumCorridorWidthMm,
         obstacleClearanceMm,
         searchBudget,
+        options.maximumAreaMm2 ?? Infinity,
+        options.boardOutline,
       )
       if (optimized) {
         boundaries.push(optimized)
