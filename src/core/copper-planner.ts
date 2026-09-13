@@ -184,23 +184,30 @@ function distanceToRingBoundary(point: PointMm, ring: readonly PointMm[]) {
   ), Infinity)
 }
 
-function padRadius(board: RoutingBoard, component: string, number: string) {
-  const pad = board.pads.find((candidate) => candidate.component === component && candidate.number === number)
-  if (!pad) return 0
-  switch (pad.shape.kind) {
-    case "circle": return pad.shape.diameterMm / 2
-    case "rect":
-    case "oval":
-    case "round-rect": return Math.hypot(pad.shape.widthMm, pad.shape.heightMm) / 2
-    case "polygon": return Math.max(...pad.shape.polygon.outer.map((point) => Math.hypot(point.x, point.y)), 0)
-  }
-}
-
 function boardPointAllowed(board: RoutingBoard, point: PointMm, radius: number, edgeClearance: number) {
   if (!pointInRing(point, board.outline) || board.cutouts.some((cutout) => pointInRing(point, cutout))) return false
   const margin = radius + edgeClearance
   return [board.outline, ...board.cutouts].every((ring) =>
     distanceToRingBoundary(point, ring) >= margin - EPSILON)
+}
+
+/** Distance to pad copper, in the pad's rotated local coordinate system. */
+function distanceToPad(point: PointMm, pad: RoutingBoard["pads"][number]) {
+  const angle = -pad.rotationDeg * Math.PI / 180
+  const dx = point.x - pad.at.x
+  const dy = point.y - pad.at.y
+  const local = { x: dx * Math.cos(angle) - dy * Math.sin(angle), y: dx * Math.sin(angle) + dy * Math.cos(angle) }
+  const shape = pad.shape
+  if (shape.kind === "circle") return Math.max(0, Math.hypot(dx, dy) - shape.diameterMm / 2)
+  if (shape.kind === "polygon") return distanceToRing(local, shape.polygon.outer)
+  const halfX = shape.widthMm / 2
+  const halfY = shape.heightMm / 2
+  const corner = shape.kind === "oval" ? Math.min(halfX, halfY)
+    : shape.kind === "round-rect" ? shape.cornerRadiusMm : 0
+  return Math.max(0, Math.hypot(
+    Math.max(0, Math.abs(local.x) - halfX + corner),
+    Math.max(0, Math.abs(local.y) - halfY + corner),
+  ) - corner)
 }
 
 function keepoutBlocksVia(board: RoutingBoard, point: PointMm, layers: readonly string[], radius: number) {
@@ -221,6 +228,9 @@ function stitchingCandidates(
   plane: PlaneIntent,
   rules: RoutingRuleValues,
   plannedZones: readonly RoutedZone[],
+  effectiveRules: RoutingRules,
+  diagnostics: RoutingDiagnostic[],
+  previousVias: readonly RoutedVia[],
 ): RoutedVia[] {
   if (!plane.stitching) return []
   const stitching = plane.stitching
@@ -234,35 +244,33 @@ function stitchingCandidates(
   const xs = board.outline.map((point) => point.x)
   const ys = board.outline.map((point) => point.y)
   const copper = existingCopper(board)
+  copper.vias.push(...previousVias)
   const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones, ...plannedZones]
   const accepted: RoutedVia[] = []
-  const candidateAllowed = (point: PointMm, ownerPad?: { component: string; number: string }) => {
+  const clearanceFor = (net?: string) => Math.max(rules.clearanceMm,
+    net ? valuesForNet(effectiveRules, net).clearanceMm : 0)
+  const candidateAllowed = (point: PointMm, ownerPad?: RoutingBoard["pads"][number]) => {
     if (!boardPointAllowed(board, point, radius, rules.edgeClearanceMm)) return false
     if (keepoutBlocksVia(board, point, viaLayers, radius)) return false
     if (foreignZoneBlocksCircle(point, plane.net, viaLayers, radius, rules.clearanceMm, zones)) return false
     for (const pad of board.pads) {
-      if (ownerPad?.component === pad.component && ownerPad.number === pad.number) continue
-      const distance = Math.hypot(point.x - pad.at.x, point.y - pad.at.y)
-      const padSpacing = pad.hole
-        ? Math.max(rules.clearanceMm, rules.holeToHoleClearanceMm ?? rules.clearanceMm)
-        : rules.clearanceMm
-      const padClearance = padRadius(board, pad.component, pad.number)
-        + radius + (pad.net === plane.net ? 0 : padSpacing)
-      if (distance < padClearance - EPSILON) return false
       const hole = padHoleGeometry(pad)
       const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
       if (hole && distanceToPadHoleCenterline(point, hole)
         < viaRule.drillMm / 2 + hole.radiusMm + holeClearance - EPSILON) return false
+      if (pad === ownerPad) continue
+      if (pad.layers.some((layer) => viaLayers.includes(layer))
+        && distanceToPad(point, pad) < radius + (pad.net === plane.net ? 0 : clearanceFor(pad.net)) - EPSILON) return false
     }
     for (const track of copper.tracks) {
       if (track.net === plane.net || !viaLayers.includes(track.layer)) continue
-      const clearance = radius + track.widthMm / 2 + rules.clearanceMm
+      const clearance = radius + track.widthMm / 2 + clearanceFor(track.net)
       if (track.points.slice(1).some((end, index) =>
         distanceToSegment(point, track.points[index], end) < clearance - EPSILON)) return false
     }
     for (const via of [...copper.vias, ...accepted]) {
       const distance = Math.hypot(point.x - via.at.x, point.y - via.at.y)
-      const clearance = radius + via.diameterMm / 2 + (via.net === plane.net ? 0 : rules.clearanceMm)
+      const clearance = radius + via.diameterMm / 2 + (via.net === plane.net ? 0 : clearanceFor(via.net))
       if (distance < clearance - EPSILON) return false
       const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
       if (distance < viaRule.drillMm / 2 + via.drillMm / 2 + holeClearance - EPSILON) return false
@@ -272,27 +280,62 @@ function stitchingCandidates(
   const padSeesVia = (pad: RoutingBoard["pads"][number], via: RoutedVia) => {
     const start = pad.at
     const end = via.at
+    if (via.net !== plane.net) return false
     if (Math.hypot(end.x - start.x, end.y - start.y) > stitching.maxPadViaDistanceMm) return false
-    if (board.keepouts.some((keepout) => keepout.forbid.zones
-      && keepout.layers.some((layer) => planeLayers.includes(layer))
-      && keepout.polygon.outer.some((point, index) => segmentsIntersect(
-        start, end, point, keepout.polygon.outer[(index + 1) % keepout.polygon.outer.length],
-      )))) return false
-    for (const other of board.pads) {
-      if (other.net === plane.net || (other.component === pad.component && other.number === pad.number)) continue
-      if (distanceToSegment(other.at, start, end)
-        < padRadius(board, other.component, other.number) + rules.clearanceMm - EPSILON) return false
-    }
-    for (const track of copper.tracks) {
-      if (track.net === plane.net || !planeLayers.includes(track.layer)) continue
-      const clearance = track.widthMm / 2 + rules.clearanceMm
-      if (track.points.slice(1).some((point, index) => distanceBetweenSegments(
-        start, end, track.points[index], point,
-      ) < clearance - EPSILON)) return false
-    }
-    return true
+    const from = viaLayers.indexOf(via.fromLayer)
+    const to = viaLayers.indexOf(via.toLayer)
+    const span = via.type === "through" ? viaLayers : viaLayers.slice(Math.min(from, to), Math.max(from, to) + 1)
+    // A visible connection must exist on a pad-bearing plane layer. Obstacles
+    // on other layers still block the via itself, but not this copper path.
+    return planeLayers.filter((layer) => pad.layers.includes(layer) && span.includes(layer)).some((layer) => {
+      const corridor = (plane.zone?.minThicknessMm ?? ROUTER_ZONE_MIN_THICKNESS_MM) / 2
+      const rings = [board.outline, ...board.cutouts]
+      if (rings.some((ring) => ring.some((point, index) => distanceBetweenSegments(
+        start, end, point, ring[(index + 1) % ring.length],
+      ) < corridor - EPSILON))) return false
+      if (board.keepouts.some((keepout) => keepout.forbid.zones && keepout.layers.includes(layer)
+        && (pointInRing(start, keepout.polygon.outer) || pointInRing(end, keepout.polygon.outer)
+          || keepout.polygon.outer.some((point, index) => distanceBetweenSegments(
+            start, end, point, keepout.polygon.outer[(index + 1) % keepout.polygon.outer.length],
+          ) < corridor + EPSILON)))) return false
+      for (const track of copper.tracks) {
+        if (track.net === plane.net || track.layer !== layer) continue
+        const clearance = track.widthMm / 2 + Math.max(clearanceFor(track.net), plane.zone?.clearanceMm ?? 0) + corridor
+        if (track.points.slice(1).some((point, index) => distanceBetweenSegments(
+          start, end, track.points[index], point,
+        ) < clearance - EPSILON)) return false
+      }
+      for (const zone of zones.filter((zone) => zone.net !== plane.net && zone.layers.includes(layer))) {
+        const clearance = Math.max(clearanceFor(zone.net), zone.clearanceMm ?? 0, plane.zone?.clearanceMm ?? 0) + corridor
+        if (foreignZoneBlocksCircle(start, plane.net, [layer], 0, clearance, [zone])
+          || [zone.outline.outer, ...(zone.outline.holes ?? [])].some((ring) => ring.some((point, index) =>
+            distanceBetweenSegments(start, end, point, ring[(index + 1) % ring.length]) < clearance - EPSILON))) return false
+      }
+      // Pad silhouettes and drill/via clearances are checked along the whole
+      // corridor. Half-step inflation covers the space between samples.
+      const count = Math.max(1, Math.ceil(Math.hypot(end.x - start.x, end.y - start.y) / 0.1))
+      const margin = corridor + Math.hypot(end.x - start.x, end.y - start.y) / count / 2
+      for (let i = 0; i <= count; i += 1) {
+        const point = { x: start.x + (end.x - start.x) * i / count, y: start.y + (end.y - start.y) * i / count }
+        if (board.pads.some((other) => other.net !== plane.net && other.layers.includes(layer)
+          && distanceToPad(point, other) < margin + Math.max(clearanceFor(other.net), plane.zone?.clearanceMm ?? 0) - EPSILON)) return false
+        if (board.pads.some((other) => {
+          if (other === pad) return false
+          const hole = padHoleGeometry(other)
+          return hole && distanceToPadHoleCenterline(point, hole) < hole.radiusMm + margin - EPSILON
+        })) return false
+        if (copper.vias.some((other) => other.net !== plane.net
+          && Math.hypot(point.x - other.at.x, point.y - other.at.y)
+            < margin + other.diameterMm / 2 + Math.max(clearanceFor(other.net), plane.zone?.clearanceMm ?? 0) - EPSILON)) return false
+      }
+      return true
+    })
   }
-  const add = (point: PointMm, ownerPad?: { component: string; number: string }) => {
+  const makeVia = (point: PointMm): RoutedVia => ({
+    net: plane.net, at: { ...point }, diameterMm: viaRule.diameterMm, drillMm: viaRule.drillMm,
+    fromLayer: viaLayers[0], toLayer: viaLayers.at(-1)!, type: "through",
+  })
+  const add = (point: PointMm, ownerPad?: RoutingBoard["pads"][number]) => {
     if (accepted.length >= MAX_GENERATED_STITCHING_VIAS_PER_INTENT || !candidateAllowed(point, ownerPad)) return false
     accepted.push({
       net: plane.net,
@@ -305,15 +348,41 @@ function stitchingCandidates(
     })
     return true
   }
+  // Pad-local connections take priority over the background plane grid.
+  for (const pad of board.pads.filter((candidate) => plane.zone?.padConnection?.mode !== "none"
+    && candidate.net === plane.net
+    && candidate.layers.some((layer) => planeLayers.includes(layer))
+    && pointInRing(candidate.at, board.outline)
+    && !board.cutouts.some((ring) => pointInRing(candidate.at, ring)))) {
+    if ([...copper.vias, ...accepted].some((via) => padSeesVia(pad, via))) continue
+    if (stitching.viaInPad && !pad.hole && add(pad.at, pad)) continue
+    let placed = false
+    const maximum = stitching.maxPadViaDistanceMm
+    const radialStep = Math.min(0.1, radius / 2)
+    const minimum = radius + (pad.shape.kind === "circle" ? pad.shape.diameterMm / 2
+      : pad.shape.kind === "polygon" ? 0 : Math.min(pad.shape.widthMm, pad.shape.heightMm) / 2)
+    const steps = Math.max(0, Math.ceil((maximum - minimum) / radialStep))
+    for (let stepIndex = 0; minimum <= maximum + EPSILON && stepIndex <= steps
+      && !placed && accepted.length < MAX_GENERATED_STITCHING_VIAS_PER_INTENT; stepIndex += 1) {
+      const distance = Math.min(maximum, minimum + stepIndex * radialStep)
+      const directions = Math.max(32, Math.ceil(2 * Math.PI * distance / 0.1))
+      for (let direction = 0; direction < directions; direction += 1) {
+        const angle = 2 * Math.PI * direction / directions + pad.rotationDeg * Math.PI / 180
+        const at = { x: pad.at.x + distance * Math.cos(angle), y: pad.at.y + distance * Math.sin(angle) }
+        if (!candidateAllowed(at) || !padSeesVia(pad, makeVia(at))) continue
+        placed = add(at)
+        if (placed) break
+      }
+    }
+    if (!placed) diagnostics.push({
+      code: "PLANE_STITCH_PAD_NOT_PLACED", severity: "warning",
+      message: `Plane ${plane.net} could not place a visible via within ${maximum} mm of ${pad.component}.${pad.number}.`,
+      details: { net: plane.net, component: pad.component, pad: pad.number, at: pad.at, maxDistanceMm: maximum },
+    })
+  }
   const step = stitching.gridMm
   for (let y = Math.min(...ys) + step / 2; y <= Math.max(...ys); y += step) {
     for (let x = Math.min(...xs) + step / 2; x <= Math.max(...xs); x += step) add({ x, y })
-  }
-  if (stitching.viaInPad) {
-    for (const pad of board.pads.filter((candidate) => candidate.net === plane.net)) {
-      const visible = accepted.some((via) => padSeesVia(pad, via))
-      if (!visible) add(pad.at, { component: pad.component, number: pad.number })
-    }
   }
   return accepted
 }
@@ -388,7 +457,7 @@ export function planRoutingCopper(
       ...routedZoneOptions(plane.zone, values),
     })
     planeZones += 1
-    vias.push(...stitchingCandidates(board, plane, values, zones))
+    vias.push(...stitchingCandidates(board, plane, values, zones, rules, diagnostics, vias))
   }
   return {
     copper: { tracks: [], vias, zones },

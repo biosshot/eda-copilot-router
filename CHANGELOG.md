@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Plane stitching now searches beside target-net pads before adding its grid,
+  including with viaInPad=false. Through vias respect obstacles on all copper
+  layers; unavailable pad connections produce PLANE_STITCH_PAD_NOT_PLACED warnings.
+
 - Upgrade the managed KiCadRoutingTools release to 0.22.0 with verified archive
   metadata and updated cache checks. Preserve per-net project clearances under
   the new Default-class meaning of --clearance without using --clearance-ceiling.

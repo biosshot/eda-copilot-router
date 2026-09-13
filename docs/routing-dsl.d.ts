@@ -103,6 +103,7 @@ declare function plane(options: {
   zone?: ZoneOptions;
   stitching?: false | true | {
     gridMm?: number;
+    /** Maximum pad-center to via-center distance in mm. Plane stitching searches beside target-net pads before adding the background grid. Default 10. */
     maxVisibleViaDistanceMm?: number;
     via?: "drc-min" | Pick<ViaOptions, "diameterMm" | "drillMm">;
     /** Allow pad-centered stitching vias. Default false; requires explicit opt-in. */

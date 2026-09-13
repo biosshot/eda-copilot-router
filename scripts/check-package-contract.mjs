@@ -1004,12 +1004,65 @@ const padStitchProgram = (viaInPad) => dsl.compileRoutingDsl(`
 const defaultPadStitchProgram = padStitchProgram(false)
 const explicitPadStitchProgram = padStitchProgram(true)
 const isolatedPadBoard = { ...board, pads: board.pads.filter((pad) => pad.net === "GND") }
-assert.equal(api.planRoutingCopper(isolatedPadBoard, defaultPadStitchProgram,
-  dsl.compileRoutingRules(isolatedPadBoard, defaultPadStitchProgram).effective).copper.vias.length, 0,
-  "a coarse stitching grid must not implicitly fill uncovered pads with vias")
+const besidePad = api.planRoutingCopper(isolatedPadBoard, defaultPadStitchProgram,
+  dsl.compileRoutingRules(isolatedPadBoard, defaultPadStitchProgram).effective)
+assert.ok(besidePad.copper.vias.length > 0, "plane stitching must cover pads even with a coarse grid")
+assert.ok(besidePad.copper.vias.every((via) => isolatedPadBoard.pads.every((pad) =>
+  Math.hypot(via.at.x - pad.at.x, via.at.y - pad.at.y) > via.diameterMm / 2)),
+  "default plane stitching must place vias beside pads")
 assert.ok(api.planRoutingCopper(isolatedPadBoard, explicitPadStitchProgram,
   dsl.compileRoutingRules(isolatedPadBoard, explicitPadStitchProgram).effective).copper.vias.some((via) => via.net === "GND"),
   "explicit viaInPad stitching remains available")
+
+const localStitchProgram = dsl.compileRoutingDsl(`
+  plane({net:'GND',layers:'OUTER',region:board(),zone:{clearanceMm:0.20,minThicknessMm:0.20,padConnection:{mode:'thermal',thermalGapMm:0.20,spokeWidthMm:0.30,spokeCount:4},removeIslandsBelowMm2:2},stitching:{gridMm:100,maxVisibleViaDistanceMm:3,via:'drc-min',viaInPad:false}});
+  runCopper()
+`)
+const localPad = { component: "U_LOCAL", number: "1", net: "GND", at: { x: 10, y: 5 },
+  rotationDeg: 35, layers: ["F.Cu"], shape: { kind: "rect", widthMm: 2, heightMm: 0.5 } }
+const localBoard = { ...multilayerStitchBoard, pads: [localPad] }
+const localRules = dsl.compileRoutingRules(localBoard, localStitchProgram).effective
+const localPlan = (overrides = {}) => api.planRoutingCopper({ ...localBoard, ...overrides }, localStitchProgram, localRules)
+const localResult = localPlan()
+assert.equal(localResult.copper.vias.length, 1)
+const localVia = localResult.copper.vias[0]
+assert.ok(Math.hypot(localVia.at.x - 10, localVia.at.y - 5) < 1,
+  "rotated long pads must allow placement beside their short edge, not their bounding circle")
+assert.equal(localVia.fromLayer, "F.Cu")
+assert.equal(localVia.toLayer, "B.Cu")
+assert.equal(localPlan({ copper: { fixed: { ...emptyCopper, vias: [localVia] }, editable: emptyCopper } }).copper.vias.length, 0,
+  "existing visible same-net via must satisfy the pad")
+const blockedLocal = localPlan({ copper: { fixed: { ...emptyCopper, zones: [innerForeignZone] }, editable: emptyCopper } })
+assert.equal(blockedLocal.copper.vias.length, 0)
+assert.ok(blockedLocal.diagnostics.some((item) => item.code === "PLANE_STITCH_PAD_NOT_PLACED"))
+const detourTrack = { net: "VCC", layer: "In1.Cu", widthMm: 0.3,
+  points: [{ x: localVia.at.x - 0.3, y: localVia.at.y }, { x: localVia.at.x + 0.3, y: localVia.at.y }] }
+const detour = localPlan({ copper: { fixed: { ...emptyCopper, tracks: [detourTrack] }, editable: emptyCopper } })
+assert.equal(detour.copper.vias.length, 1, "search must find another position when an inner-layer track blocks the first")
+assert.notDeepEqual(detour.copper.vias[0].at, localVia.at)
+const localHole = { ...localPad, component: "HOLE", net: undefined, at: localVia.at, layers: [],
+  shape: { kind: "circle", diameterMm: 0.4 }, hole: { shape: "round", diameterMm: 0.4, plated: false } }
+const holePlan = localPlan({ pads: [localPad, localHole] })
+assert.equal(holePlan.copper.vias.length, 1)
+assert.ok(Math.hypot(holePlan.copper.vias[0].at.x - localHole.at.x, holePlan.copper.vias[0].at.y - localHole.at.y)
+  >= 0.2 + holePlan.copper.vias[0].drillMm / 2 + (localRules.default.holeToHoleClearanceMm ?? localRules.default.clearanceMm) - 1e-7)
+const innerPad = { ...localPad, component: "INNER", net: "VCC", layers: ["In2.Cu"], at: localVia.at,
+  shape: { kind: "circle", diameterMm: 0.4 } }
+const padObstacle = localPlan({ pads: [localPad, innerPad] })
+assert.equal(padObstacle.copper.vias.length, 1)
+assert.notDeepEqual(padObstacle.copper.vias[0].at, localVia.at)
+const hiddenVia = { ...localVia, at: { x: 12, y: 5 } }
+const wall = { net: "VCC", layer: "F.Cu", widthMm: 0.3,
+  points: [{ x: 11.3, y: 0 }, { x: 11.3, y: 10 }] }
+assert.equal(localPlan({ copper: { fixed: { ...emptyCopper, vias: [hiddenVia], tracks: [wall] }, editable: emptyCopper } }).copper.vias.length, 1,
+  "a nearby via behind a copper obstacle must not satisfy pad coverage")
+assert.equal(localPlan({ pads: [{ ...localPad, at: { x: 50, y: 50 } }] }).copper.vias.length, 0,
+  "pads outside the plane must not receive local vias")
+const localCutout = [{ x: 9, y: 4 }, { x: 11, y: 4 }, { x: 11, y: 6 }, { x: 9, y: 6 }]
+assert.equal(localPlan({ cutouts: [localCutout] }).copper.vias.length, 0,
+  "pads in plane holes must not receive local vias")
+assert.equal(localPlan({ keepouts: [{ layers: ["In2.Cu"], polygon: { outer: localBoard.outline },
+  forbid: { vias: true, tracks: false, zones: false } }] }).copper.vias.length, 0)
 const compactPlaneRules = dsl.compileRoutingRules(board, compactPlaneProgram).effective
 const compactPlane = api.planRoutingCopper(board, compactPlaneProgram, compactPlaneRules)
 const plannedVccZone = compactPlane.copper.zones.find((zone) => zone.net === "VCC")
