@@ -10,6 +10,8 @@
 - Plane stitching now searches beside target-net pads before adding its grid,
   including with viaInPad=false. Through vias respect obstacles on all copper
   layers; unavailable pad connections produce PLANE_STITCH_PAD_NOT_PLACED warnings.
+  Cached rule lookups and conservative pad/hole bounds keep the search within
+  the six-second real-board performance gate without changing clearances.
 
 - Regularize compact polygon outlines with protected cores, foreign-obstacle
   clearance and guarded shallow-bay cleanup. Deep routing corridors, board-edge
