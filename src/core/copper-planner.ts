@@ -192,15 +192,11 @@ function boardPointAllowed(board: RoutingBoard, point: PointMm, radius: number, 
 }
 
 /** Distance to pad copper, in the pad's rotated local coordinate system. */
-function distanceToPad(
-  point: PointMm,
-  pad: RoutingBoard["pads"][number],
-  cosine = Math.cos(-pad.rotationDeg * Math.PI / 180),
-  sine = Math.sin(-pad.rotationDeg * Math.PI / 180),
-) {
+function distanceToPad(point: PointMm, pad: RoutingBoard["pads"][number]) {
+  const angle = -pad.rotationDeg * Math.PI / 180
   const dx = point.x - pad.at.x
   const dy = point.y - pad.at.y
-  const local = { x: dx * cosine - dy * sine, y: dx * sine + dy * cosine }
+  const local = { x: dx * Math.cos(angle) - dy * Math.sin(angle), y: dx * Math.sin(angle) + dy * Math.cos(angle) }
   const shape = pad.shape
   if (shape.kind === "circle") return Math.max(0, Math.hypot(dx, dy) - shape.diameterMm / 2)
   if (shape.kind === "polygon") return distanceToRing(local, shape.polygon.outer)
@@ -251,51 +247,20 @@ function stitchingCandidates(
   copper.vias.push(...previousVias)
   const zones = [...board.copper.fixed.zones, ...board.copper.editable.zones, ...plannedZones]
   const accepted: RoutedVia[] = []
-  const clearanceByNet = new Map<string | undefined, number>()
-  const clearanceFor = (net?: string) => {
-    const cached = clearanceByNet.get(net)
-    if (cached !== undefined) return cached
-    const clearance = Math.max(rules.clearanceMm, net ? valuesForNet(effectiveRules, net).clearanceMm : 0)
-    clearanceByNet.set(net, clearance)
-    return clearance
-  }
-  const padObstacles = board.pads.map((pad) => {
-    const angle = -pad.rotationDeg * Math.PI / 180
-    const shapeRadius = pad.shape.kind === "circle" ? pad.shape.diameterMm / 2
-      : pad.shape.kind === "polygon"
-        ? Math.max(...pad.shape.polygon.outer.map((point) => Math.hypot(point.x, point.y)), 0)
-        : Math.hypot(pad.shape.widthMm, pad.shape.heightMm) / 2
-    const hole = padHoleGeometry(pad)
-    const holeRadius = hole ? Math.max(
-      Math.hypot(hole.start.x - pad.at.x, hole.start.y - pad.at.y),
-      Math.hypot(hole.end.x - pad.at.x, hole.end.y - pad.at.y),
-    ) + hole.radiusMm : 0
-    return {
-      pad,
-      cosine: Math.cos(angle),
-      sine: Math.sin(angle),
-      shapeRadius,
-      hole,
-      holeRadius,
-      clearanceMm: clearanceFor(pad.net),
-    }
-  })
+  const clearanceFor = (net?: string) => Math.max(rules.clearanceMm,
+    net ? valuesForNet(effectiveRules, net).clearanceMm : 0)
   const candidateAllowed = (point: PointMm, ownerPad?: RoutingBoard["pads"][number]) => {
     if (!boardPointAllowed(board, point, radius, rules.edgeClearanceMm)) return false
     if (keepoutBlocksVia(board, point, viaLayers, radius)) return false
     if (foreignZoneBlocksCircle(point, plane.net, viaLayers, radius, rules.clearanceMm, zones)) return false
-    for (const obstacle of padObstacles) {
-      const { pad, hole } = obstacle
-      const centerDistance = Math.hypot(point.x - pad.at.x, point.y - pad.at.y)
+    for (const pad of board.pads) {
+      const hole = padHoleGeometry(pad)
       const holeClearance = rules.holeToHoleClearanceMm ?? rules.clearanceMm
-      if (hole && centerDistance < obstacle.holeRadius + viaRule.drillMm / 2 + holeClearance - EPSILON
-        && distanceToPadHoleCenterline(point, hole)
+      if (hole && distanceToPadHoleCenterline(point, hole)
         < viaRule.drillMm / 2 + hole.radiusMm + holeClearance - EPSILON) return false
       if (pad === ownerPad) continue
       if (pad.layers.some((layer) => viaLayers.includes(layer))
-        && centerDistance < obstacle.shapeRadius + radius + (pad.net === plane.net ? 0 : obstacle.clearanceMm) - EPSILON
-        && distanceToPad(point, pad, obstacle.cosine, obstacle.sine)
-          < radius + (pad.net === plane.net ? 0 : obstacle.clearanceMm) - EPSILON) return false
+        && distanceToPad(point, pad) < radius + (pad.net === plane.net ? 0 : clearanceFor(pad.net)) - EPSILON) return false
     }
     for (const track of copper.tracks) {
       if (track.net === plane.net || !viaLayers.includes(track.layer)) continue
@@ -352,18 +317,13 @@ function stitchingCandidates(
       const margin = corridor + Math.hypot(end.x - start.x, end.y - start.y) / count / 2
       for (let i = 0; i <= count; i += 1) {
         const point = { x: start.x + (end.x - start.x) * i / count, y: start.y + (end.y - start.y) * i / count }
-        for (const obstacle of padObstacles) {
-          const other = obstacle.pad
-          const centerDistance = Math.hypot(point.x - other.at.x, point.y - other.at.y)
-          const padClearance = Math.max(obstacle.clearanceMm, plane.zone?.clearanceMm ?? 0)
-          if (other.net !== plane.net && other.layers.includes(layer)
-            && centerDistance < obstacle.shapeRadius + margin + padClearance - EPSILON
-            && distanceToPad(point, other, obstacle.cosine, obstacle.sine)
-              < margin + padClearance - EPSILON) return false
-          if (other !== pad && obstacle.hole
-            && centerDistance < obstacle.holeRadius + margin - EPSILON
-            && distanceToPadHoleCenterline(point, obstacle.hole) < obstacle.hole.radiusMm + margin - EPSILON) return false
-        }
+        if (board.pads.some((other) => other.net !== plane.net && other.layers.includes(layer)
+          && distanceToPad(point, other) < margin + Math.max(clearanceFor(other.net), plane.zone?.clearanceMm ?? 0) - EPSILON)) return false
+        if (board.pads.some((other) => {
+          if (other === pad) return false
+          const hole = padHoleGeometry(other)
+          return hole && distanceToPadHoleCenterline(point, hole) < hole.radiusMm + margin - EPSILON
+        })) return false
         if (copper.vias.some((other) => other.net !== plane.net
           && Math.hypot(point.x - other.at.x, point.y - other.at.y)
             < margin + other.diameterMm / 2 + Math.max(clearanceFor(other.net), plane.zone?.clearanceMm ?? 0) - EPSILON)) return false
