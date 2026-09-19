@@ -2,10 +2,25 @@
 
 ## Unreleased
 
+## 0.3.2 - 2026-09-19
+
+- EasyEDA WASM now skips differential pairs that are already fully connected,
+  avoiding redundant provisional copper and routing work.
+
 - Plane stitching now searches beside target-net pads before adding its grid,
   including with viaInPad=false. Through vias respect obstacles on all copper
   layers; unavailable pad connections produce PLANE_STITCH_PAD_NOT_PLACED warnings.
 
+- Regularize compact polygon outlines with protected cores, foreign-obstacle
+  clearance and guarded shallow-bay cleanup. Deep routing corridors, board-edge
+  concavities and area budgets fail closed instead of being filled aggressively.
+
+## 0.3.1 - 2026-09-12
+
+- Support four-layer Hybrid routing and explicit disabled routing layers across
+  preflight, EasyEDA WASM, KRT and result validation.
+- Preserve native pad-link identity and disabled-layer constraints through the
+  EasyEDA WASM, Hybrid and KRT adapter boundaries.
 - Upgrade the managed KiCadRoutingTools release to 0.22.0 with verified archive
   metadata and updated cache checks. Preserve per-net project clearances under
   the new Default-class meaning of --clearance without using --clearance-ceiling.
