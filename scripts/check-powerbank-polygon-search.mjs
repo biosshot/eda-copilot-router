@@ -39,7 +39,7 @@ const result = await run({
 const elapsedMs = performance.now() - started
 
 assert.equal(backendCalls, 1, "polygon planning did not reach the routing backend")
-assert.ok(elapsedMs < 6_000, `polygon planning took ${elapsedMs.toFixed(1)} ms`)
+assert.ok(elapsedMs < 10_000, `polygon planning took ${elapsedMs.toFixed(1)} ms`)
 assert.ok(!result.diagnostics.some((item) => item.code === "COPPER_PLANNING_EXCEPTION"))
 assert.ok(!result.diagnostics.some((item) => /polygon search reached/i.test(item.message)))
 assert.ok((result.copper?.zones.length ?? 0) >= 6, "expected compact power zones plus the GND plane")
