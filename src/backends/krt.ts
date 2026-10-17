@@ -1955,18 +1955,27 @@ function createKrtWorkflowBackend(
         ))
         const ensureCheckpointAudits = async (tag: string) => {
           const spec = boardAuditSpec()
-          if (!checkpointConnectivity && routeScopeNets.length) checkpointConnectivity = await auditKrtBoardConnectivity(
-            current,
-            routeScopeNets,
-            spec,
-            join(root, "stage-gates", tag, "baseline-connectivity"),
-          )
-          if (!checkpointDrc && routeScopeNets.length) checkpointDrc = await auditKrtBoardDrc(
-            current,
-            routeScopeNets,
-            spec,
-            join(root, "stage-gates", tag, "baseline-drc"),
-          )
+          // The two audits read the same board and write separate artifact directories.
+          const [connectivity, drc] = await Promise.all([
+            !checkpointConnectivity && routeScopeNets.length
+              ? auditKrtBoardConnectivity(
+                  current,
+                  routeScopeNets,
+                  spec,
+                  join(root, "stage-gates", tag, "baseline-connectivity"),
+                )
+              : undefined,
+            !checkpointDrc && routeScopeNets.length
+              ? auditKrtBoardDrc(
+                  current,
+                  routeScopeNets,
+                  spec,
+                  join(root, "stage-gates", tag, "baseline-drc"),
+                )
+              : undefined,
+          ])
+          if (connectivity) checkpointConnectivity = connectivity
+          if (drc) checkpointDrc = drc
           const evidence = checkpointConnectivity && connectivityEvidence(checkpointConnectivity)
           if (evidence) {
             fallbackCheckpointConnectivityEvidence = evidence
@@ -2018,22 +2027,25 @@ function createKrtWorkflowBackend(
           const baseline = outputExists && candidateCopper
             ? await ensureCheckpointAudits(tag)
             : { spec: boardAuditSpec(), connectivity: undefined, drc: undefined }
-          const candidateConnectivity = outputExists && candidateCopper && routeScopeNets.length
-            ? await auditKrtBoardConnectivity(
-                output,
-                routeScopeNets,
-                baseline.spec,
-                join(root, "stage-gates", tag, "candidate-connectivity"),
-              )
-            : undefined
-          const candidateDrc = outputExists && candidateCopper && routeScopeNets.length
-            ? await auditKrtBoardDrc(
-                output,
-                routeScopeNets,
-                baseline.spec,
-                join(root, "stage-gates", tag, "candidate-drc"),
-              )
-            : undefined
+          const auditCandidate = Boolean(outputExists && candidateCopper && routeScopeNets.length)
+          const [candidateConnectivity, candidateDrc] = await Promise.all([
+            auditCandidate
+              ? auditKrtBoardConnectivity(
+                  output,
+                  routeScopeNets,
+                  baseline.spec,
+                  join(root, "stage-gates", tag, "candidate-connectivity"),
+                )
+              : undefined,
+            auditCandidate
+              ? auditKrtBoardDrc(
+                  output,
+                  routeScopeNets,
+                  baseline.spec,
+                  join(root, "stage-gates", tag, "candidate-drc"),
+                )
+              : undefined,
+          ])
           stageGateElapsedMs += (candidateConnectivity?.elapsedMs ?? 0) + (candidateDrc?.elapsedMs ?? 0)
           const baselineConnectivityUsable = Boolean(
             baseline.connectivity

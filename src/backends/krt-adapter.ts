@@ -3917,12 +3917,14 @@ export async function runKrtSpecial(
       candidateDir,
     )
     const completedFollowups = stringArray(result.jsonSummary?.copilot_router_completed_followups)
-    const audit = await exists(candidateOutput)
-      ? await auditKrtConnectivity(candidateOutput, specialNets, candidateSpec, candidateDir)
-      : unavailableKrtConnectivityAudit(specialNets)
-    const drc = await exists(candidateOutput)
-      ? await auditKrtDrc(candidateOutput, specialNets, candidateSpec, candidateDir, "krt-special-drc.log")
-      : unavailableKrtDrcAudit()
+    const candidateExists = await exists(candidateOutput)
+    // Connectivity and DRC read the same board and write differently named artifacts.
+    const [audit, drc] = candidateExists
+      ? await Promise.all([
+          auditKrtConnectivity(candidateOutput, specialNets, candidateSpec, candidateDir),
+          auditKrtDrc(candidateOutput, specialNets, candidateSpec, candidateDir, "krt-special-drc.log"),
+        ])
+      : [unavailableKrtConnectivityAudit(specialNets), unavailableKrtDrcAudit()]
     const addedFingerprints = addedDrcFingerprints(baselineDrc, drc)
     const addedDrcViolations = baselineDrc.failed || drc.failed
       ? Number.MAX_SAFE_INTEGER
@@ -4257,18 +4259,18 @@ export async function runKrtVerifiedCritical(
   )
   const result = await runKrtRemaining(inputBoard, outputBoard, spec, normalizedArtifacts)
   const outputExists = await exists(resolve(outputBoard))
-  const connectivity = outputExists
-    ? await auditKrtConnectivity(outputBoard, nets, spec, normalizedArtifacts)
-    : unavailableKrtConnectivityAudit(nets)
-  const candidateDrc = outputExists
-    ? await auditKrtDrc(
-        outputBoard,
-        nets,
-        spec,
-        normalizedArtifacts,
-        "krt-critical-candidate-drc.log",
-      )
-    : unavailableKrtDrcAudit()
+  const [connectivity, candidateDrc] = outputExists
+    ? await Promise.all([
+        auditKrtConnectivity(outputBoard, nets, spec, normalizedArtifacts),
+        auditKrtDrc(
+          outputBoard,
+          nets,
+          spec,
+          normalizedArtifacts,
+          "krt-critical-candidate-drc.log",
+        ),
+      ])
+    : [unavailableKrtConnectivityAudit(nets), unavailableKrtDrcAudit()]
   const addedFingerprints = addedDrcFingerprints(baselineDrc, candidateDrc)
   const addedDrcViolations = baselineDrc.failed || candidateDrc.failed
     ? Number.MAX_SAFE_INTEGER
