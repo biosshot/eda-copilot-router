@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Run the independent KRT connectivity and DRC audits of each stage gate,
+  special-net candidate and critical-net candidate concurrently. Copper,
+  selection and diagnostics are unchanged; the repair-loop audits keep their
+  sequential shared deadline.
+
 ## 0.3.2 - 2026-09-19
 
 - EasyEDA WASM now skips differential pairs that are already fully connected,
